@@ -13,9 +13,10 @@ from torch.utils.data.dataset import Dataset
 import utils
 
 
-class RAVDESSDatasetVideo(Dataset):
+class RAVDESSDataset(Dataset):
     def __init__(self,
-                 root_path):
+                 root_path,
+                 format='image'):
         root_dir = pathlib.Path(root_path)
 
         # Get all paths
@@ -33,17 +34,27 @@ class RAVDESSDatasetVideo(Dataset):
         self.all_paths = all_paths
         self.emotions = emotions
 
-    def __getitem__(self, index):
-        sequence = load_video(self.all_paths[index])
+        if format == 'image':
+            self.load_fn = load_image
+        elif format == 'video':
+            self.load_fn = load_video
+        else:
+            raise (RuntimeError('Unknown format {}'.format(format)))
 
-        return sequence, self.emotions[index]
+    def __getitem__(self, index):
+        x = self.load_fn(self.all_paths[index])
+
+        return x, self.emotions[index]
+
+    def __len__(self):
+        return len(self.all_paths)
 
 
 def load_image(path):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
         img = Image.open(f)
-        return img.convert('RGB')
+        return np.asarray(img.convert('RGB'))
 
 
 def load_video(path):
@@ -57,11 +68,6 @@ def load_video(path):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         all_frames.append(np.array(frame))
     return np.array(all_frames)
-
-
-ds = RAVDESSDatasetVideo('../Datasets/RAVDESS')
-
-print(next(iter(ds)))
 
 
 """

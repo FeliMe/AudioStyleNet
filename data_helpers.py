@@ -5,7 +5,10 @@ only used once.
 
 import cv2
 import numpy as np
+import os
 import pathlib
+
+HOME = os.path.expanduser('~')
 
 
 def ravdess_get_mean(root_path):
@@ -23,7 +26,6 @@ def ravdess_get_mean(root_path):
         print("Reading {}".format(actor.split('/')[-2]))
         cap = cv2.VideoCapture(actor)
         while cap.isOpened():
-            # Capture frame-by-frame
             ret, frame = cap.read()
             if not ret:
                 break
@@ -35,4 +37,31 @@ def ravdess_get_mean(root_path):
     print('Std: {}'.format(all_frames.std(axis=(0, 1, 2))))
 
 
-ravdess_get_mean('../Datasets/RAVDESS')
+def ravdess_convert_png(root_path):
+    target_path = HOME + '/Datasets/RAVDESS/Image'
+    root_dir = pathlib.Path(root_path)
+
+    all_folders = [p for p in list(root_dir.glob('*/'))
+                   if str(p).split('/')[-1] != '.DS_Store']
+
+    for folder in all_folders:
+        paths = [str(p) for p in list(folder.glob('*/'))]
+        actor = paths[0].split('/')[-2]
+        os.makedirs(os.path.join(target_path, actor), exist_ok=True)
+        for path in paths:
+            file = path.split('/')[-1][:-4]
+            i_frame = 0
+            cap = cv2.VideoCapture(path)
+            while cap.isOpened():
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                i_frame += 1
+                frame = np.array(frame)
+                save_str = os.path.join(
+                    target_path, actor, file + '-' + str(i_frame).zfill(3) + '.jpg')
+                cv2.imwrite(save_str, frame)
+
+
+# ravdess_get_mean(HOME + '/Datasets/RAVDESS/Video')
+ravdess_convert_png(HOME + '/Datasets/RAVDESS/Video')
