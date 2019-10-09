@@ -5,6 +5,7 @@ only used once.
 
 import cv2
 import dlib
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -43,19 +44,22 @@ def ravdess_get_mean(root_path):
     print('Std: {}'.format(all_frames.std(axis=(0, 1, 2))))
 
 
-def ravdess_convert_png(root_path):
+def ravdess_convert_jpg(root_path):
     target_path = HOME + '/Datasets/RAVDESS/Image'
+    target_size = 224
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
                    if str(p).split('/')[-1] != '.DS_Store']
 
-    for folder in all_folders:
+    for i_folder, folder in enumerate(all_folders):
         paths = [str(p) for p in list(folder.glob('*/'))]
         actor = paths[0].split('/')[-2]
         os.makedirs(os.path.join(target_path, actor), exist_ok=True)
-        print("Converting actor {}".format(actor))
-        for path in paths:
+
+        for i_path, path in enumerate(paths):
+            print("File {} of {}, actor {} of {}".format(
+                i_path, len(paths), i_folder, len(all_folders)))
             file = path.split('/')[-1][:-4]
             i_frame = 0
             cap = cv2.VideoCapture(path)
@@ -64,7 +68,18 @@ def ravdess_convert_png(root_path):
                 if not ret:
                     break
                 i_frame += 1
-                frame = np.array(frame)
+
+                # Resize
+                height, width, _ = frame.shape
+                new_height = target_size
+                new_width = math.floor((target_size / height) * width)
+                frame = cv2.resize(frame, (new_width, new_height))
+
+                # Center crop
+                left = int((new_width - target_size) / 2)
+                frame = frame[:, left:left + target_size]
+
+                # Save
                 save_str = os.path.join(
                     target_path, actor, file + '-' + str(i_frame).zfill(3) + '.jpg')
                 cv2.imwrite(save_str, frame)
@@ -132,5 +147,5 @@ def shape_to_np(landmarks, dtype="int"):
 
 
 # ravdess_get_mean(HOME + '/Datasets/RAVDESS/Video')
-# ravdess_convert_png(HOME + '/Datasets/RAVDESS/Video')
-ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
+ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
+# ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
