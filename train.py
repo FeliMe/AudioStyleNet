@@ -22,7 +22,7 @@ HOME = os.path.expanduser('~')
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='train_ravdess_landmarks',
+                    default='train_ravdess_image',
                     help='name of config')
 args = parser.parse_args()
 

@@ -21,5 +21,5 @@ config = Config({
     'batch_size': 8,
 
     # Model configs
-    'model': models.landmark_model,
+    'model': models.PreTrainedResNet18(),
 })

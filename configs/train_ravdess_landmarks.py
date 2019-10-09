@@ -1,3 +1,4 @@
+import torch.nn as nn
 import os
 
 from models import models
@@ -21,5 +22,9 @@ config = Config({
     'batch_size': 8,
 
     # Model configs
-    'model': models.landmark_model,
+    'model': nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(68 * 2, 8),
+        nn.Softmax(dim=1)
+    ),
 })
