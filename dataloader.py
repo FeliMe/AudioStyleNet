@@ -6,6 +6,7 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pathlib
+import random
 import torch
 
 from PIL import Image
@@ -18,6 +19,7 @@ import utils
 class RAVDESSDataset(Dataset):
     def __init__(self,
                  root_path,
+                 max_samples=None,
                  format='image'):
         root_dir = pathlib.Path(root_path)
 
@@ -28,10 +30,15 @@ class RAVDESSDataset(Dataset):
         if len(all_paths) == 0:
             raise (RuntimeError("Found 0 files in subfolders of: " + root_path))
 
+        random.shuffle(all_paths)
+        if max_samples is not None:
+            all_paths = all_paths[:min(len(all_paths), max_samples)]
+
         # Get emotions
         emotions = [int(p.split('/')[-1][:-4].split('-')[2]) - 1
                     for p in all_paths]
-        emotions = utils.np_int_to_one_hot(emotions, 8)
+        emotions = torch.tensor(emotions, dtype=torch.long)
+        # emotions = utils.np_int_to_one_hot(emotions, 8)
 
         self.all_paths = all_paths
         self.emotions = emotions

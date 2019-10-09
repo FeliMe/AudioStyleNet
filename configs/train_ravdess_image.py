@@ -14,12 +14,16 @@ config = Config({
     'val_path': HOME + '/Datasets/RAVDESS/Image/val',
     'data_format': 'image',
 
-    # Training configs
+    # Hyper parameters
     'num_epochs': 10,
-    'learning_rate': 1e-4,
-    'log_interval': 1,
+    'learning_rate': 0.001,
     'batch_size': 8,
 
-    # Model configs
+    # Model parameters
     'model': models.PreTrainedResNet18(),
+
+    # Logging
+    'log_interval': 10,
+    'save_interval': 1,
+    'save_path': '/saves/Classification_Landmarks'
 })

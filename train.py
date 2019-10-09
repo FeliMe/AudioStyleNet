@@ -1,7 +1,5 @@
 import argparse
 import importlib
-import matplotlib.pyplot as plt
-import numpy as np
 import os
 import torch
 import torch.nn as nn
@@ -10,9 +8,9 @@ import wandb
 from torch.utils.data import DataLoader, RandomSampler
 from torchsummary import summary
 
-import configs
 import dataloader
-import utils
+
+from solver import Solver
 
 HOME = os.path.expanduser('~')
 
@@ -55,8 +53,10 @@ else:
 """ Load dataset """
 
 train_ds = dataloader.RAVDESSDataset(config.train_path,
+                                     max_samples=5000,
                                      format=config.data_format)
 val_ds = dataloader.RAVDESSDataset(config.val_path,
+                                   max_samples=1000,
                                    format=config.data_format)
 
 train_sampler = RandomSampler(range(len(train_ds)))
@@ -74,22 +74,56 @@ val_loader = DataLoader(val_ds,
                         sampler=val_sampler,
                         drop_last=True)
 
+data_loaders = {
+    'train': train_loader,
+    'val': val_loader
+}
+
+dataset_sizes = {
+    'train': len(train_ds),
+    'val': len(val_ds)
+}
+
+print("Found {} training and {} validation samples".format(
+    len(train_ds), len(val_ds)))
+
+1/0
+
 
 """ Show data example """
 
 x_sample, _ = next(iter(train_loader))
-print(x_sample.shape)
+print('Input Shape: {}'.format(x_sample.shape))
 # train_ds.show_sample()
 
-""" Initialize model """
+
+""" Initialize model, solver, optimizer and criterion """
 
 model = config.model
+optimizer = torch.optim.Adam(params=model.parameters(),
+                             lr=config.learning_rate)
+criterion = nn.CrossEntropyLoss()
+exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
+    optimizer, step_size=7, gamma=0.1)
+
+# wandb.watch(model)
+model.train()
+model.to(device)
+
+solver = Solver(model)
 
 print('Printing model summary...')
 print(summary(model, input_size=x_sample.shape[1:]))
 
 
-""" Training """
+""" Do training """
 
-y_ = model(x_sample)
-print(y_.shape)
+model = solver.train_model(criterion,
+                           optimizer,
+                           exp_lr_scheduler,
+                           device,
+                           data_loaders,
+                           dataset_sizes,
+                           config)
+
+solver.eval_model(device, data_loaders)
