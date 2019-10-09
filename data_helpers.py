@@ -4,9 +4,15 @@ only used once.
 """
 
 import cv2
+import dlib
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pathlib
+
+from collections import OrderedDict
+from PIL import Image
+from torchvision import transforms
 
 HOME = os.path.expanduser('~')
 
@@ -48,6 +54,7 @@ def ravdess_convert_png(root_path):
         paths = [str(p) for p in list(folder.glob('*/'))]
         actor = paths[0].split('/')[-2]
         os.makedirs(os.path.join(target_path, actor), exist_ok=True)
+        print("Converting actor {}".format(actor))
         for path in paths:
             file = path.split('/')[-1][:-4]
             i_frame = 0
@@ -63,5 +70,67 @@ def ravdess_convert_png(root_path):
                 cv2.imwrite(save_str, frame)
 
 
+def ravdess_extract_landmarks(root_path):
+    # initialize dlib's face detector (HOG-based) and then create
+    # the facial landmark predictor
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    target_path = HOME + '/Datasets/RAVDESS/Landmarks'
+    root_dir = pathlib.Path(root_path)
+
+    all_folders = [p for p in list(root_dir.glob('*/'))
+                   if str(p).split('/')[-1] != '.DS_Store']
+
+    for folder in all_folders:
+        print("Starting folder {}".format(folder))
+        actor = str(folder).split('/')[-1]
+        os.makedirs(os.path.join(target_path, actor), exist_ok=True)
+        paths = [str(p) for p in list(folder.glob('*/'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+        for i_path, path in enumerate(paths):
+            print("Detecting from image {} of {}".format(i_path, len(paths)))
+            # load the input image, resize it, and convert it to grayscale
+            img = cv2.imread(path)
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            save_path = os.path.join(
+                target_path, actor, path.split('/')[-1][:-4] + '.npy')
+
+            rects = detector(img, 1)
+            for (i, rect) in enumerate(rects):
+                landmarks = predictor(gray, rect)
+                landmarks = shape_to_np(landmarks)
+                np.save(save_path, landmarks)
+
+
+def rect_to_bb(rect):
+    # take a bounding predicted by dlib and convert it
+    # to the format (x, y, w, h) as we would normally do
+    # with OpenCV
+    x = rect.left()
+    y = rect.top()
+    w = rect.right() - x
+    h = rect.bottom() - y
+
+    # return a tuple of (x, y, w, h)
+    return x, y, w, h
+
+
+def shape_to_np(landmarks, dtype="int"):
+    # initialize the list of (x, y)-coordinates
+    coords = np.zeros((68, 2), dtype=dtype)
+
+    # loop over the 68 facial landmarks and convert them
+    # to a 2-tuple of (x, y)-coordinates
+    for i in range(0, 68):
+        coords[i] = (landmarks.part(i).x, landmarks.part(i).y)
+
+    # return the list of (x, y)-coordinates
+    return coords
+
+
 # ravdess_get_mean(HOME + '/Datasets/RAVDESS/Video')
-ravdess_convert_png(HOME + '/Datasets/RAVDESS/Video')
+# ravdess_convert_png(HOME + '/Datasets/RAVDESS/Video')
+ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')

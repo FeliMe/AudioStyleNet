@@ -1,7 +1,10 @@
+import matplotlib.pyplot as plt
+import numpy as np
 import os
 import torch
 
 from torch.utils.data import DataLoader, RandomSampler
+from torchsummary import summary
 from torchvision import models
 
 import dataloader
@@ -47,11 +50,22 @@ val_loader = DataLoader(val_ds,
                         sampler=val_sampler,
                         drop_last=True)
 
+
+""" Show data example """
+
+x_sample, _ = next(iter(train_loader))
+print(x_sample.shape)
+# plt.imshow(np.moveaxis(x_sample[0].numpy(), 0, 2))
+# plt.show()
+
 """ Initialize model """
 
 model = models.resnet18(pretrained=True)
 
-x, y = next(iter(train_loader))
+print('Printing model summary...')
+print(summary(model, input_size=x_sample.shape[1:]))
 
-print(x.shape)
-model(x)
+
+y_ = model(x_sample)
+
+print(y_.shape)

@@ -6,9 +6,11 @@ import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import pathlib
+import torch
 
 from PIL import Image
 from torch.utils.data.dataset import Dataset
+from torchvision import transforms
 
 import utils
 
@@ -33,6 +35,11 @@ class RAVDESSDataset(Dataset):
 
         self.all_paths = all_paths
         self.emotions = emotions
+        self.transforms = transforms.Compose([
+            transforms.Resize(224),
+            transforms.CenterCrop(224),
+            transforms.ToTensor()
+        ])
 
         if format == 'image':
             self.load_fn = load_image
@@ -42,7 +49,7 @@ class RAVDESSDataset(Dataset):
             raise (RuntimeError('Unknown format {}'.format(format)))
 
     def __getitem__(self, index):
-        x = self.load_fn(self.all_paths[index])
+        x = self.load_fn(self.all_paths[index], self.transforms)
 
         return x, self.emotions[index]
 
@@ -50,14 +57,15 @@ class RAVDESSDataset(Dataset):
         return len(self.all_paths)
 
 
-def load_image(path):
+def load_image(path, transforms):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
-        img = Image.open(f)
-        return np.asarray(img.convert('RGB'))
+        img = Image.open(f).convert('RGB')
+        img = transforms(img)
+        return img
 
 
-def load_video(path):
+def load_video(path, transforms):
     all_frames = []
     cap = cv2.VideoCapture(path)
     while cap.isOpened():
