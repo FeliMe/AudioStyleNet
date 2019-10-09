@@ -53,10 +53,10 @@ else:
 """ Load dataset """
 
 train_ds = dataloader.RAVDESSDataset(config.train_path,
-                                     max_samples=5000,
+                                     max_samples=10000,
                                      format=config.data_format)
 val_ds = dataloader.RAVDESSDataset(config.val_path,
-                                   max_samples=1000,
+                                   max_samples=2000,
                                    format=config.data_format)
 
 train_sampler = RandomSampler(range(len(train_ds)))
@@ -118,10 +118,10 @@ print(summary(model, input_size=x_sample.shape[1:]))
 
 model = solver.train_model(criterion,
                            optimizer,
-                           exp_lr_scheduler,
                            device,
                            data_loaders,
                            dataset_sizes,
-                           config)
+                           config,
+                           exp_lr_scheduler)
 
 solver.eval_model(device, data_loaders)

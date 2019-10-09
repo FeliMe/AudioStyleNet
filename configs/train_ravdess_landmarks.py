@@ -16,19 +16,18 @@ config = Config({
     'data_format': 'landmarks',
 
     # Hyper parameters
-    'num_epochs': 10,
+    'num_epochs': 20,
     'learning_rate': 0.001,
-    'batch_size': 8,
+    'batch_size': 32,
 
     # Model parameters
     'model': nn.Sequential(
         nn.Flatten(),
         nn.Linear(68 * 2, 8),
-        nn.Softmax(dim=1)
     ),
 
     # Logging
-    'log_interval': 10,
+    'log_interval': 1000,
     'save_interval': 1,
-    'save_path': '/saves/Classification_Landmarks'
+    'save_path': 'saves/Classification_Landmarks'
 })

@@ -17,13 +17,13 @@ config = Config({
     # Hyper parameters
     'num_epochs': 10,
     'learning_rate': 0.001,
-    'batch_size': 8,
+    'batch_size': 32,
 
     # Model parameters
     'model': models.PreTrainedResNet18(),
 
     # Logging
-    'log_interval': 10,
+    'log_interval': 50,
     'save_interval': 1,
-    'save_path': '/saves/Classification_Landmarks'
+    'save_path': 'saves/Classification_Landmarks'
 })

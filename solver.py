@@ -15,19 +15,19 @@ class Solver(object):
                  model):
         self.model = model
         self.config = None
-        self.save_path = './saves'
+        self.save_path = 'saves'
 
     def train_model(self,
                     criterion,
                     optimizer,
-                    scheduler,
                     device,
                     data_loaders,
                     dataset_sizes,
-                    config):
+                    config,
+                    scheduler=None):
         self.config = config
         self.save_path = os.path.join(
-            self.config.save_path,
+            config.save_path,
             'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
 
         print("Starting training")
@@ -71,12 +71,13 @@ class Solver(object):
                             optimizer.step()
 
                     if (i_step + 1) % config.log_interval == 0:
-                        print("Step {}/{}".format(i_step + 1, dataset_sizes[phase]))
+                        print("Step {}/{}".format(
+                            i_step + 1, int(dataset_sizes[phase] / config.batch_size)))
 
                     # statistics
                     running_loss += loss.item() * x.size(0)
                     running_corrects += torch.sum(y_ == y.data)
-                if phase == 'train':
+                if phase == 'train' and scheduler is not None:
                     scheduler.step()
 
                 epoch_loss = running_loss / dataset_sizes[phase]
@@ -106,7 +107,6 @@ class Solver(object):
         y_true = []
         y_pred = []
         for i_stop, (x, y) in enumerate(data_loaders['val']):
-            print(i_stop)
             x = x.to(device)
             y = y.to(device)
 
@@ -135,4 +135,5 @@ class Solver(object):
         )
         plt.ylabel('Actual label')
         plt.xlabel('Predicted label')
+        os.makedirs(self.save_path, exist_ok=True)
         plt.savefig(os.path.join(self.save_path, 'confusion_matrix.jpg'))
