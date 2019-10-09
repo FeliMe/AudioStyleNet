@@ -113,10 +113,19 @@ def ravdess_extract_landmarks(root_path):
             save_path = os.path.join(
                 target_path, actor, path.split('/')[-1][:-4] + '.npy')
 
+            # Detect faces
             rects = detector(img, 1)
             for (i, rect) in enumerate(rects):
+                # Detect landmarks in faces
                 landmarks = predictor(gray, rect)
                 landmarks = shape_to_np(landmarks)
+
+                # for (x, y) in landmarks:
+                #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+                # cv2.imshow("Output", img)
+                # cv2.waitKey(0)
+
+                # Save
                 np.save(save_path, landmarks)
 
 
@@ -147,5 +156,5 @@ def shape_to_np(landmarks, dtype="int"):
 
 
 # ravdess_get_mean(HOME + '/Datasets/RAVDESS/Video')
-ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
-# ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
+# ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
+ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
