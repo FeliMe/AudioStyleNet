@@ -6,6 +6,7 @@ import os
 import seaborn as sns
 import time
 import torch
+import wandb
 
 from sklearn.metrics import confusion_matrix
 
@@ -86,6 +87,9 @@ class Solver(object):
                 print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                     phase, epoch_loss, epoch_acc))
 
+                wandb.log({phase + ' Loss': epoch_loss,
+                           phase + ' Accuracy': epoch_acc})
+
                 # deep copy the model
                 if phase == 'val' and epoch_acc > best_acc:
                     best_acc = epoch_acc
@@ -98,6 +102,9 @@ class Solver(object):
 
         # load best model weights
         self.model.load_state_dict(best_model_wts)
+        torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+        os.makedirs(self.save_path, exist_ok=True)
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
         return self.model
 
     def eval_model(self,
@@ -137,3 +144,4 @@ class Solver(object):
         plt.xlabel('Predicted label')
         os.makedirs(self.save_path, exist_ok=True)
         plt.savefig(os.path.join(self.save_path, 'confusion_matrix.jpg'))
+        plt.savefig(os.path.join(wandb.run.dir, 'confusion_matrix.jpg'))

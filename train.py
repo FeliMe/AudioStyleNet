@@ -29,7 +29,7 @@ config = importlib.import_module('configs.' + args.config).config
 
 """ Init wandb """
 
-# wandb.init(project="emotion-aware-facial-animation")
+wandb.init(project="emotion-classification", config=config)
 
 
 """ Add a seed to have reproducible results """
@@ -104,7 +104,7 @@ criterion = nn.CrossEntropyLoss()
 exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer, step_size=7, gamma=0.1)
 
-# wandb.watch(model)
+wandb.watch(model)
 model.train()
 model.to(device)
 
