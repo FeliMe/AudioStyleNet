@@ -20,7 +20,7 @@ HOME = os.path.expanduser('~')
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='train_ravdess_image',
+                    default='train_ravdess_landmarks',
                     help='name of config')
 args = parser.parse_args()
 
@@ -86,8 +86,6 @@ dataset_sizes = {
 
 print("Found {} training and {} validation samples".format(
     len(train_ds), len(val_ds)))
-
-1/0
 
 
 """ Show data example """
