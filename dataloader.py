@@ -36,15 +36,18 @@ class RAVDESSDataset(Dataset):
         self.all_paths = all_paths
         self.emotions = emotions
         self.transforms = transforms.Compose([
-            transforms.Resize(224),
-            transforms.CenterCrop(224),
             transforms.ToTensor()
         ])
 
         if format == 'image':
             self.load_fn = load_image
+            self.show_fn = show_image
         elif format == 'video':
             self.load_fn = load_video
+            self.load_fn = show_image
+        elif format == 'landmarks':
+            self.load_fn = load_landmarks
+            self.show_fn = show_landmarks
         else:
             raise (RuntimeError('Unknown format {}'.format(format)))
 
@@ -56,16 +59,20 @@ class RAVDESSDataset(Dataset):
     def __len__(self):
         return len(self.all_paths)
 
+    def show_sample(self):
+        sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
+        self.show_fn(sample)
 
-def load_image(path, transforms):
+
+def load_image(path, transform):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
     with open(path, 'rb') as f:
         img = Image.open(f).convert('RGB')
-        img = transforms(img)
+        img = transform(img)
         return img
 
 
-def load_video(path, transforms):
+def load_video(path, transform):
     all_frames = []
     cap = cv2.VideoCapture(path)
     while cap.isOpened():
@@ -76,6 +83,24 @@ def load_video(path, transforms):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         all_frames.append(np.array(frame))
     return np.array(all_frames)
+
+
+def load_landmarks(path, transform):
+    return torch.tensor(np.load(path), dtype=torch.float)
+
+
+def show_image(image):
+    if len(image.shape) == 4:
+        plt.imshow(np.moveaxis(image[0].numpy(), 0, 2))
+    else:
+        plt.imshow(np.moveaxis(image.numpy(), 0, 2))
+    plt.show()
+
+
+def show_landmarks(landmarks):
+    print(landmarks.shape)
+    plt.scatter(landmarks[:, 0], -landmarks[:, 1])
+    plt.show()
 
 
 """

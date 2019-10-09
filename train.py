@@ -1,15 +1,37 @@
+import argparse
+import importlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
 import torch
+import torch.nn as nn
+import wandb
 
 from torch.utils.data import DataLoader, RandomSampler
 from torchsummary import summary
-from torchvision import models
 
+import configs
 import dataloader
+import utils
 
 HOME = os.path.expanduser('~')
+
+
+""" Load config """
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-c', '--config',
+                    type=str,
+                    default='train_ravdess_landmarks',
+                    help='name of config')
+args = parser.parse_args()
+
+config = importlib.import_module('configs.' + args.config).config
+
+
+""" Init wandb """
+
+# wandb.init(project="emotion-aware-facial-animation")
 
 
 """ Add a seed to have reproducible results """
@@ -19,7 +41,7 @@ torch.manual_seed(seed)
 
 """ Configure training with or without cuda """
 
-if torch.cuda.is_available():
+if config.use_cuda and torch.cuda.is_available():
     device = torch.device("cuda")
     torch.cuda.manual_seed(seed)
     kwargs = {'pin_memory': True}
@@ -32,20 +54,22 @@ else:
 
 """ Load dataset """
 
-train_ds = dataloader.RAVDESSDataset(HOME + '/Datasets/RAVDESS/Image/train')
-val_ds = dataloader.RAVDESSDataset(HOME + '/Datasets/RAVDESS/Image/val')
+train_ds = dataloader.RAVDESSDataset(config.train_path,
+                                     format=config.data_format)
+val_ds = dataloader.RAVDESSDataset(config.val_path,
+                                   format=config.data_format)
 
 train_sampler = RandomSampler(range(len(train_ds)))
 val_sampler = RandomSampler(range(len(val_ds)))
 
 train_loader = DataLoader(train_ds,
-                          batch_size=8,
+                          batch_size=config.batch_size,
                           num_workers=8,
                           sampler=train_sampler,
                           drop_last=True)
 
 val_loader = DataLoader(val_ds,
-                        batch_size=8,
+                        batch_size=config.batch_size,
                         num_workers=8,
                         sampler=val_sampler,
                         drop_last=True)
@@ -55,17 +79,17 @@ val_loader = DataLoader(val_ds,
 
 x_sample, _ = next(iter(train_loader))
 print(x_sample.shape)
-# plt.imshow(np.moveaxis(x_sample[0].numpy(), 0, 2))
-# plt.show()
+# train_ds.show_sample()
 
 """ Initialize model """
 
-model = models.resnet18(pretrained=True)
+model = config.model
 
 print('Printing model summary...')
 print(summary(model, input_size=x_sample.shape[1:]))
 
 
-y_ = model(x_sample)
+""" Training """
 
+y_ = model(x_sample)
 print(y_.shape)
