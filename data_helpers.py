@@ -98,15 +98,15 @@ def ravdess_extract_landmarks(root_path):
     all_folders = [p for p in list(root_dir.glob('*/'))
                    if str(p).split('/')[-1] != '.DS_Store']
 
-    for folder in all_folders:
-        print("Starting folder {}".format(folder))
+    for i_folder, folder in enumerate(all_folders):
         actor = str(folder).split('/')[-1]
         os.makedirs(os.path.join(target_path, actor), exist_ok=True)
         paths = [str(p) for p in list(folder.glob('*/'))
                  if str(p).split('/')[-1] != '.DS_Store']
 
         for i_path, path in enumerate(paths):
-            print("Detecting from image {} of {}".format(i_path, len(paths)))
+            print("Detecting from image {} of {}, folder {} of {}".format(
+                i_path, len(paths), i_folder, len(all_folders)))
             # load the input image, resize it, and convert it to grayscale
             img = cv2.imread(path)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
