@@ -25,16 +25,19 @@ def ravdess_get_mean_std_image(root_path):
     # Get all paths
     all_folders = [p for p in list(root_dir.glob('*/*/'))
                    if str(p).split('/')[-1] != '.DS_Store']
+    num_actors = len([p for p in list(root_dir.glob('*/'))])
 
-    # Use only 100 frames from each actor
+    # Use only 1000 frames from each actor
     all_actors = []
     for path in all_folders:
         actor = list(path.glob('*'))
-        actor = random.shuffle(actor)[:100]
+        random.shuffle(actor)
+        actor = actor[:1000]
         actor = [str(path) for path in actor]
         for a in actor:
             all_actors.append(a)
 
+    print("{} frames used from {} actors".format(len(all_actors), num_actors))
     all_frames = []
 
     for actor in all_actors:
@@ -47,30 +50,6 @@ def ravdess_get_mean_std_image(root_path):
     print(all_frames.shape)
     print('Mean: {}'.format(all_frames.mean(axis=(0, 2, 3))))
     print('Std: {}'.format(all_frames.std(axis=(0, 2, 3))))
-
-
-def ravdess_get_mean_std_landmark(root_path):
-    root_dir = pathlib.Path(root_path)
-
-    transform = transforms.ToTensor()
-
-    # Get all paths
-    all_folders = [p for p in list(root_dir.glob('*/*/'))
-                   if str(p).split('/')[-1] != '.DS_Store']
-
-    # Use only 2000 frames from each actor
-    all_actors = []
-    for path in all_folders:
-        actor = list(path.glob('*'))
-        actor = random.shuffle(actor)[:2000]
-        actor = [str(path) for path in actor]
-        for a in actor:
-            all_actors.append(a)
-
-    all_frames = []
-
-    for actor in all_actors:
-        pass
 
 
 def ravdess_convert_jpg(root_path):

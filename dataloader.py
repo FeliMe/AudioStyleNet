@@ -13,8 +13,6 @@ from PIL import Image
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 
-import utils
-
 
 class RAVDESSDataset(Dataset):
     def __init__(self,
@@ -42,6 +40,8 @@ class RAVDESSDataset(Dataset):
         self.all_paths = all_paths
         self.emotions = emotions
         self.transforms = transforms.Compose([
+            transforms.Normalize(mean=[0.7557917, 0.6731194, 0.65221864],
+                                 std=[0.30093336, 0.3482375, 0.36186528]),
             transforms.ToTensor()
         ])
 
@@ -92,7 +92,11 @@ def load_video(path, transform):
 
 
 def load_landmarks(path, transform):
-    return torch.tensor(np.load(path), dtype=torch.float)
+    # Load
+    landmarks = torch.tensor(np.load(path), dtype=torch.float)
+    # Normalize
+    landmarks = (landmarks - landmarks.mean(dim=0)) / landmarks.std(dim=0)
+    return landmarks
 
 
 def show_image(image):
@@ -110,8 +114,8 @@ def show_landmarks(landmarks):
 
 
 """
-mean (RGB) PIL: [212.11412638 202.15546712 199.68282704]
-std (RGB) PIL: [76.99559435 86.44708823 89.27821175]
+Mean (RGB) PIL: [0.7557917, 0.6731194, 0.65221864]
+Std (RGB) PIL: [0.30093336, 0.3482375, 0.36186528]
 
 mean (RGB) cv2: [212.11412638 202.15546712 199.68282704]
 std (RGB) cv2: [76.99559435 86.44708823 89.27821175]

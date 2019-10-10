@@ -13,7 +13,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = True
+LOG_RUN = False
 
 
 """ Load config """
@@ -60,6 +60,9 @@ train_ds = dataloader.RAVDESSDataset(config.train_path,
 val_ds = dataloader.RAVDESSDataset(config.val_path,
                                    max_samples=None,
                                    format=config.data_format)
+
+next(iter(train_ds))
+1/0
 
 train_sampler = RandomSampler(range(len(train_ds)))
 val_sampler = RandomSampler(range(len(val_ds)))
