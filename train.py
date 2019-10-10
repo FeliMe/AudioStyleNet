@@ -13,7 +13,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = False
+LOG_RUN = True
 
 
 """ Load config """
@@ -21,7 +21,7 @@ LOG_RUN = False
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='train_ravdess_landmarks',
+                    default='train_ravdess_image',
                     help='name of config')
 args = parser.parse_args()
 
@@ -95,7 +95,6 @@ print("Found {} training and {} validation samples".format(
 x_sample, _ = next(iter(train_loader))
 print('Input Shape: {}'.format(x_sample.shape))
 # train_ds.show_sample()
-
 
 """ Initialize model, solver, optimizer and criterion """
 
