@@ -42,7 +42,6 @@ class Solver(object):
         print("Starting training")
         since = time.time()
 
-        best_model_wts = copy.deepcopy(self.model.state_dict())
         best_acc = 0.0
 
         for i_epoch in range(1, config.num_epochs + 1):
@@ -196,7 +195,7 @@ def plot_grad_flow(named_parameters):
     max_grads = []
     layers = []
     for n, p in named_parameters:
-        if (p.requires_grad) and ("bias" not in n):
+        if p.requires_grad and ("bias" not in n):
             layers.append(n)
             ave_grads.append(p.grad.abs().mean())
             max_grads.append(p.grad.abs().max())
