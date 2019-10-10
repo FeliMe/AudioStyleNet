@@ -6,42 +6,71 @@ only used once.
 import cv2
 import dlib
 import math
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pathlib
+import random
 
-from collections import OrderedDict
 from PIL import Image
 from torchvision import transforms
 
 HOME = os.path.expanduser('~')
 
 
-def ravdess_get_mean(root_path):
+def ravdess_get_mean_std_image(root_path):
     root_dir = pathlib.Path(root_path)
 
+    transform = transforms.ToTensor()
+
     # Get all paths
-    all_folders = [p for p in list(root_dir.glob('*/'))
+    all_folders = [p for p in list(root_dir.glob('*/*/'))
                    if str(p).split('/')[-1] != '.DS_Store']
 
-    all_actors = [str(list(path.glob('*'))[0]) for path in all_folders]
+    # Use only 100 frames from each actor
+    all_actors = []
+    for path in all_folders:
+        actor = list(path.glob('*'))
+        actor = random.shuffle(actor)[:100]
+        actor = [str(path) for path in actor]
+        for a in actor:
+            all_actors.append(a)
 
     all_frames = []
 
     for actor in all_actors:
-        print("Reading {}".format(actor.split('/')[-2]))
-        cap = cv2.VideoCapture(actor)
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            all_frames.append(np.array(frame))
+        with open(actor, 'rb') as f:
+            frame = Image.open(f).convert('RGB')
+            frame = transform(frame)
+            all_frames.append(frame.numpy())
 
     all_frames = np.array(all_frames)
-    print('Mean: {}'.format(all_frames.mean(axis=(0, 1, 2))))
-    print('Std: {}'.format(all_frames.std(axis=(0, 1, 2))))
+    print(all_frames.shape)
+    print('Mean: {}'.format(all_frames.mean(axis=(0, 2, 3))))
+    print('Std: {}'.format(all_frames.std(axis=(0, 2, 3))))
+
+
+def ravdess_get_mean_std_landmark(root_path):
+    root_dir = pathlib.Path(root_path)
+
+    transform = transforms.ToTensor()
+
+    # Get all paths
+    all_folders = [p for p in list(root_dir.glob('*/*/'))
+                   if str(p).split('/')[-1] != '.DS_Store']
+
+    # Use only 2000 frames from each actor
+    all_actors = []
+    for path in all_folders:
+        actor = list(path.glob('*'))
+        actor = random.shuffle(actor)[:2000]
+        actor = [str(path) for path in actor]
+        for a in actor:
+            all_actors.append(a)
+
+    all_frames = []
+
+    for actor in all_actors:
+        pass
 
 
 def ravdess_convert_jpg(root_path):
@@ -158,6 +187,6 @@ def shape_to_np(landmarks, dtype="int"):
     return coords
 
 
-# ravdess_get_mean(HOME + '/Datasets/RAVDESS/Video')
+ravdess_get_mean_std_image(HOME + '/Datasets/RAVDESS/Image')
 # ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
-ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
+# ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
