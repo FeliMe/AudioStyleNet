@@ -15,7 +15,7 @@ config = Config({
     'data_format': 'image',
 
     # Hyper parameters
-    'num_epochs': 10,
+    'num_epochs': 50,
     'learning_rate': 0.001,
     'batch_size': 32,
 
@@ -23,7 +23,7 @@ config = Config({
     'model': models.PreTrainedResNet18(),
 
     # Logging
-    'log_interval': 50,
+    'log_interval': 1000,
     'save_interval': 1,
     'save_path': 'saves/Classification_Landmarks'
 })

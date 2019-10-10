@@ -38,7 +38,6 @@ class RAVDESSDataset(Dataset):
         emotions = [int(p.split('/')[-1][:-4].split('-')[2]) - 1
                     for p in all_paths]
         emotions = torch.tensor(emotions, dtype=torch.long)
-        # emotions = utils.np_int_to_one_hot(emotions, 8)
 
         self.all_paths = all_paths
         self.emotions = emotions

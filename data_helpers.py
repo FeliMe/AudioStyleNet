@@ -86,6 +86,7 @@ def ravdess_convert_jpg(root_path):
 
 
 def ravdess_extract_landmarks(root_path):
+    # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # initialize dlib's face detector (HOG-based) and then create
     # the facial landmark predictor
     detector = dlib.get_frontal_face_detector()
@@ -130,6 +131,7 @@ def ravdess_extract_landmarks(root_path):
 
 
 def rect_to_bb(rect):
+    # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # take a bounding predicted by dlib and convert it
     # to the format (x, y, w, h) as we would normally do
     # with OpenCV
@@ -143,6 +145,7 @@ def rect_to_bb(rect):
 
 
 def shape_to_np(landmarks, dtype="int"):
+    # Source https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # initialize the list of (x, y)-coordinates
     coords = np.zeros((68, 2), dtype=dtype)
 

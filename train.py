@@ -53,10 +53,10 @@ else:
 """ Load dataset """
 
 train_ds = dataloader.RAVDESSDataset(config.train_path,
-                                     max_samples=10000,
+                                     max_samples=None,
                                      format=config.data_format)
 val_ds = dataloader.RAVDESSDataset(config.val_path,
-                                   max_samples=2000,
+                                   max_samples=None,
                                    format=config.data_format)
 
 train_sampler = RandomSampler(range(len(train_ds)))
