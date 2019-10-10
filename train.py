@@ -13,7 +13,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = True
+LOG_RUN = False
 
 
 """ Load config """
@@ -94,6 +94,7 @@ print("Found {} training and {} validation samples".format(
 
 x_sample, _ = next(iter(train_loader))
 print('Input Shape: {}'.format(x_sample.shape))
+# train_ds.plot_label_distribution()
 # train_ds.show_sample()
 
 """ Initialize model, solver, optimizer and criterion """

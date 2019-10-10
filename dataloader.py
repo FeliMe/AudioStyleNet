@@ -71,6 +71,15 @@ class RAVDESSDataset(Dataset):
         sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
         self.show_fn(sample)
 
+    def plot_label_distribution(self):
+        hist, _ = np.histogram(self.emotions.numpy(), bins=8)
+        hist = hist / len(self.emotions)
+        plt.bar(np.arange(8), hist)
+        plt.title("Normalized distribution of RAVDESS dataset")
+        plt.xticks(np.arange(8),
+                   ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'])
+        plt.savefig('dist.jpg')
+
 
 def load_image(path, transform):
     # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
