@@ -23,7 +23,8 @@ config = Config({
     # Model parameters
     'model': nn.Sequential(
         nn.Flatten(),
-        nn.Linear(68 * 2, 8),
+        nn.Linear(68 * 2, 128),
+        nn.Linear(128, 8),
     ),
 
     # Logging

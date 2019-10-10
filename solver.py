@@ -70,6 +70,8 @@ class Solver(object):
                         if phase == 'train':
                             loss.backward()
                             optimizer.step()
+                            # wandb.log({'Gradients': wandb.Histogram(
+                            #     self.model.named_parameters())})
 
                     if (i_step + 1) % config.log_interval == 0:
                         print("Step {}/{}".format(
@@ -90,9 +92,6 @@ class Solver(object):
                 # W&B logging
                 wandb.log({phase + ' Loss': epoch_loss,
                            phase + ' Accuracy': epoch_acc})
-                # if phase == ['train']:
-                #     wandb.log({'Gradients': wandb.Histogram(
-                #         self.model.named_parameters())})
 
                 # deep copy the model
                 if phase == 'val' and epoch_acc > best_acc:
@@ -134,6 +133,7 @@ class Solver(object):
         y_pred = np.array(y_pred).reshape(-1)
 
         cm = confusion_matrix(y_true, y_pred)
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
         plt.figure(figsize=(8, 8))
         sns.heatmap(
             cm,
@@ -141,6 +141,7 @@ class Solver(object):
             xticklabels=['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'],
             yticklabels=['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'],
             linewidths=.5,
+            fmt=".2f",
             square=True,
             cmap='Blues',
         )
@@ -148,8 +149,7 @@ class Solver(object):
         plt.xlabel('Predicted label')
         os.makedirs(self.save_path, exist_ok=True)
         plt.savefig(os.path.join(self.save_path, 'confusion_matrix.jpg'))
-        # plt.savefig(os.path.join(wandb.run.dir, 'confusion_matrix.jpg'))
-        wandb.log({'confusion matrix': plt})
+        wandb.log({'confusion matrix': [wandb.Image(plt)]})
 
 
 def plot_grad_flow(named_parameters):
