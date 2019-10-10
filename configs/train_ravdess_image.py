@@ -15,7 +15,7 @@ config = Config({
     'data_format': 'image',
 
     # Hyper parameters
-    'num_epochs': 50,
+    'num_epochs': 30,
     'learning_rate': 0.001,
     'batch_size': 32,
 

@@ -13,6 +13,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
+LOG_RUN = True
 
 
 """ Load config """
@@ -29,7 +30,8 @@ config = importlib.import_module('configs.' + args.config).config
 
 """ Init wandb """
 
-wandb.init(project="emotion-classification", config=config)
+if LOG_RUN:
+    wandb.init(project="emotion-classification", config=config)
 
 
 """ Add a seed to have reproducible results """
@@ -104,11 +106,12 @@ criterion = nn.CrossEntropyLoss()
 exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer, step_size=7, gamma=0.1)
 
-wandb.watch(model)
+if LOG_RUN:
+    wandb.watch(model)
 model.train()
 model.to(device)
 
-solver = Solver(model)
+solver = Solver(model, LOG_RUN)
 
 print('Printing model summary...')
 print(summary(model, input_size=x_sample.shape[1:]))
@@ -124,4 +127,5 @@ model = solver.train_model(criterion,
                            config,
                            exp_lr_scheduler)
 
-solver.eval_model(device, data_loaders)
+if not solver.kill_now:
+    solver.eval_model(device, data_loaders)

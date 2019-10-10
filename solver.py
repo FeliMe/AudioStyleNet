@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import seaborn as sns
+import signal
 import time
 import torch
 import wandb
@@ -13,10 +14,14 @@ from sklearn.metrics import confusion_matrix
 
 class Solver(object):
     def __init__(self,
-                 model):
+                 model,
+                 log_run=True):
         self.model = model
+        self.best_model_wts = copy.deepcopy(self.model.state_dict())
         self.config = None
         self.save_path = 'saves'
+        self.kill_now = False
+        self.log_run = log_run
 
     def train_model(self,
                     criterion,
@@ -27,6 +32,9 @@ class Solver(object):
                     config,
                     scheduler=None):
         self.config = config
+        self.kill_now = False
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
         self.save_path = os.path.join(
             config.save_path,
             'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
@@ -50,9 +58,10 @@ class Solver(object):
 
                 running_loss = 0.0
                 running_corrects = 0
+                i_step = 0
 
                 # Iterate over data.
-                for i_step, (x, y) in enumerate(data_loaders[phase]):
+                for x, y in data_loaders[phase]:
                     x = x.to(device)
                     y = y.to(device)
 
@@ -68,10 +77,12 @@ class Solver(object):
 
                         # backward + optimize only if in training phase
                         if phase == 'train':
+                            i_step += 1
                             loss.backward()
                             optimizer.step()
-                            # wandb.log({'Gradients': wandb.Histogram(
-                            #     self.model.named_parameters())})
+                            # if self.log_run:
+                            #     wandb.log({'Gradients': wandb.Histogram(
+                            #         self.model.named_parameters())})
 
                     if (i_step + 1) % config.log_interval == 0:
                         print("Step {}/{}".format(
@@ -80,23 +91,33 @@ class Solver(object):
                     # statistics
                     running_loss += loss.item() * x.size(0)
                     running_corrects += torch.sum(y_ == y.data)
+
+                    if self.kill_now:
+                        return self.model
+
                 if phase == 'train' and scheduler is not None:
                     scheduler.step()
 
                 epoch_loss = running_loss / dataset_sizes[phase]
                 epoch_acc = running_corrects.double() / dataset_sizes[phase]
 
+                # Logging
                 print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                     phase, epoch_loss, epoch_acc))
+                if phase == 'val':
+                    time_elapsed = time.time() - since
+                    print('Time elapsed {:.0f}m {:.0f}s\n'.format(
+                        time_elapsed // 60, time_elapsed % 60))
 
                 # W&B logging
-                wandb.log({phase + ' Loss': epoch_loss,
-                           phase + ' Accuracy': epoch_acc})
+                if self.log_run:
+                    wandb.log({phase + ' Loss': epoch_loss,
+                               phase + ' Accuracy': epoch_acc})
 
                 # deep copy the model
                 if phase == 'val' and epoch_acc > best_acc:
                     best_acc = epoch_acc
-                    best_model_wts = copy.deepcopy(self.model.state_dict())
+                    self.best_model_wts = copy.deepcopy(self.model.state_dict())
 
         time_elapsed = time.time() - since
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(
@@ -104,10 +125,7 @@ class Solver(object):
         print('Best val Acc: {:4f}'.format(best_acc))
 
         # load best model weights
-        self.model.load_state_dict(best_model_wts)
-        torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
-        os.makedirs(self.save_path, exist_ok=True)
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
+        self.save()
         return self.model
 
     def eval_model(self,
@@ -149,7 +167,20 @@ class Solver(object):
         plt.xlabel('Predicted label')
         os.makedirs(self.save_path, exist_ok=True)
         plt.savefig(os.path.join(self.save_path, 'confusion_matrix.jpg'))
-        wandb.log({'confusion matrix': [wandb.Image(plt)]})
+        if self.log_run:
+            wandb.log({'confusion matrix': [wandb.Image(plt)]})
+
+    def save(self):
+        self.model.load_state_dict(self.best_model_wts)
+        os.makedirs(self.save_path, exist_ok=True)
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
+        if self.log_run:
+            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+
+    def exit_gracefully(self, signum, frame):
+        print("Stopping gracefully, saving best model...")
+        self.save()
+        self.kill_now = True
 
 
 def plot_grad_flow(named_parameters):
