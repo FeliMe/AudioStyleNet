@@ -188,4 +188,4 @@ def ravdess_group_by_utterance(root_path):
 # ravdess_get_mean_std_image(HOME + '/Datasets/RAVDESS/Image')
 # ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
 # ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
-ravdess_group_by_utterance(HOME + '/Datasets/RAVDESS/Image')
+# ravdess_group_by_utterance(HOME + '/Datasets/RAVDESS/Image')

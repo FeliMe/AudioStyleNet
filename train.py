@@ -1,5 +1,6 @@
 import argparse
 import importlib
+import numpy as np
 import os
 import torch
 import torch.nn as nn
@@ -13,7 +14,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = False
+LOG_RUN = True
 
 
 """ Load config """
@@ -21,7 +22,7 @@ LOG_RUN = False
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='train_ravdess_image',
+                    default='train_ravdess_landmarks',
                     help='name of config')
 args = parser.parse_args()
 
@@ -54,23 +55,28 @@ else:
 
 """ Load dataset """
 
-train_ds = dataloader.RAVDESSDataset(config.train_path,
-                                     max_samples=None,
-                                     format=config.data_format)
-val_ds = dataloader.RAVDESSDataset(config.val_path,
-                                   max_samples=None,
-                                   format=config.data_format)
+ds = dataloader.RAVDESSDataset(config.data_path,
+                               max_samples=None,
+                               sequence_length=3,
+                               format=config.data_format)
 
-train_sampler = RandomSampler(range(len(train_ds)))
-val_sampler = RandomSampler(range(len(val_ds)))
+# Split dataset
+dataset_size = len(ds)
+indices = list(range(dataset_size))
+split = int(np.floor(config.validation_split * dataset_size))
 
-train_loader = DataLoader(train_ds,
+train_indices, val_indices = indices[split:], indices[:split]
+
+train_sampler = RandomSampler(train_indices)
+val_sampler = RandomSampler(val_indices)
+
+train_loader = DataLoader(ds,
                           batch_size=config.batch_size,
-                          num_workers=8,
+                          num_workers=1,
                           sampler=train_sampler,
                           drop_last=True)
 
-val_loader = DataLoader(val_ds,
+val_loader = DataLoader(ds,
                         batch_size=config.batch_size,
                         num_workers=8,
                         sampler=val_sampler,
@@ -82,12 +88,12 @@ data_loaders = {
 }
 
 dataset_sizes = {
-    'train': len(train_ds),
-    'val': len(val_ds)
+    'train': len(train_indices),
+    'val': len(val_indices)
 }
 
 print("Found {} training and {} validation samples".format(
-    len(train_ds), len(val_ds)))
+    len(train_indices), len(val_indices)))
 
 
 """ Show data example """
@@ -95,7 +101,7 @@ print("Found {} training and {} validation samples".format(
 x_sample, _ = next(iter(train_loader))
 print('Input Shape: {}'.format(x_sample.shape))
 # train_ds.plot_label_distribution()
-# train_ds.show_sample()
+# ds.show_sample()
 
 """ Initialize model, solver, optimizer and criterion """
 
