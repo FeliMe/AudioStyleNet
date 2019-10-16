@@ -166,6 +166,26 @@ def shape_to_np(landmarks, dtype="int"):
     return coords
 
 
-ravdess_get_mean_std_image(HOME + '/Datasets/RAVDESS/Image')
+def ravdess_group_by_utterance(root_path):
+    root_dir = pathlib.Path(root_path)
+
+    print(root_dir)
+
+    # Get all paths
+    all_actors = [p for p in list(root_dir.glob('*/'))
+                  if str(p).split('/')[-1] != '.DS_Store']
+
+    for actor in all_actors:
+        print("Processing {}".format(str(actor).split('/')[-1]))
+        frames = [str(frame) for frame in list(actor.glob('*'))]
+        for i_frame, frame in enumerate(frames):
+            new_folder = frame[:-8]
+            new_path = os.path.join(new_folder, frame[-7:])
+            os.makedirs(new_folder, exist_ok=True)
+            os.rename(frame, new_path)
+
+
+# ravdess_get_mean_std_image(HOME + '/Datasets/RAVDESS/Image')
 # ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
 # ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
+ravdess_group_by_utterance(HOME + '/Datasets/RAVDESS/Image')
