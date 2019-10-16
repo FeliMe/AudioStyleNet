@@ -9,7 +9,6 @@ config = Config({
     # General configs
     'use_cuda': True,
 
-
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/Landmarks',
     'data_format': 'landmarks',
@@ -34,5 +33,9 @@ config.update({
         # nn.ReLU(),
         nn.Flatten(),
         nn.Linear(68 * 2 * config.sequence_length, 8),
+        # nn.ReLU(),
+        # nn.Linear(512, 128),
+        # nn.ReLU(),
+        # nn.Linear(128, 8),
     ),
 })

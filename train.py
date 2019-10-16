@@ -57,7 +57,7 @@ else:
 
 ds = dataloader.RAVDESSDataset(config.data_path,
                                max_samples=None,
-                               sequence_length=3,
+                               sequence_length=config.sequence_length,
                                format=config.data_format)
 
 # Split dataset
@@ -72,7 +72,7 @@ val_sampler = RandomSampler(val_indices)
 
 train_loader = DataLoader(ds,
                           batch_size=config.batch_size,
-                          num_workers=1,
+                          num_workers=8,
                           sampler=train_sampler,
                           drop_last=True)
 

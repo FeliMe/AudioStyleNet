@@ -6,6 +6,7 @@ only used once.
 import cv2
 import dlib
 import math
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pathlib
@@ -14,7 +15,13 @@ import random
 from PIL import Image
 from torchvision import transforms
 
+from dataloader import RAVDESSDataset
+
 HOME = os.path.expanduser('~')
+
+IMAGE_PATH = HOME + '/Datasets/RAVDESS/Image'
+LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
+VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
 
 def ravdess_get_mean_std_image(root_path):
@@ -185,7 +192,20 @@ def ravdess_group_by_utterance(root_path):
             os.rename(frame, new_path)
 
 
-# ravdess_get_mean_std_image(HOME + '/Datasets/RAVDESS/Image')
-# ravdess_convert_jpg(HOME + '/Datasets/RAVDESS/Video')
-# ravdess_extract_landmarks(HOME + '/Datasets/RAVDESS/Image')
-# ravdess_group_by_utterance(HOME + '/Datasets/RAVDESS/Image')
+def ravdess_plot_label_distribution(data_path):
+    ds = RAVDESSDataset(data_path)
+    hist, _ = np.histogram(ds.emotions.numpy(), bins=8)
+    hist = hist / len(ds.emotions)
+    plt.bar(np.arange(8), hist)
+    plt.title("Normalized distribution of RAVDESS dataset")
+    plt.xticks(np.arange(8),
+               ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'])
+    # plt.savefig('dist.jpg')
+    plt.show()
+
+
+# ravdess_get_mean_std_image(IMAGE_PATH)
+# ravdess_convert_jpg(VIDEO_PATH)
+# ravdess_extract_landmarks(IMAGE_PATH)
+# ravdess_group_by_utterance(IMAGE_PATH)
+# ravdess_plot_label_distribution(IMAGE_PATH)

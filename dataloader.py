@@ -54,8 +54,8 @@ class RAVDESSDataset(Dataset):
         self.emotions = emotions
         self.transforms = transforms.Compose([
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.7557917, 0.6731194, 0.65221864],
-                                 std=[0.30093336, 0.3482375, 0.36186528]),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet mean
+                                 std=[0.229, 0.224, 0.225]),  # ImageNet std
         ])
 
         if format == 'image':
@@ -90,15 +90,6 @@ class RAVDESSDataset(Dataset):
         sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
         self.show_fn(sample[:, 0])
 
-    def plot_label_distribution(self):
-        hist, _ = np.histogram(self.emotions.numpy(), bins=8)
-        hist = hist / len(self.emotions)
-        plt.bar(np.arange(8), hist)
-        plt.title("Normalized distribution of RAVDESS dataset")
-        plt.xticks(np.arange(8),
-                   ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'])
-        plt.savefig('dist.jpg')
-
 
 def load_images(paths, transform):
     x = []
@@ -116,8 +107,6 @@ def load_landmarks(paths, transform):
     for path in paths:
         # Load
         landmarks = torch.tensor(np.load(path + '.npy'), dtype=torch.float)
-        # Normalize
-        landmarks = (landmarks - landmarks.mean(dim=0)) / landmarks.std(dim=0)
         # Reshape and append
         x.append(landmarks.reshape(-1))
     return torch.stack(x, dim=1)
