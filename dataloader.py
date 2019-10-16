@@ -22,6 +22,7 @@ class RAVDESSDataset(Dataset):
                  root_path,
                  max_samples=None,
                  sequence_length=1,
+                 window_size=1,
                  format='image'):
         root_dir = pathlib.Path(root_path)
 
@@ -57,6 +58,7 @@ class RAVDESSDataset(Dataset):
             transforms.Normalize(mean=[0.485, 0.456, 0.406],  # ImageNet mean
                                  std=[0.229, 0.224, 0.225]),  # ImageNet std
         ])
+        self.window_size = window_size
 
         if format == 'image':
             self.load_fn = load_images
@@ -73,13 +75,21 @@ class RAVDESSDataset(Dataset):
     def __getitem__(self, index):
         # Get paths to load
         rand_idx = np.random.randint(
-            1, self.len_sentences[index] - self.sequence_length)
+            1, self.len_sentences[index] - self.sequence_length - (self.window_size - 1))
         indices = list(range(rand_idx, rand_idx + self.sequence_length))
-        paths = [os.path.join(self.all_sentences[index], str(idx).zfill(3))
-                 for idx in indices]
 
-        # Load files
-        x = self.load_fn(paths, self.transforms)
+        if self.window_size > 1:
+            indices = [list(range(i, i + self.window_size)) for i in indices]
+            paths = [[os.path.join(self.all_sentences[index], str(i).zfill(3))
+                      for i in idx] for idx in indices]
+            x = []
+            for path in paths:
+                x.append(self.load_fn(path, self.transforms).reshape(-1))
+            x = torch.stack(x, dim=0)
+        else:
+            paths = [os.path.join(self.all_sentences[index], str(idx).zfill(3))
+                 for idx in indices]
+            x = self.load_fn(paths, self.transforms)
 
         return x, self.emotions[index]
 
@@ -94,22 +104,27 @@ class RAVDESSDataset(Dataset):
 def load_images(paths, transform):
     x = []
     for path in paths:
-        # open path as file to avoid ResourceWarning (https://github.com/python-pillow/Pillow/issues/835)
-        with open(path + '.jpg', 'rb') as f:
-            img = Image.open(f).convert('RGB')
-            img = transform(img)
-            x.append(img)
+        x.append(load_image(path, transform))
     return torch.cat(x, dim=0)
+
+
+def load_image(path, transform):
+    with open(path + '.jpg', 'rb') as f:
+        img = Image.open(f).convert('RGB')
+        img = transform(img)
+        return img
 
 
 def load_landmarks(paths, transform):
     x = []
     for path in paths:
-        # Load
-        landmarks = torch.tensor(np.load(path + '.npy'), dtype=torch.float)
-        # Reshape and append
-        x.append(landmarks.reshape(-1))
-    return torch.stack(x, dim=1)
+        x.append(load_landmark(path))
+    return torch.stack(x, dim=0)
+
+
+def load_landmark(path):
+    landmarks = torch.tensor(np.load(path + '.npy'), dtype=torch.float)
+    return landmarks.reshape(-1)
 
 
 def load_video(path, transform):

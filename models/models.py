@@ -40,3 +40,19 @@ class PreTrainedResNet18(nn.Module):
         y = self.fc(y)
 
         return y
+
+
+# RNN
+class LandmarksLSTM(nn.Module):
+    def __init__(self, window_size):
+        super(LandmarksLSTM, self).__init__()
+
+        self.rnn = nn.LSTM(68 * 2 * window_size, 128, 3, batch_first=True)
+        self.fc = nn.Linear(128 * window_size, 8)
+
+    def forward(self, x):
+        # x.shape = [batch, sequence_length, 68 * 2 * window_size]
+        out, hidden = self.rnn(x)
+        out = torch.flatten(out, 1)
+        out = self.fc(out)
+        return out

@@ -14,7 +14,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = True
+LOG_RUN = False
 
 
 """ Load config """
@@ -58,6 +58,7 @@ else:
 ds = dataloader.RAVDESSDataset(config.data_path,
                                max_samples=None,
                                sequence_length=config.sequence_length,
+                               window_size=config.window_size,
                                format=config.data_format)
 
 # Split dataset
@@ -120,7 +121,7 @@ model.to(device)
 solver = Solver(model, LOG_RUN)
 
 print('Printing model summary...')
-print(summary(model, input_size=x_sample.shape[1:]))
+# print(summary(model, input_size=x_sample.shape[1:]))
 
 
 """ Do training """

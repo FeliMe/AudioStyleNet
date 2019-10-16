@@ -14,6 +14,7 @@ config = Config({
     'data_format': 'image',
     'validation_split': .2,
     'sequence_length': 3,
+    'window_size': 1,
 
     # Hyper parameters
     'num_epochs': 30,

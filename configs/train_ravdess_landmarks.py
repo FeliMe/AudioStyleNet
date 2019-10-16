@@ -1,6 +1,7 @@
 import torch.nn as nn
 import os
 
+from models import models
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -14,6 +15,7 @@ config = Config({
     'data_format': 'landmarks',
     'validation_split': .2,
     'sequence_length': 3,
+    'window_size': 3,
 
     # Hyper parameters
     'num_epochs': 30,
@@ -28,14 +30,15 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': nn.Sequential(
-        # nn.Conv1d(68 * 2, 68 * 2, config.sequence_length),
-        # nn.ReLU(),
-        nn.Flatten(),
-        nn.Linear(68 * 2 * config.sequence_length, 8),
-        # nn.ReLU(),
-        # nn.Linear(512, 128),
-        # nn.ReLU(),
-        # nn.Linear(128, 8),
-    ),
+    # 'model': nn.Sequential(
+    #     # nn.Conv1d(68 * 2, 68 * 2, config.sequence_length),
+    #     # nn.ReLU(),
+    #     nn.Flatten(),
+    #     nn.Linear(68 * 2 * config.sequence_length, 8),
+    #     # nn.ReLU(),
+    #     # nn.Linear(512, 128),
+    #     # nn.ReLU(),
+    #     # nn.Linear(128, 8),
+    # ),
+    'model': models.LandmarksLSTM(config.window_size)
 })
