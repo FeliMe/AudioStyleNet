@@ -78,14 +78,15 @@ class Solver(object):
                         if phase == 'train':
                             i_step += 1
                             loss.backward()
+                            # plot_grad_flow(self.model.named_parameters())
                             optimizer.step()
                             # if self.log_run:
                             #     wandb.log({'Gradients': wandb.Histogram(
                             #         self.model.named_parameters())})
 
                     if (i_step + 1) % config.log_interval == 0:
-                        print("Step {}/{}".format(
-                            i_step + 1, int(dataset_sizes[phase] / config.batch_size)))
+                        print("Step {}/{}".format(i_step + 1,
+                                                  len(data_loaders[phase])))
 
                     # statistics
                     running_loss += loss.item() * x.size(0)
@@ -197,6 +198,8 @@ def plot_grad_flow(named_parameters):
     for n, p in named_parameters:
         if p.requires_grad and ("bias" not in n):
             layers.append(n)
+            # if n != 'fc.weight':
+            #     print(n, torch.sum(p.grad.abs()))
             ave_grads.append(p.grad.abs().mean())
             max_grads.append(p.grad.abs().max())
     plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")

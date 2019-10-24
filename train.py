@@ -7,7 +7,7 @@ import torch.nn as nn
 import wandb
 
 from torch.utils.data import DataLoader, RandomSampler
-from torchsummary import summary
+from torchsummaryX import summary
 
 import dataloader
 
@@ -22,11 +22,13 @@ LOG_RUN = False
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='train_ravdess_landmarks',
+                    default='ravdess_image_simple',
                     help='name of config')
 args = parser.parse_args()
 
 config = importlib.import_module('configs.' + args.config).config
+if 'use_gray' not in config.keys():
+    config['use_gray'] = False
 
 
 """ Init wandb """
@@ -56,10 +58,12 @@ else:
 """ Load dataset """
 
 ds = dataloader.RAVDESSDataset(config.data_path,
+                               format=config.data_format,
+                               use_gray=config.use_gray,
                                max_samples=None,
                                sequence_length=config.sequence_length,
                                window_size=config.window_size,
-                               format=config.data_format)
+                               step_size=config.step_size)
 
 # Split dataset
 dataset_size = len(ds)
@@ -104,12 +108,14 @@ print('Input Shape: {}'.format(x_sample.shape))
 # train_ds.plot_label_distribution()
 # ds.show_sample()
 
+
 """ Initialize model, solver, optimizer and criterion """
 
 model = config.model
-optimizer = torch.optim.Adam(params=model.parameters(),
-                             lr=config.learning_rate)
+optimizer = config.optim
 criterion = nn.CrossEntropyLoss()
+# criterion = nn.NLLLoss()
+
 exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer, step_size=7, gamma=0.1)
 
@@ -120,8 +126,9 @@ model.to(device)
 
 solver = Solver(model, LOG_RUN)
 
+
 print('Printing model summary...')
-# print(summary(model, input_size=x_sample.shape[1:]))
+summary(model, torch.zeros((1, *x_sample.shape[1:])))
 
 
 """ Do training """

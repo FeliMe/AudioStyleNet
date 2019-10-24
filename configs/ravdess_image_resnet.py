@@ -1,4 +1,6 @@
 import os
+import torch
+import torch.nn as nn
 
 from models import models
 from utils import Config
@@ -13,8 +15,9 @@ config = Config({
     'data_path': HOME + '/Datasets/RAVDESS/Image',
     'data_format': 'image',
     'validation_split': .2,
-    'sequence_length': 3,
-    'window_size': 1,
+    'sequence_length': 1,
+    'window_size': 3,
+    'step_size': 1,
 
     # Hyper parameters
     'num_epochs': 30,
@@ -29,5 +32,11 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': models.PreTrainedResNet18(config.sequence_length)
+    'model': models.PreTrainedResNet18(config.window_size)
+})
+
+config.update({
+    # Optimizer
+    'optim': torch.optim.Adam(params=config.model.parameters(),
+                              lr=config.learning_rate),
 })

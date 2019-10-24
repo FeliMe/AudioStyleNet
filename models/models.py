@@ -6,11 +6,11 @@ from torchvision import models as torch_models
 
 # Pre-trained ResNet18
 class PreTrainedResNet18(nn.Module):
-    def __init__(self, sequence_length):
+    def __init__(self, window_size):
         super(PreTrainedResNet18, self).__init__()
 
         resnet = torch_models.resnet18(pretrained=True)
-        num_ftrs = resnet.fc.in_features * sequence_length
+        num_ftrs = resnet.fc.in_features * window_size
 
         self.convolutions = nn.Sequential(
             resnet.conv1,
@@ -44,15 +44,27 @@ class PreTrainedResNet18(nn.Module):
 
 # RNN
 class LandmarksLSTM(nn.Module):
-    def __init__(self, window_size):
+    def __init__(self, window_size, sequence_length):
         super(LandmarksLSTM, self).__init__()
+        hidden_size = 128
+        num_layers = 1
 
-        self.rnn = nn.LSTM(68 * 2 * window_size, 128, 3, batch_first=True)
-        self.fc = nn.Linear(128 * window_size, 8)
+        self.rnn = nn.LSTM(68 * 2 * window_size, hidden_size, num_layers,
+                           batch_first=True)
+        self.fc = nn.Linear(hidden_size, 8)
 
-    def forward(self, x):
-        # x.shape = [batch, sequence_length, 68 * 2 * window_size]
-        out, hidden = self.rnn(x)
-        out = torch.flatten(out, 1)
+    def forward(self, x):     # x.shape = [batch, sequence_length, 68 * 2 * window_size]
+        out, _ = self.rnn(x)  # out.shape = [batch, sequence_length, hidden_size]
+        # out = torch.flatten(out, 1)
+        out = out[:, -1]
         out = self.fc(out)
         return out
+
+
+class ImageLSTM(nn.Module):
+    def __init__(self, window_size, sequence_length):
+        super(ImageLSTM, self).__init__()
+        pass
+
+    def forward(self, x):
+        return x

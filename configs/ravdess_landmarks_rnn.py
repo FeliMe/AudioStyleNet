@@ -1,4 +1,4 @@
-import torch.nn as nn
+import torch
 import os
 
 from models import models
@@ -14,12 +14,13 @@ config = Config({
     'data_path': HOME + '/Datasets/RAVDESS/Landmarks',
     'data_format': 'landmarks',
     'validation_split': .2,
-    'sequence_length': 3,
+    'sequence_length': 20,
     'window_size': 3,
+    'step_size': 1,
 
     # Hyper parameters
     'num_epochs': 30,
-    'learning_rate': 0.001,
+    'learning_rate': 0.005,
     'batch_size': 32,
 
     # Logging
@@ -30,15 +31,10 @@ config = Config({
 
 config.update({
     # Model parameters
-    # 'model': nn.Sequential(
-    #     # nn.Conv1d(68 * 2, 68 * 2, config.sequence_length),
-    #     # nn.ReLU(),
-    #     nn.Flatten(),
-    #     nn.Linear(68 * 2 * config.sequence_length, 8),
-    #     # nn.ReLU(),
-    #     # nn.Linear(512, 128),
-    #     # nn.ReLU(),
-    #     # nn.Linear(128, 8),
-    # ),
-    'model': models.LandmarksLSTM(config.window_size)
+    'model': models.LandmarksLSTM(config.window_size, config.sequence_length)
+})
+
+config.update({
+    # Optimizer
+    'optim': torch.optim.SGD(config.model.parameters(), lr=config.learning_rate)
 })
