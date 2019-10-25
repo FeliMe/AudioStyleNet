@@ -14,7 +14,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = False
+LOG_RUN = True
 
 
 """ Load config """
@@ -128,7 +128,7 @@ solver = Solver(model, LOG_RUN)
 
 
 print('Printing model summary...')
-summary(model, torch.zeros((1, *x_sample.shape[1:])))
+summary(model, torch.zeros((1, *x_sample.shape[1:])).to(device))
 
 
 """ Do training """
