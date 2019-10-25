@@ -14,7 +14,7 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
-LOG_RUN = True
+LOG_RUN = False
 
 
 """ Load config """
@@ -22,7 +22,7 @@ LOG_RUN = True
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='ravdess_image_simple',
+                    default='ravdess_landmarks_rnn',
                     help='name of config')
 args = parser.parse_args()
 
@@ -58,7 +58,7 @@ else:
 """ Load dataset """
 
 ds = dataloader.RAVDESSDataset(config.data_path,
-                               format=config.data_format,
+                               data_format=config.data_format,
                                use_gray=config.use_gray,
                                max_samples=None,
                                sequence_length=config.sequence_length,
@@ -114,7 +114,6 @@ print('Input Shape: {}'.format(x_sample.shape))
 model = config.model
 optimizer = config.optim
 criterion = nn.CrossEntropyLoss()
-# criterion = nn.NLLLoss()
 
 exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer, step_size=7, gamma=0.1)
@@ -128,6 +127,7 @@ solver = Solver(model, LOG_RUN)
 
 
 print('Printing model summary...')
+print(x_sample.shape)
 summary(model, torch.zeros((1, *x_sample.shape[1:])).to(device))
 
 

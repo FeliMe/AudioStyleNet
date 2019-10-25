@@ -10,7 +10,6 @@ import pathlib
 import random
 import torch
 
-from abc import abstractmethod
 from PIL import Image
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
@@ -41,7 +40,7 @@ class RAVDESSDataset(Dataset):
 
     Arguments:
         root_path (str): Path to data files
-        format (str): Format of data files ('image' or 'landmarks')
+        data_format (str): Format of data files ('image' or 'landmarks')
         max_samples (int or None): Maximum number of samples to be considered.
                                    Choose None for whole dataset
         seed (int): Random seed for reproducible shuffling
@@ -52,7 +51,7 @@ class RAVDESSDataset(Dataset):
     """
     def __init__(self,
                  root_path,
-                 format='image',
+                 data_format='image',
                  use_gray=False,
                  max_samples=None,
                  seed=123,
@@ -108,14 +107,14 @@ class RAVDESSDataset(Dataset):
         self.window_size = window_size
         self.step_size = step_size
 
-        if format == 'image':
+        if data_format == 'image':
             self.load_fn = load_images
             self.show_fn = show_image
-        elif format == 'landmarks':
+        elif data_format == 'landmarks':
             self.load_fn = load_landmarks
             self.show_fn = show_landmarks
         else:
-            raise (RuntimeError('Unknown format {}'.format(format)))
+            raise (RuntimeError('Unknown format {}'.format(data_format)))
 
     def __len__(self):
         return len(self.sentences)
@@ -176,7 +175,7 @@ def load_landmarks(paths, transform):
 
 def load_landmark(path, transform):
     landmarks = torch.tensor(np.load(path), dtype=torch.float)
-    landmarks = compute_euclidean_landmark_feats(landmarks)
+    # landmarks = compute_euclidean_landmark_feats(landmarks)
     return landmarks.reshape(-1)
 
 

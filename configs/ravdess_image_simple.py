@@ -1,7 +1,7 @@
 import os
 import torch
-import torch.nn as nn
 
+from models import models
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -16,7 +16,7 @@ config = Config({
     'use_gray': True,
     'validation_split': .2,
     'sequence_length': 1,
-    'window_size': 1,
+    'window_size': 7,
     'step_size': 1,
 
     # Hyper parameters
@@ -32,21 +32,7 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': nn.Sequential(
-        nn.Conv2d(config.window_size, 16, 5, padding=2),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),  # 112
-        nn.Conv2d(16, 32, 5, padding=2),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),  # 56
-        nn.Conv2d(32, 64, 5, padding=2),
-        nn.ReLU(),
-        nn.MaxPool2d(2, 2),  # 28
-        nn.Flatten(),
-        nn.Linear(64 * 28 * 28, 128),
-        nn.ReLU(),
-        nn.Linear(128, 8),
-    )
+    'model': models.SimpleConvNet(config.window_size)
 })
 
 config.update({
