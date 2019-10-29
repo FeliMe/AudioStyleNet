@@ -15,8 +15,8 @@ config = Config({
     'data_format': 'image',
     'use_gray': True,
     'validation_split': .2,
-    'sequence_length': 1,
-    'window_size': 7,
+    'sequence_length': 3,
+    'window_size': 1,
     'step_size': 1,
 
     # Hyper parameters
@@ -32,7 +32,10 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': models.SimpleConvNet(config.window_size)
+    # 'model': models.ConvAndLSTM()
+    # 'model': models.ConvAndCat(config.sequence_length)
+    # 'model': models.ConvAndPool(config.sequence_length)
+    'model': models.ConvAnd3D(config.sequence_length)
 })
 
 config.update({

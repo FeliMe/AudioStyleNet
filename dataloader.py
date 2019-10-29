@@ -30,7 +30,7 @@ class RAVDESSDataset(Dataset):
     Output shapes:
 
         if sequence_length > 1:
-        'image': [batch_size, sequence_length, window_size * 3, height, width]
+        'image': [batch_size, sequence_length, window_size( * 3), height, width]
         'landmarks': [batch_size, sequence_length, window_size * 68 * 2]
 
         'image': [batch_size, window_size * 3, height, width]
@@ -156,7 +156,7 @@ def load_images(paths, transform):
     x = []
     for path in paths:
         x.append(load_image(path + '.jpg', transform))
-    return torch.cat(x, dim=0)
+    return torch.stack(x, dim=0)
 
 
 def load_image(path, transform):

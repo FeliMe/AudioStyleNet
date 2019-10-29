@@ -22,13 +22,13 @@ LOG_RUN = False
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='ravdess_landmarks_rnn',
+                    default='ravdess_image_simple',
                     help='name of config')
 args = parser.parse_args()
 
 config = importlib.import_module('configs.' + args.config).config
 if 'use_gray' not in config.keys():
-    config['use_gray'] = False
+    config['use_gray'] = True
 
 
 """ Init wandb """
@@ -127,7 +127,6 @@ solver = Solver(model, LOG_RUN)
 
 
 print('Printing model summary...')
-print(x_sample.shape)
 summary(model, torch.zeros((1, *x_sample.shape[1:])).to(device))
 
 
