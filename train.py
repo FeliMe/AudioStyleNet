@@ -14,7 +14,11 @@ import dataloader
 from solver import Solver
 
 HOME = os.path.expanduser('~')
+PLOT_GRADS = False
 LOG_RUN = False
+
+if PLOT_GRADS:
+    print("WARNING: Plot gradients is on. This may cause slow training time!")
 
 
 """ Load config """
@@ -65,6 +69,8 @@ ds = dataloader.RAVDESSDataset(config.data_path,
                                window_size=config.window_size,
                                step_size=config.step_size)
 
+print("Found {} samples in total".format(len(ds)))
+
 # Split dataset
 dataset_size = len(ds)
 indices = list(range(dataset_size))
@@ -97,7 +103,7 @@ dataset_sizes = {
     'val': len(val_indices)
 }
 
-print("Found {} training and {} validation samples".format(
+print("Using {} samples for training and {} for validation".format(
     len(train_indices), len(val_indices)))
 
 
@@ -138,7 +144,8 @@ model = solver.train_model(criterion,
                            data_loaders,
                            dataset_sizes,
                            config,
-                           exp_lr_scheduler)
+                           exp_lr_scheduler,
+                           PLOT_GRADS)
 
 if not solver.kill_now:
     solver.eval_model(device, data_loaders)

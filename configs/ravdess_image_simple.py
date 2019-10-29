@@ -15,7 +15,7 @@ config = Config({
     'data_format': 'image',
     'use_gray': True,
     'validation_split': .2,
-    'sequence_length': 3,
+    'sequence_length': 5,
     'window_size': 1,
     'step_size': 1,
 
@@ -32,10 +32,14 @@ config = Config({
 
 config.update({
     # Model parameters
-    # 'model': models.ConvAndLSTM()
     # 'model': models.ConvAndCat(config.sequence_length)
-    # 'model': models.ConvAndPool(config.sequence_length)
-    'model': models.ConvAnd3D(config.sequence_length)
+    # 'model': models.ConvAndPool()
+    # 'model': models.ConvAnd3D(config.sequence_length)
+    # 'model': models.ConvAndRNN()
+    'model': models.ConvAndConvLSTM()
+    # 'model': models.SiameseConv3D()
+    #
+    # 'model': models.TestModel()
 })
 
 config.update({

@@ -31,7 +31,7 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': models.LandmarksLSTM(config.window_size, config.sequence_length)
+    'model': models.LandmarksLSTM(config.window_size)
 })
 
 config.update({
