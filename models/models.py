@@ -50,8 +50,43 @@ class TestModel(nn.Module):
     def __init__(self):
         super(TestModel, self).__init__()
 
+        self.temporal = model_utils.MaxChannelPool()
+
+        self.convolutions = nn.Sequential(
+            # shape: [batch_size, 1, 224, 224]
+            nn.Conv2d(1, 16, 5, padding=2),
+            # shape: [batch_size, 16, 224, 224]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            # shape: [batch_size, 16, 112, 112]
+            nn.Conv2d(16, 32, 5, padding=2),
+            # shape: [batch_size, 32, 112, 112]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            # shape: [batch_size, 32, 56, 56]
+            nn.Conv2d(32, 16, 5, padding=2),
+            # shape: [batch_size, 16, 56, 56]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            # shape: [batch_size, 16, 28, 28]
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(16 * 28 * 28, 40),
+            nn.ReLU(),
+            nn.Linear(40, 8)
+        )
+
     def forward(self, x):
-        pass
+        # shape: [batch_size, sequence_length, channels, height, width]
+        y = self.temporal(x)
+        # shape: [batch_size, channels, height, width]
+        y = self.convolutions(y)
+        # shape: [batch_size, 16, 28, 28]
+        y = self.classifier(y)
+        # shape: [batch_size, 8]
+        return y
 
 
 class SiameseConvNet(nn.Module):
@@ -206,8 +241,8 @@ class ConvAndConvLSTM(nn.Module):
 
         self.convolutions = SiameseConvNet()
 
+        # 533.600 param version
         self.temporal = model_utils.ConvLSTM(16, hidden_size)
-
         self.classifier = nn.Sequential(
             nn.Flatten(),
             nn.Linear(hidden_size * 28 * 28, 8)

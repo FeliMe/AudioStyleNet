@@ -36,10 +36,10 @@ config.update({
     # 'model': models.ConvAndPool()
     # 'model': models.ConvAnd3D(config.sequence_length)
     # 'model': models.ConvAndRNN()
-    'model': models.ConvAndConvLSTM()
+    # 'model': models.ConvAndConvLSTM()
     # 'model': models.SiameseConv3D()
     #
-    # 'model': models.TestModel()
+    'model': models.TestModel()
 })
 
 config.update({
