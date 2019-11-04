@@ -19,37 +19,44 @@ from dataloader import RAVDESSDataset
 
 HOME = os.path.expanduser('~')
 
-IMAGE_PATH = HOME + '/Datasets/RAVDESS/Image'
+IMAGE_224_PATH = HOME + '/Datasets/RAVDESS/Image224'
+IMAGE_64_PATH = HOME + '/Datasets/RAVDESS/Image64'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
 
-def ravdess_get_mean_std_image(root_path):
+def ravdess_get_mean_std_image(root_path, gray=False):
     root_dir = pathlib.Path(root_path)
 
-    transform = transforms.ToTensor()
+    if gray:
+        transform_list = [transforms.Grayscale(), transforms.ToTensor()]
+    else:
+        transform_list = [transforms.ToTensor()]
+
+    transform = transforms.Compose(transform_list)
 
     # Get all paths
-    all_folders = [p for p in list(root_dir.glob('*/*/'))
-                   if str(p).split('/')[-1] != '.DS_Store']
-    num_actors = len([p for p in list(root_dir.glob('*/'))])
+    all_sentences = [p for p in list(root_dir.glob('*/*/'))
+                     if str(p).split('/')[-1] != '.DS_Store']
+    num_sentences = len(all_sentences)
 
-    # Use only 1000 frames from each actor
-    all_actors = []
-    for path in all_folders:
-        actor = list(path.glob('*'))
-        random.shuffle(actor)
-        actor = actor[:1000]
-        actor = [str(path) for path in actor]
-        for a in actor:
-            all_actors.append(a)
+    # Use only 5 frames from each sentence
+    all_frame_paths = []
+    for path in all_sentences:
+        sentence = list(path.glob('*'))
+        random.shuffle(sentence)
+        sentence = sentence[:5]
+        sentence = [str(path) for path in sentence]
+        for s in sentence:
+            all_frame_paths.append(s)
 
-    print("{} frames used from {} actors".format(len(all_actors), num_actors))
+    print("{} frames used from {} sentences".format(
+        len(all_frame_paths), num_sentences))
     all_frames = []
 
-    for actor in all_actors:
-        with open(actor, 'rb') as f:
-            frame = Image.open(f).convert('RGB')
+    for frame_path in all_frame_paths:
+        with open(frame_path, 'rb') as file:
+            frame = Image.open(file).convert('RGB')
             frame = transform(frame)
             all_frames.append(frame.numpy())
 
@@ -59,9 +66,16 @@ def ravdess_get_mean_std_image(root_path):
     print('Std: {}'.format(all_frames.std(axis=(0, 2, 3))))
 
 
-def ravdess_convert_jpg(root_path):
-    target_path = HOME + '/Datasets/RAVDESS/Image'
-    target_size = 224
+def ravdess_convert_to_frames(root_path):
+    # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
+    # initialize dlib's face detector (HOG-based) and then create
+    # the facial landmark predictor
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    target_path = IMAGE_64_PATH
+    target_size = 64
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
@@ -71,33 +85,75 @@ def ravdess_convert_jpg(root_path):
         paths = [str(p) for p in list(folder.glob('*/'))]
         actor = paths[0].split('/')[-2]
         os.makedirs(os.path.join(target_path, actor), exist_ok=True)
+        center = None
 
         for i_path, path in enumerate(paths):
             print("File {} of {}, actor {} of {}".format(
                 i_path, len(paths), i_folder, len(all_folders)))
-            file = path.split('/')[-1][:-4]
             i_frame = 0
             cap = cv2.VideoCapture(path)
             while cap.isOpened():
+                # Frame shape: (720, 1280, 3)
                 ret, frame = cap.read()
                 if not ret:
                     break
                 i_frame += 1
 
-                # Resize
-                height, width, _ = frame.shape
-                new_height = target_size
-                new_width = math.floor((target_size / height) * width)
-                frame = cv2.resize(frame, (new_width, new_height))
+                # Grayscale image
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                # Center crop
-                left = int((new_width - target_size) / 2)
-                frame = frame[:, left:left + target_size]
+                # Detect faces
+                rects = detector(frame, 1)
 
-                # Save
-                save_str = os.path.join(
-                    target_path, actor, file + '-' + str(i_frame).zfill(3) + '.jpg')
-                cv2.imwrite(save_str, frame)
+                # Detect faces
+                rects = detector(frame, 1)
+                for (i, rect) in enumerate(rects):
+                    # Detect landmarks in faces
+                    landmarks = predictor(gray, rect)
+                    landmarks = shape_to_np(landmarks)
+
+                    # Center of face
+                    cx, cy = landmarks[33]
+
+                    # Top and bottom
+                    top = min(landmarks[19, 1], landmarks[24, 1])
+                    bottom = max(landmarks[6:10, 1])
+                    h = bottom - top
+
+                    # Left and right
+                    left = cx - h // 2
+                    right = cx + h // 2
+
+                    # Add margin
+                    margin = int(.1 * h)
+                    top -= int(1.8 * margin)
+                    bottom += int(0.2 * margin)
+                    left -= margin
+                    right += margin
+
+                print(frame.shape)
+
+                cv2.rectangle(frame,
+                              (left, top),
+                              (right, bottom),
+                              (0, 0, 255), 1)
+                cv2.imshow("Output", frame)
+                cv2.waitKey(0)
+
+                # # Resize
+                # height, width, _ = frame.shape
+                # new_height = target_size
+                # new_width = math.floor((target_size / height) * width)
+                # frame = cv2.resize(frame, (new_width, new_height))
+                #
+                # # Center crop
+                # left = int((new_width - target_size) / 2)
+                # frame = frame[:, left:left + target_size]
+                #
+                # # Save
+                # save_str = os.path.join(
+                #     target_path, actor, file + '-' + str(i_frame).zfill(3) + '.jpg')
+                # cv2.imwrite(save_str, frame)
 
 
 def ravdess_extract_landmarks(root_path):
@@ -108,7 +164,7 @@ def ravdess_extract_landmarks(root_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    target_path = HOME + '/Datasets/RAVDESS/Landmarks'
+    target_path = LANDMARKS_PATH
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
@@ -204,8 +260,8 @@ def ravdess_plot_label_distribution(data_path):
     plt.show()
 
 
-# ravdess_get_mean_std_image(IMAGE_PATH)
-# ravdess_convert_jpg(VIDEO_PATH)
-# ravdess_extract_landmarks(IMAGE_PATH)
-# ravdess_group_by_utterance(IMAGE_PATH)
+# ravdess_get_mean_std_image(IMAGE_224_PATH, True)
+ravdess_convert_to_frames(VIDEO_PATH)
+# ravdess_extract_landmarks(IMAGE_224_PATH)
+# ravdess_group_by_utterance(IMAGE_224_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)

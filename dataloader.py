@@ -17,8 +17,17 @@ from torchvision import transforms
 import utils
 
 
-IMG_NET_MEAN = [0.485, 0.456, 0.406]  # ImageNet mean
-IMG_NET_STD = [0.229, 0.224, 0.225]  # ImageNet std
+# ImageNet mean / std
+IMG_NET_MEAN = [0.485, 0.456, 0.406]
+IMG_NET_STD = [0.229, 0.224, 0.225]
+
+# RAVDESS mean / std
+RAVDESS_MEAN = [0.755, 0.673, 0.652]
+RAVDESS_STD = [0.300, 0.348, 0.361]
+
+# ImageNet mean / std (Grayscale)
+RAVDESS_GRAY_MEAN = [0.694]
+RAVDESS_GRAY_STD = [0.332]
 
 
 class RAVDESSDataset(Dataset):
@@ -92,13 +101,20 @@ class RAVDESSDataset(Dataset):
         emotions = torch.tensor(emotions, dtype=torch.long)
 
         # Add transforms
-        trans = [transforms.ToTensor()]
         if use_gray:
-            trans.insert(0, transforms.Grayscale())
+            trans = transforms.Compose([
+                transforms.Grayscale(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=RAVDESS_GRAY_MEAN,
+                                     std=RAVDESS_GRAY_STD)
+            ])
         else:
-            trans.append(transforms.Normalize(mean=IMG_NET_MEAN,
-                                              std=IMG_NET_STD),)
-        self.transforms = transforms.Compose(trans)
+            trans = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize(mean=RAVDESS_MEAN,
+                                     std=RAVDESS_STD)
+            ])
+        self.transforms = trans
 
         self.emotions = emotions
         self.sentences = sentences

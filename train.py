@@ -15,7 +15,7 @@ from solver import Solver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
-LOG_RUN = False
+LOG_RUN = True
 
 if PLOT_GRADS:
     print("WARNING: Plot gradients is on. This may cause slow training time!")
