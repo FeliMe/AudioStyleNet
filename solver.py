@@ -35,19 +35,6 @@ class BaseSolver(object):
         self.save()
         self.kill_now = True
 
-    @abstractmethod
-    def train_model(self,
-                    criterion,
-                    optimizer,
-                    device,
-                    data_loaders,
-                    dataset_sizes,
-                    config,
-                    scheduler=None,
-                    plot_grads=False,
-                    log_run=True):
-        pass
-
 
 class ClassificationSolver(BaseSolver):
     def __init__(self, model):

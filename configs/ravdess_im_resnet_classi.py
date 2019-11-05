@@ -16,7 +16,6 @@ config = Config({
     'data_format': 'image',
     'validation_split': .2,
     'sequence_length': 1,
-    'window_size': 3,
     'step_size': 1,
 
     # Hyper parameters

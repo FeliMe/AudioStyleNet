@@ -17,7 +17,6 @@ config = Config({
     'use_gray': True,
     'validation_split': .2,
     'sequence_length': 9,
-    'window_size': 1,
     'step_size': 1,
 
     # Hyper parameters

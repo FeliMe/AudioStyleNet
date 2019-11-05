@@ -24,7 +24,7 @@ if PLOT_GRADS:
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='ravdess_image_simple',
+                    default='ravdess_im_classi',
                     help='name of config')
 args = parser.parse_args()
 
@@ -44,6 +44,7 @@ if LOG_RUN:
 seed = 123
 torch.manual_seed(seed)
 
+
 """ Configure training with or without cuda """
 
 if config.use_cuda and torch.cuda.is_available():
@@ -57,6 +58,7 @@ else:
     kwargs = {}
     print("No GPU. Training on CPU.")
 
+
 """ Load dataset """
 
 ds = dataloader.RAVDESSDataset(config.data_path,
@@ -64,7 +66,6 @@ ds = dataloader.RAVDESSDataset(config.data_path,
                                use_gray=config.use_gray,
                                max_samples=None,
                                sequence_length=config.sequence_length,
-                               window_size=config.window_size,
                                step_size=config.step_size)
 
 print("Found {} samples in total".format(len(ds)))
