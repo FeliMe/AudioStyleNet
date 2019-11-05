@@ -20,7 +20,7 @@ from dataloader import RAVDESSDataset
 HOME = os.path.expanduser('~')
 
 IMAGE_224_PATH = HOME + '/Datasets/RAVDESS/Image224'
-IMAGE_64_PATH = HOME + '/Datasets/RAVDESS/Image64'
+IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/Image128'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
@@ -74,8 +74,8 @@ def ravdess_convert_to_frames(root_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    target_path = IMAGE_64_PATH
-    target_size = 64
+    target_path = IMAGE_128_PATH
+    target_size = 128
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
@@ -84,12 +84,14 @@ def ravdess_convert_to_frames(root_path):
     for i_folder, folder in enumerate(all_folders):
         paths = [str(p) for p in list(folder.glob('*/'))]
         actor = paths[0].split('/')[-2]
-        os.makedirs(os.path.join(target_path, actor), exist_ok=True)
-        center = None
 
         for i_path, path in enumerate(paths):
-            print("File {} of {}, actor {} of {}".format(
-                i_path, len(paths), i_folder, len(all_folders)))
+            utterance = path.split('/')[-1][:-4]
+            path_to_utt = os.path.join(target_path, actor, utterance)
+            print("Utterance {} of {}, actor {} of {}, {}".format(
+                i_path + 1, len(paths), i_folder + 1, len(all_folders),
+                path_to_utt))
+            os.makedirs(path_to_utt, exist_ok=True)
             i_frame = 0
             cap = cv2.VideoCapture(path)
             while cap.isOpened():
@@ -99,11 +101,23 @@ def ravdess_convert_to_frames(root_path):
                     break
                 i_frame += 1
 
+                # Get target file name
+                save_str = os.path.join(
+                    path_to_utt, str(i_frame).zfill(3) + '.jpg')
+
+                # If file already exists, skip
+                if os.path.exists(save_str):
+                    print("Already exists. Skipping...")
+                    continue
+
+                # Pre-resize to save computation (3 * target_size)
+                shape = frame.shape
+                w_ = 3 * target_size
+                h_ = int((shape[1] / shape[0]) * w_)
+                frame = cv2.resize(frame, (h_, w_))
+
                 # Grayscale image
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-                # Detect faces
-                rects = detector(frame, 1)
 
                 # Detect faces
                 rects = detector(frame, 1)
@@ -131,29 +145,22 @@ def ravdess_convert_to_frames(root_path):
                     left -= margin
                     right += margin
 
-                print(frame.shape)
+                # Visualize
+                # cv2.rectangle(frame,
+                #               (left, top),
+                #               (right, bottom),
+                #               (0, 0, 255), 1)
+                # cv2.imshow("Output", frame)
+                # cv2.waitKey(0)
 
-                cv2.rectangle(frame,
-                              (left, top),
-                              (right, bottom),
-                              (0, 0, 255), 1)
-                cv2.imshow("Output", frame)
-                cv2.waitKey(0)
+                # Cut center
+                frame = frame[top:bottom, left:right]
 
-                # # Resize
-                # height, width, _ = frame.shape
-                # new_height = target_size
-                # new_width = math.floor((target_size / height) * width)
-                # frame = cv2.resize(frame, (new_width, new_height))
-                #
-                # # Center crop
-                # left = int((new_width - target_size) / 2)
-                # frame = frame[:, left:left + target_size]
-                #
-                # # Save
-                # save_str = os.path.join(
-                #     target_path, actor, file + '-' + str(i_frame).zfill(3) + '.jpg')
-                # cv2.imwrite(save_str, frame)
+                # Resize
+                frame = cv2.resize(frame, (target_size, target_size))
+
+                # Save
+                cv2.imwrite(save_str, frame)
 
 
 def ravdess_extract_landmarks(root_path):
