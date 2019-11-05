@@ -1,8 +1,9 @@
-import os
 import torch
 import torch.nn as nn
+import os
 
 from models import models
+from solver import ClassificationSolver
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -12,11 +13,11 @@ config = Config({
     'use_cuda': True,
 
     # Dataset configs
-    'data_path': HOME + '/Datasets/RAVDESS/Image',
-    'data_format': 'image',
+    'data_path': HOME + '/Datasets/RAVDESS/Landmarks',
+    'data_format': 'landmarks',
     'validation_split': .2,
     'sequence_length': 1,
-    'window_size': 3,
+    'window_size': 1,
     'step_size': 1,
 
     # Hyper parameters
@@ -25,18 +26,23 @@ config = Config({
     'batch_size': 32,
 
     # Logging
-    'log_interval': 1000,
+    'log_interval': 10000,
     'save_interval': 1,
     'save_path': 'saves/Classification_Landmarks'
 })
 
 config.update({
     # Model parameters
-    'model': models.PreTrainedResNet18(config.window_size)
+    'model': nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(34 * config.window_size, 8),
+    ),
+    # 'model': models.LandmarksLSTM(config.window_size)
 })
 
 config.update({
     # Optimizer
+    'solver': ClassificationSolver(config.model),
     'optim': torch.optim.Adam(params=config.model.parameters(),
                               lr=config.learning_rate),
 })

@@ -11,11 +11,9 @@ from torchsummaryX import summary
 
 import dataloader
 
-from solver import Solver
-
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
-LOG_RUN = True
+LOG_RUN = False
 
 if PLOT_GRADS:
     print("WARNING: Plot gradients is on. This may cause slow training time!")
@@ -129,7 +127,7 @@ if LOG_RUN:
 model.train()
 model.to(device)
 
-solver = Solver(model, LOG_RUN)
+solver = config.solver
 
 
 print('Printing model summary...')
@@ -145,7 +143,8 @@ model = solver.train_model(criterion,
                            dataset_sizes,
                            config,
                            exp_lr_scheduler,
-                           PLOT_GRADS)
+                           PLOT_GRADS,
+                           LOG_RUN)
 
 if not solver.kill_now:
     solver.eval_model(device, data_loaders)

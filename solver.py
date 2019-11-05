@@ -9,19 +9,49 @@ import time
 import torch
 import wandb
 
+from abc import abstractmethod
 from sklearn.metrics import confusion_matrix
+from utils import GradPlotter
 
 
-class Solver(object):
-    def __init__(self,
-                 model,
-                 log_run=True):
+class BaseSolver(object):
+    def __init__(self, model):
         self.model = model
         self.best_model_wts = copy.deepcopy(self.model.state_dict())
-        self.config = None
         self.save_path = 'saves'
+        self.config = None
+        self.log_run = False
         self.kill_now = False
-        self.log_run = log_run
+
+    def save(self):
+        self.model.load_state_dict(self.best_model_wts)
+        os.makedirs(self.save_path, exist_ok=True)
+        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
+        if self.log_run:
+            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+
+    def exit_gracefully(self, signum, frame):
+        print("Stopping gracefully, saving best model...")
+        self.save()
+        self.kill_now = True
+
+    @abstractmethod
+    def train_model(self,
+                    criterion,
+                    optimizer,
+                    device,
+                    data_loaders,
+                    dataset_sizes,
+                    config,
+                    scheduler=None,
+                    plot_grads=False,
+                    log_run=True):
+        pass
+
+
+class ClassificationSolver(BaseSolver):
+    def __init__(self, model):
+        super(ClassificationSolver, self).__init__(model)
 
     def train_model(self,
                     criterion,
@@ -31,8 +61,10 @@ class Solver(object):
                     dataset_sizes,
                     config,
                     scheduler=None,
-                    plot_grads=False):
+                    plot_grads=False,
+                    log_run=True):
         self.config = config
+        self.log_run = log_run
         self.kill_now = False
         signal.signal(signal.SIGINT, self.exit_gracefully)
         signal.signal(signal.SIGTERM, self.exit_gracefully)
@@ -81,14 +113,12 @@ class Solver(object):
                         if phase == 'train':
                             i_step += 1
                             loss.backward()
+                            optimizer.step()
+
                             if plot_grads:
                                 if grad_plotter is None:
                                     grad_plotter = GradPlotter(self.model.named_parameters())
                                 grad_plotter.plot_grad_flow(self.model.named_parameters())
-                            optimizer.step()
-                            # if self.log_run:
-                            #     wandb.log({'Gradients': wandb.Histogram(
-                            #         self.model.named_parameters())})
 
                     if (i_step + 1) % config.log_interval == 0:
                         print("Step {}/{}".format(i_step + 1,
@@ -176,84 +206,31 @@ class Solver(object):
         if self.log_run:
             wandb.log({'confusion matrix': [wandb.Image(plt)]})
 
-    def save(self):
-        self.model.load_state_dict(self.best_model_wts)
-        os.makedirs(self.save_path, exist_ok=True)
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
-        if self.log_run:
-            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
 
-    def exit_gracefully(self, signum, frame):
-        print("Stopping gracefully, saving best model...")
-        self.save()
-        self.kill_now = True
+class GANSolver(BaseSolver):
+    def __init__(self, model):
+        super(GANSolver, self).__init__(model)
 
+    def train_model(self,
+                    criterion,
+                    optimizer,
+                    device,
+                    data_loaders,
+                    dataset_sizes,
+                    config,
+                    scheduler=None,
+                    plot_grads=False,
+                    log_run=True):
+        self.config = config
+        self.log_run = log_run
+        self.kill_now = False
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+        self.save_path = os.path.join(
+            config.save_path,
+            'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
 
-class GradPlotter:
-    """
-    Source: https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
-    Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
+        grad_plotter = None
 
-    Usage: Plug this function in Trainer class after loss.backwards() as
-    'if grad_plotter is None:
-        grad_plotter = GradPlotter(self.model.named_parameters())
-    grad_plotter.plot_grad_flow(self.model.named_parameters())'
-    to visualize the gradient flow
-    """
-    def __init__(self, named_parameters):
-        ave_grads = []
-        max_grads = []
-        layers = []
-        for n, p in named_parameters:
-            if p.requires_grad and ("bias" not in n):
-                layers.append(n)
-                # if n != 'fc.weight':
-                #     print(n, torch.sum(p.grad.abs()))
-                ave_grads.append(p.grad.abs().mean())
-                max_grads.append(p.grad.abs().max())
-
-        plt.ion()
-        fig = plt.figure()
-        ax = fig.add_subplot(111)
-
-        bar1 = ax.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
-        bar2 = ax.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
-
-        ax.hlines(0, 0, len(ave_grads) + 1, lw=2, color="k")
-        ax.set_xticks(range(0, len(ave_grads), 1), layers)
-        ax.set_xlim(left=0, right=len(ave_grads))
-        ax.set_ylim(bottom=-0.001,
-                    top=max([tensor.cpu() for tensor in ave_grads]))  # zoom in on the lower gradient regions
-        ax.set_xlabel("Layers")
-        ax.set_ylabel("average gradient")
-        ax.set_title("Gradient flow")
-        ax.grid(True)
-        ax.legend([plt.Line2D([0], [0], color="c", lw=4),
-                   plt.Line2D([0], [0], color="b", lw=4),
-                   plt.Line2D([0], [0], color="k", lw=4)],
-                  ['max-gradient', 'mean-gradient', 'zero-gradient'])
-
-        self.fig = fig
-        self.ax = ax
-        self.bar1 = bar1
-        self.bar2 = bar2
-
-    def plot_grad_flow(self, named_parameters):
-        ave_grads = []
-        max_grads = []
-        layers = []
-        for n, p in named_parameters:
-            if p.requires_grad and ("bias" not in n):
-                layers.append(n)
-                # if n != 'fc.weight':
-                #     print(n, torch.sum(p.grad.abs()))
-                ave_grads.append(p.grad.abs().mean())
-                max_grads.append(p.grad.abs().max())
-
-        for rect, h in zip(self.bar1, max_grads):
-            rect.set_height(h)
-        for rect, h in zip(self.bar2, ave_grads):
-            rect.set_height(h)
-        self.fig.canvas.draw()
-        self.fig.canvas.flush_events()
+        print("Starting training")
+        since = time.time()

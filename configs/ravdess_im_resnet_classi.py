@@ -2,6 +2,7 @@ import os
 import torch
 
 from models import models
+from solver import ClassificationSolver
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -13,10 +14,9 @@ config = Config({
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/Image',
     'data_format': 'image',
-    'use_gray': True,
     'validation_split': .2,
-    'sequence_length': 9,
-    'window_size': 1,
+    'sequence_length': 1,
+    'window_size': 3,
     'step_size': 1,
 
     # Hyper parameters
@@ -32,18 +32,12 @@ config = Config({
 
 config.update({
     # Model parameters
-    # 'model': models.ConvAndCat(config.sequence_length)
-    # 'model': models.ConvAndPool()
-    # 'model': models.ConvAnd3D(config.sequence_length)
-    # 'model': models.ConvAndRNN()
-    'model': models.ConvAndConvLSTM()
-    # 'model': models.SiameseConv3D()
-    #
-    # 'model': models.TestModel()
+    'model': models.PreTrainedResNet18(config.window_size)
 })
 
 config.update({
     # Optimizer
+    'solver': ClassificationSolver(config.model),
     'optim': torch.optim.Adam(params=config.model.parameters(),
                               lr=config.learning_rate),
 })
