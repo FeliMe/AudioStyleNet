@@ -86,17 +86,21 @@ class RAVDESSDataset(Dataset):
 
         # Add transforms
         if use_gray:
+            self.mean = RAVDESS_GRAY_MEAN
+            self.std = RAVDESS_GRAY_STD
             trans = transforms.Compose([
                 transforms.Grayscale(),
                 transforms.ToTensor(),
-                transforms.Normalize(mean=RAVDESS_GRAY_MEAN,
-                                     std=RAVDESS_GRAY_STD)
+                transforms.Normalize(mean=self.mean,
+                                     std=self.std)
             ])
         else:
+            self.mean = RAVDESS_MEAN
+            self.std = RAVDESS_STD
             trans = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize(mean=RAVDESS_MEAN,
-                                     std=RAVDESS_STD)
+                transforms.Normalize(mean=self.mean,
+                                     std=self.std)
             ])
         self.transforms = trans
 
@@ -129,7 +133,7 @@ class RAVDESSDataset(Dataset):
 
     def show_sample(self):
         sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
-        self.show_fn(sample)
+        self.show_fn(sample, self.mean, self.std)
 
     def __len__(self):
         return len(self.sentences)
@@ -174,6 +178,35 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
 
         return {'A': a, 'B': b}
 
+    def show_sample(self):
+        sample = self.__getitem__(np.random.randint(0, self.__len__() - 1))
+        if len(sample['A'].shape) == 4:
+            # Sequence lenght > 1
+            img_a = sample['A'][0]
+            img_b = sample['B'][0]
+        else:
+            # Sequence length == 1
+            img_a = sample['A']
+            img_b = sample['B']
+
+        # Denormalize
+        transform = utils.denormalize(self.mean, self.std)
+        img_a = transform(img_a)
+        img_b = transform(img_b)
+
+        plt.subplot(1, 2, 1)
+        plt.axis('off')
+        plt.title("First frame of sequence A")
+        plt.imshow(np.moveaxis(img_a.numpy(), 0, 2))
+
+        plt.subplot(1, 2, 2)
+        plt.axis('off')
+        plt.title("First frame of sequence B")
+        plt.imshow(np.moveaxis(img_b.numpy(), 0, 2))
+
+        plt.tight_layout()
+        plt.show()
+
 
 def load_images(paths, transform):
     x = []
@@ -202,16 +235,17 @@ def load_landmark(path, transform):
     return landmarks.reshape(-1)
 
 
-def show_image(image):
+def show_image(image, mean, std):
     if len(image.shape) == 4:
+        # Sequence length > 1
         image = image[0]
-    transform = utils.denormalize(IMG_NET_MEAN, IMG_NET_STD)
-    image = transform(image[:3])
+    transform = utils.denormalize(mean, std)
+    image = transform(image)
     plt.imshow(np.moveaxis(image.numpy(), 0, 2))
     plt.show()
 
 
-def show_landmarks(landmarks):
+def show_landmarks(landmarks, mean, std):
     if len(landmarks.shape) == 2:
         landmarks = landmarks[0]
     landmarks = landmarks[:2 * 68].reshape(-1, 2)

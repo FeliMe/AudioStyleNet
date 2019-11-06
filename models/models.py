@@ -90,12 +90,14 @@ class TestModel(nn.Module):
 
 
 class SiameseConvNet(nn.Module):
-    def __init__(self):
+    def __init__(self, gray=False):
         super(SiameseConvNet, self).__init__()
+
+        channels = 1 if gray else 3
 
         self.convolutions = nn.Sequential(
             # shape: [batch_size, 1, 224, 224]
-            nn.Conv2d(1, 16, 5, padding=2),
+            nn.Conv2d(channels, 16, 5, padding=2),
             # shape: [batch_size, 16, 224, 224]
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
@@ -125,10 +127,10 @@ class SiameseConvNet(nn.Module):
 
 
 class ConvAndCat(nn.Module):
-    def __init__(self, sequence_length):
+    def __init__(self, sequence_length, gray):
         super(ConvAndCat, self).__init__()
 
-        self.convolutions = SiameseConvNet()
+        self.convolutions = SiameseConvNet(gray)
 
         # sequence length: 5, params: 527.000
         self.classifier = nn.Sequential(
@@ -148,10 +150,10 @@ class ConvAndCat(nn.Module):
 
 
 class ConvAndPool(nn.Module):
-    def __init__(self):
+    def __init__(self, gray):
         super(ConvAndPool, self).__init__()
 
-        self.convolutions = SiameseConvNet()
+        self.convolutions = SiameseConvNet(gray)
 
         self.temporal = model_utils.MaxChannelPool()
 
@@ -175,10 +177,10 @@ class ConvAndPool(nn.Module):
 
 
 class ConvAnd3D(nn.Module):
-    def __init__(self, sequence_length):
+    def __init__(self, sequence_length, gray):
         super(ConvAnd3D, self).__init__()
 
-        self.convolutions = SiameseConvNet()
+        self.convolutions = SiameseConvNet(gray)
 
         self.temporal = nn.Conv3d(sequence_length, 1, (5, 5, 5),
                                   padding=(2, 2, 2))
@@ -203,13 +205,13 @@ class ConvAnd3D(nn.Module):
 
 
 class ConvAndRNN(nn.Module):
-    def __init__(self):
+    def __init__(self, gray):
         super(ConvAndRNN, self).__init__()
         hidden_size = 40
         num_layers = 1
 
         # Convolutional Layers
-        self.convolutions = SiameseConvNet()
+        self.convolutions = SiameseConvNet(gray)
 
         # RNN Layers
         self.temporal = nn.RNN(28 * 28 * 16, hidden_size,
@@ -235,11 +237,11 @@ class ConvAndRNN(nn.Module):
 
 
 class ConvAndConvLSTM(nn.Module):
-    def __init__(self):
+    def __init__(self, gray):
         super(ConvAndConvLSTM, self).__init__()
         hidden_size = 57
 
-        self.convolutions = SiameseConvNet()
+        self.convolutions = SiameseConvNet(gray)
 
         # 533.600 param version
         self.temporal = model_utils.ConvLSTM(16, hidden_size)
@@ -260,12 +262,14 @@ class ConvAndConvLSTM(nn.Module):
 
 
 class SiameseConv3D(nn.Module):
-    def __init__(self):
+    def __init__(self, gray):
         super(SiameseConv3D, self).__init__()
+
+        channels = 1 if gray else 3
 
         self.convolutions = nn.Sequential(
             # shape: [batch_size, 1, 7, 224, 224]
-            nn.Conv3d(1, 16, (3, 5, 5), padding=(0, 2, 2)),
+            nn.Conv3d(channels, 16, (3, 5, 5), padding=(0, 2, 2)),
             # shape: [batch_size, 16, 5, 224, 224]
             nn.ReLU(),
             nn.MaxPool3d((1, 2, 2)),

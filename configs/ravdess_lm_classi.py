@@ -3,7 +3,6 @@ import torch.nn as nn
 import os
 
 from models import models
-from solver import ClassificationSolver
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -41,7 +40,6 @@ config.update({
 
 config.update({
     # Optimizer
-    'solver': ClassificationSolver(config.model),
     'optim': torch.optim.Adam(params=config.model.parameters(),
                               lr=config.learning_rate),
 })

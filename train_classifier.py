@@ -11,6 +11,8 @@ from torchsummaryX import summary
 
 import dataloader
 
+from solver import ClassificationSolver
+
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
 LOG_RUN = False
@@ -128,7 +130,7 @@ if LOG_RUN:
 model.train()
 model.to(device)
 
-solver = config.solver
+solver = ClassificationSolver(model)
 
 
 print('Printing model summary...')

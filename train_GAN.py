@@ -24,7 +24,7 @@ if PLOT_GRADS:
 parser = argparse.ArgumentParser()
 parser.add_argument('-c', '--config',
                     type=str,
-                    default='ravdess_im_classi',
+                    default='ravdess_im_gan',
                     help='name of config')
 args = parser.parse_args()
 
@@ -64,6 +64,17 @@ ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  sequence_length=config.sequence_length,
                                  step_size=config.step_size)
 
-sample = next(iter(ds))
+print("Found {} samples in total".format(len(ds)))
 
-print(sample['A'].shape, sample['B'].shape)
+data_loader = DataLoader(ds,
+                         batch_size=config.batch_size,
+                         num_workers=8,
+                         shuffle=True,
+                         drop_last=True)
+
+
+""" Show data example """
+
+x_sample = next(iter(data_loader))
+print('Input Shape: {}'.format(x_sample['A'].shape))
+ds.show_sample()
