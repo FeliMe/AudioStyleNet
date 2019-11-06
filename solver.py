@@ -287,7 +287,7 @@ class GANSolver(object):
                 pred_fake, patch_size = self.discriminator(fake_b, real_a)
 
                 # GAN loss
-                valid_patch = torch.ones(patch_size)
+                valid_patch = torch.ones(patch_size).to(device)
                 gan_loss = criterion_gan(pred_fake, valid_patch)
 
                 # Pixel-wise loss
@@ -307,7 +307,7 @@ class GANSolver(object):
                 optimizer_d.zero_grad()
 
                 # Real loss
-                fake_patch = torch.zeros(patch_size)
+                fake_patch = torch.zeros(patch_size).to(device)
                 pred_real, _ = self.discriminator(real_b, real_a)
                 loss_real = criterion_gan(pred_real, valid_patch)
 
@@ -325,23 +325,23 @@ class GANSolver(object):
                 #  Log Progress
                 # --------------
 
-                print('Generator loss: {:.4f} Discriminator loss: {:.4f}'.format(
-                    generator_loss, discriminator_loss))
-                time_elapsed = time.time() - t_start
-                print('Time elapsed {}'.format(
-                    utils.time_to_str(time_elapsed)))
-                print('Time left: {}\n'.format(
-                    utils.time_left(t_start, config.num_epochs, i_epoch)))
-
-                if log_run:
-                    self.sample_images(real_a, real_b, i_epoch)
-                    wandb.log({'Generator loss': generator_loss,
-                               'Discriminator loss': discriminator_loss})
-                    self.save(i_epoch)
-
+            print('Generator loss: {:.4f} Discriminator loss: {:.4f}'.format(
+                generator_loss, discriminator_loss))
             time_elapsed = time.time() - t_start
-            print('\nTraining complete in {:.0f}m {:.0f}s'.format(
-                time_elapsed // 60, time_elapsed % 60))
+            print('Time elapsed {}'.format(
+                utils.time_to_str(time_elapsed)))
+            print('Time left: {}\n'.format(
+                utils.time_left(t_start, config.num_epochs, i_epoch)))
 
-            if self.log_run:
-                self.save('final')
+            if log_run:
+                self.sample_images(real_a, real_b, i_epoch)
+                wandb.log({'Generator loss': generator_loss,
+                           'Discriminator loss': discriminator_loss})
+                self.save(i_epoch)
+
+        time_elapsed = time.time() - t_start
+        print('\nTraining complete in {:.0f}m {:.0f}s'.format(
+            time_elapsed // 60, time_elapsed % 60))
+
+        if self.log_run:
+            self.save('final')
