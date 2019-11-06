@@ -131,7 +131,7 @@ if LOG_RUN:
 model.train()
 model.to(device)
 
-solver = ClassificationSolver()
+solver = ClassificationSolver(model)
 
 
 print('Printing model summary...')
@@ -140,8 +140,7 @@ summary(model, torch.zeros((1, *x_sample.shape[1:])).to(device))
 
 """ Do training """
 
-model = solver.train_model(model,
-                           criterion,
+model = solver.train_model(criterion,
                            optimizer,
                            device,
                            data_loaders,

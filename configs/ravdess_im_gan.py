@@ -24,6 +24,7 @@ config = Config({
     'num_epochs': 30,
     'learning_rate': 0.001,
     'batch_size': 32,
+    'lambda_pixel': 100,
 
     # Logging
     'log_interval': 1000,
@@ -40,6 +41,12 @@ config.update({
 
 config.update({
     # Optimizers
-    'optimizer_G': torch.optim.Adam(params=config.generator.parameters(),
+    'optimizer_g': torch.optim.Adam(config.generator.parameters(),
                                     lr=config.learning_rate),
+    'optimizer_d': torch.optim.Adam(config.discriminator.parameters(),
+                                    lr=config.learning_rate),
+
+    # Loss functions
+    'criterion_gan': torch.nn.MSELoss(),
+    'criterion_pix': torch.nn.L1Loss(),
 })

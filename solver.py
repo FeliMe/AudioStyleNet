@@ -10,22 +10,21 @@ import torch
 import wandb
 
 from sklearn.metrics import confusion_matrix
+from torchvision.utils import save_image
 
 import utils
 
 
 class BaseSolver(object):
-    def __init__(self):
-        self.model = None
-        self.best_model_wts = None
+    def __init__(self, model):
+        self.model = model
+        self.best_model_wts = copy.deepcopy(self.model.state_dict())
         self.save_path = 'saves'
         self.config = None
         self.log_run = False
         self.kill_now = False
 
     def save(self):
-        if self.model is None or self.best_model_wts is None:
-            raise TypeError("No model yet to save")
         self.model.load_state_dict(self.best_model_wts)
         os.makedirs(self.save_path, exist_ok=True)
         torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
@@ -39,11 +38,10 @@ class BaseSolver(object):
 
 
 class ClassificationSolver(BaseSolver):
-    def __init__(self):
-        super(ClassificationSolver, self).__init__()
+    def __init__(self, model):
+        super(ClassificationSolver, self).__init__(model)
 
     def train_model(self,
-                    model,
                     criterion,
                     optimizer,
                     device,
@@ -54,8 +52,6 @@ class ClassificationSolver(BaseSolver):
                     plot_grads=False,
                     log_run=True):
 
-        self.model = model
-        self.best_model_wts = copy.deepcopy(self.model.state_dict())
         self.config = config
         self.log_run = log_run
         self.kill_now = False
@@ -202,13 +198,47 @@ class ClassificationSolver(BaseSolver):
             wandb.log({'confusion matrix': [wandb.Image(plt)]})
 
 
-class GANSolver(BaseSolver):
-    def __init__(self):
-        super(GANSolver, self).__init__()
+class GANSolver(object):
+    def __init__(self, generator, discriminator):
+        self.generator = generator
+        self.discriminator = discriminator
+        self.save_path = 'saves'
+        self.config = None
+        self.log_run = False
+        self.kill_now = False
+
+    def exit_gracefully(self, signum, frame):
+        print("Stopping gracefully, saving best model...")
+        self.save('aborted')
+        self.kill_now = True
+
+    def save(self, i_epoch):
+        os.makedirs(self.save_path, exist_ok=True)
+        torch.save(self.generator.state_dict(),
+                   os.path.join(self.save_path,
+                                'generator_{}.pt'.format(i_epoch)))
+        torch.save(self.discriminator.state_dict(),
+                   os.path.join(self.save_path,
+                                'discriminator_{}.pt'.format(i_epoch)))
+        if self.log_run:
+            torch.save(self.generator.state_dict(),
+                       os.path.join(wandb.run.dir,
+                                    'generator_{}.pt'.format(i_epoch)))
+            torch.save(self.discriminator.state_dict(),
+                       os.path.join(wandb.run.dir,
+                                    'discriminator_{}.pt'.format(i_epoch)))
+
+    def sample_images(self, real_a, real_b, i_epoch):
+        """ Saves a generated sample """
+        fake_b = self.generator(real_a)
+        img_sample = torch.cat(
+            (real_a[:, 0].data, fake_b[:, 0].data, real_b[:, 0].data), -2)
+        target_dir = os.path.join(self.save_path, 'images')
+        os.makedirs(target_dir, exist_ok=True)
+        save_image(img_sample, target_dir + "/{}.png".format(i_epoch),
+                   nrow=5, normalize=True)
 
     def train_model(self,
-                    generator,
-                    discriminator,
                     optimizer_g,
                     optimizer_d,
                     criterion_gan,
@@ -219,6 +249,7 @@ class GANSolver(BaseSolver):
                     lambda_pixel=100,
                     plot_grads=False,
                     log_run=True):
+
         self.config = config
         self.log_run = log_run
         self.kill_now = False
@@ -250,10 +281,10 @@ class GANSolver(BaseSolver):
                 optimizer_g.zero_grad()
 
                 # Generate fake
-                fake_b = generator(real_a)
+                fake_b = self.generator(real_a)
 
                 # Predict fake
-                pred_fake, patch_size = discriminator(fake_b, real_a)
+                pred_fake, patch_size = self.discriminator(fake_b, real_a)
 
                 # GAN loss
                 valid_patch = torch.ones(patch_size)
@@ -277,11 +308,11 @@ class GANSolver(BaseSolver):
 
                 # Real loss
                 fake_patch = torch.zeros(patch_size)
-                pred_real, _ = discriminator(real_b, real_a)
+                pred_real, _ = self.discriminator(real_b, real_a)
                 loss_real = criterion_gan(pred_real, valid_patch)
 
                 # Fake loss
-                pred_fake, _ = discriminator(fake_b.detach(), real_a)
+                pred_fake, _ = self.discriminator(fake_b.detach(), real_a)
                 loss_fake = criterion_gan(pred_fake, fake_patch)
 
                 # Total loss
@@ -301,3 +332,16 @@ class GANSolver(BaseSolver):
                     utils.time_to_str(time_elapsed)))
                 print('Time left: {}\n'.format(
                     utils.time_left(t_start, config.num_epochs, i_epoch)))
+
+                if log_run:
+                    self.sample_images(real_a, real_b, i_epoch)
+                    wandb.log({'Generator loss': generator_loss,
+                               'Discriminator loss': discriminator_loss})
+                    self.save(i_epoch)
+
+            time_elapsed = time.time() - t_start
+            print('\nTraining complete in {:.0f}m {:.0f}s'.format(
+                time_elapsed // 60, time_elapsed % 60))
+
+            if self.log_run:
+                self.save('final')

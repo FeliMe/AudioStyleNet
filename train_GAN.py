@@ -1,15 +1,15 @@
 import argparse
 import importlib
-import numpy as np
 import os
 import torch
-import torch.nn as nn
 import wandb
 
 from torch.utils.data import DataLoader
 from torchsummaryX import summary
 
 import dataloader
+
+from solver import GANSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
@@ -80,6 +80,10 @@ x_sample = next(iter(data_loader))
 print('Input Shape: {}'.format(x_sample['A'].shape))
 # ds.show_sample()
 
+
+""" Initialize models, solver, optimizers and loss functions """
+
+# Initialize models
 generator = config.generator
 generator.train()
 generator.to(device)
@@ -88,6 +92,30 @@ discriminator = config.discriminator
 discriminator.train()
 discriminator.to(device)
 
-out = discriminator(x_sample['A'], x_sample['B'])
+if LOG_RUN:
+    wandb.watch(generator)
 
-print(out.shape)
+# Initialize Loss functions
+criterion_gan = config.criterion_gan
+criterion_pix = config.criterion_pix
+
+# Initialize optimizers
+optimizer_g = config.optimizer_g
+optimizer_d = config.optimizer_d
+
+# Initialize solver
+solver = GANSolver(generator, discriminator)
+
+
+""" Do training """
+
+solver.train_model(optimizer_g,
+                   optimizer_d,
+                   criterion_gan,
+                   criterion_pix,
+                   device,
+                   data_loader,
+                   config,
+                   config.lambda_pixel,
+                   PLOT_GRADS,
+                   LOG_RUN)
