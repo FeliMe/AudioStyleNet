@@ -16,6 +16,7 @@ config = Config({
     'validation_split': .2,
     'sequence_length': 1,
     'step_size': 1,
+    'image_size': 224,
 
     # Hyper parameters
     'num_epochs': 30,

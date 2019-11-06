@@ -4,6 +4,7 @@ File for general usefull functions which are not specific to a certain module
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time
 import torchvision.transforms as transforms
 
 
@@ -88,3 +89,13 @@ class GradPlotter:
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
 
+
+def time_to_str(t):
+    return "{:.0f}h {:.0f}m {:.0f}s".format(t // 3600, t // 60, t % 60)
+
+
+def time_left(t_start, n_iters, i_iter):
+    iters_left = n_iters - i_iter
+    time_per_iter = (time.time() - t_start) / i_iter
+    time_left = time_per_iter * iters_left
+    return time_to_str(time_left)

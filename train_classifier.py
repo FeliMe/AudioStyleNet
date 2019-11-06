@@ -68,7 +68,8 @@ ds = dataloader.RAVDESSDataset(config.data_path,
                                use_gray=config.use_gray,
                                max_samples=None,
                                sequence_length=config.sequence_length,
-                               step_size=config.step_size)
+                               step_size=config.step_size,
+                               image_size=config.image_size)
 
 print("Found {} samples in total".format(len(ds)))
 
@@ -130,7 +131,7 @@ if LOG_RUN:
 model.train()
 model.to(device)
 
-solver = ClassificationSolver(model)
+solver = ClassificationSolver()
 
 
 print('Printing model summary...')
@@ -139,7 +140,8 @@ summary(model, torch.zeros((1, *x_sample.shape[1:])).to(device))
 
 """ Do training """
 
-model = solver.train_model(criterion,
+model = solver.train_model(model,
+                           criterion,
                            optimizer,
                            device,
                            data_loaders,

@@ -54,6 +54,7 @@ class RAVDESSDataset(Dataset):
         seed (int): Random seed for reproducible shuffling
         sequence_length (int): Number of frames to be loaded per item
         step_size (int): Step size for loading a sequence
+        image_size (int or tuple): Size of input images
     """
     def __init__(self,
                  root_path,
@@ -62,7 +63,8 @@ class RAVDESSDataset(Dataset):
                  max_samples=None,
                  seed=123,
                  sequence_length=1,
-                 step_size=1):
+                 step_size=1,
+                 image_size=64):
 
         assert (sequence_length * step_size) - 1 <= 94, \
             "Sequence is too long, step size too big or window size too" + \
@@ -90,6 +92,7 @@ class RAVDESSDataset(Dataset):
             self.std = RAVDESS_GRAY_STD
             trans = transforms.Compose([
                 transforms.Grayscale(),
+                transforms.Resize(image_size),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean,
                                      std=self.std)
@@ -98,6 +101,7 @@ class RAVDESSDataset(Dataset):
             self.mean = RAVDESS_MEAN
             self.std = RAVDESS_STD
             trans = transforms.Compose([
+                transforms.Resize(image_size),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=self.mean,
                                      std=self.std)
@@ -158,10 +162,12 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  max_samples=None,
                  seed=123,
                  sequence_length=1,
-                 step_size=1):
+                 step_size=1,
+                 image_size=64):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
                                                use_gray, max_samples, seed,
-                                               sequence_length, step_size)
+                                               sequence_length, step_size,
+                                               image_size)
 
     def __getitem__(self, item):
         # Sequence A

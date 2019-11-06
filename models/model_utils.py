@@ -5,8 +5,7 @@ import torch.nn.functional as F
 
 class MaxChannelPool(nn.Module):
     """
-    input shape: [batch_size, sequence_length, channels, height, width]
-    output shape: [batch_size,
+    Max Pool batch of sequences of images along the sequence dimension
     """
     def __init__(self):
         super(MaxChannelPool, self).__init__()
@@ -112,3 +111,58 @@ class ConvLSTM(nn.Module):
         hidden = out_gate * torch.tanh(cell)
 
         return hidden, cell
+
+
+class UNetDown(nn.Module):
+    """
+    Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
+    U-Net encoder block
+    """
+    def __init__(self, in_channels, out_channels, normalize=True, dropout=0.0):
+        super(UNetDown, self).__init__()
+        layers = [nn.Conv2d(in_channels, out_channels, 4, 2, 1, bias=False)]
+        if normalize:
+            layers.append(nn.InstanceNorm2d(out_channels))
+        layers.append(nn.LeakyReLU(0.2))
+        if dropout:
+            layers.append(nn.Dropout(dropout))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class UNetUp(nn.Module):
+    """
+    Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
+    U-Net decoder block
+    """
+    def __init__(self, in_channels, out_channels, dropout=0.0):
+        super(UNetUp, self).__init__()
+        layers = [
+            nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1, bias=False),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        ]
+        if dropout:
+            layers.append(nn.Dropout(dropout))
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x, skip_input):
+        x = self.model(x)
+        x = torch.cat((x, skip_input), 1)
+
+        return x
+
+
+def discriminator_block(in_filters, out_filters, normalization=True):
+    """
+    Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
+    Returns downsampling layers of each discriminator block
+    """
+    layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
+    if normalization:
+        layers.append(nn.InstanceNorm2d(out_filters))
+    layers.append(nn.LeakyReLU(0.2, inplace=True))
+    return layers

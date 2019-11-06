@@ -9,21 +9,23 @@ import time
 import torch
 import wandb
 
-from abc import abstractmethod
 from sklearn.metrics import confusion_matrix
-from utils import GradPlotter
+
+import utils
 
 
 class BaseSolver(object):
-    def __init__(self, model):
-        self.model = model
-        self.best_model_wts = copy.deepcopy(self.model.state_dict())
+    def __init__(self):
+        self.model = None
+        self.best_model_wts = None
         self.save_path = 'saves'
         self.config = None
         self.log_run = False
         self.kill_now = False
 
     def save(self):
+        if self.model is None or self.best_model_wts is None:
+            raise TypeError("No model yet to save")
         self.model.load_state_dict(self.best_model_wts)
         os.makedirs(self.save_path, exist_ok=True)
         torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
@@ -37,10 +39,11 @@ class BaseSolver(object):
 
 
 class ClassificationSolver(BaseSolver):
-    def __init__(self, model):
-        super(ClassificationSolver, self).__init__(model)
+    def __init__(self):
+        super(ClassificationSolver, self).__init__()
 
     def train_model(self,
+                    model,
                     criterion,
                     optimizer,
                     device,
@@ -50,6 +53,9 @@ class ClassificationSolver(BaseSolver):
                     scheduler=None,
                     plot_grads=False,
                     log_run=True):
+
+        self.model = model
+        self.best_model_wts = copy.deepcopy(self.model.state_dict())
         self.config = config
         self.log_run = log_run
         self.kill_now = False
@@ -62,7 +68,7 @@ class ClassificationSolver(BaseSolver):
         grad_plotter = None
 
         print("Starting training")
-        since = time.time()
+        t_start = time.time()
 
         best_acc = 0.0
 
@@ -104,7 +110,7 @@ class ClassificationSolver(BaseSolver):
 
                             if plot_grads:
                                 if grad_plotter is None:
-                                    grad_plotter = GradPlotter(self.model.named_parameters())
+                                    grad_plotter = utils.GradPlotter(self.model.named_parameters())
                                 grad_plotter.plot_grad_flow(self.model.named_parameters())
 
                     if (i_step + 1) % config.log_interval == 0:
@@ -128,9 +134,11 @@ class ClassificationSolver(BaseSolver):
                 print('{} Loss: {:.4f} Acc: {:.4f}'.format(
                     phase, epoch_loss, epoch_acc))
                 if phase == 'val':
-                    time_elapsed = time.time() - since
-                    print('Time elapsed {:.0f}m {:.0f}s\n'.format(
-                        time_elapsed // 60, time_elapsed % 60))
+                    time_elapsed = time.time() - t_start
+                    print('Time elapsed {}'.format(
+                        utils.time_to_str(time_elapsed)))
+                    print('Time left: {}\n'.format(
+                        utils.time_left(t_start, config.num_epochs, i_epoch)))
 
                 # W&B logging
                 if self.log_run:
@@ -142,7 +150,7 @@ class ClassificationSolver(BaseSolver):
                     best_acc = epoch_acc
                     self.best_model_wts = copy.deepcopy(self.model.state_dict())
 
-        time_elapsed = time.time() - since
+        time_elapsed = time.time() - t_start
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60))
         print('Best val Acc: {:4f}'.format(best_acc))
@@ -195,17 +203,20 @@ class ClassificationSolver(BaseSolver):
 
 
 class GANSolver(BaseSolver):
-    def __init__(self, model):
-        super(GANSolver, self).__init__(model)
+    def __init__(self):
+        super(GANSolver, self).__init__()
 
     def train_model(self,
-                    criterion,
-                    optimizer,
+                    generator,
+                    discriminator,
+                    optimizer_g,
+                    optimizer_d,
+                    criterion_gan,
+                    criterion_pix,
                     device,
-                    data_loaders,
-                    dataset_sizes,
+                    data_loader,
                     config,
-                    scheduler=None,
+                    lambda_pixel=100,
                     plot_grads=False,
                     log_run=True):
         self.config = config
@@ -220,4 +231,73 @@ class GANSolver(BaseSolver):
         grad_plotter = None
 
         print("Starting training")
-        since = time.time()
+        t_start = time.time()
+
+        for i_epoch in range(1, config.num_epochs + 1):
+            print('Epoch {}/{}'.format(i_epoch, config.num_epochs))
+            print('-' * 10)
+
+            for batch in data_loader:
+
+                # Inputs
+                real_a = batch['A'].to(device)
+                real_b = batch['B'].to(device)
+
+                # ------------------
+                #  Train Generator
+                # ------------------
+
+                optimizer_g.zero_grad()
+
+                # Generate fake
+                fake_b = generator(real_a)
+
+                # Predict fake
+                pred_fake, patch_size = discriminator(fake_b, real_a)
+
+                # GAN loss
+                valid_patch = torch.ones(patch_size)
+                gan_loss = criterion_gan(pred_fake, valid_patch)
+
+                # Pixel-wise loss
+                pixel_loss = criterion_pix(fake_b, real_b)
+
+                # Total loss
+                generator_loss = gan_loss + lambda_pixel * pixel_loss
+
+                generator_loss.backward()
+
+                optimizer_g.step()
+
+                # ---------------------
+                #  Train Discriminator
+                # ---------------------
+
+                optimizer_d.zero_grad()
+
+                # Real loss
+                fake_patch = torch.zeros(patch_size)
+                pred_real, _ = discriminator(real_b, real_a)
+                loss_real = criterion_gan(pred_real, valid_patch)
+
+                # Fake loss
+                pred_fake, _ = discriminator(fake_b.detach(), real_a)
+                loss_fake = criterion_gan(pred_fake, fake_patch)
+
+                # Total loss
+                discriminator_loss = 0.5 * (loss_real + loss_fake)
+
+                discriminator_loss.backward()
+                optimizer_d.step()
+
+                # --------------
+                #  Log Progress
+                # --------------
+
+                print('Generator loss: {:.4f} Discriminator loss: {:.4f}'.format(
+                    generator_loss, discriminator_loss))
+                time_elapsed = time.time() - t_start
+                print('Time elapsed {}'.format(
+                    utils.time_to_str(time_elapsed)))
+                print('Time left: {}\n'.format(
+                    utils.time_left(t_start, config.num_epochs, i_epoch)))

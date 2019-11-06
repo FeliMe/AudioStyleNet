@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import wandb
 
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
 from torchsummaryX import summary
 
 import dataloader
@@ -62,7 +62,8 @@ ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  use_gray=config.use_gray,
                                  max_samples=None,
                                  sequence_length=config.sequence_length,
-                                 step_size=config.step_size)
+                                 step_size=config.step_size,
+                                 image_size=config.image_size)
 
 print("Found {} samples in total".format(len(ds)))
 
@@ -77,4 +78,16 @@ data_loader = DataLoader(ds,
 
 x_sample = next(iter(data_loader))
 print('Input Shape: {}'.format(x_sample['A'].shape))
-ds.show_sample()
+# ds.show_sample()
+
+generator = config.generator
+generator.train()
+generator.to(device)
+
+discriminator = config.discriminator
+discriminator.train()
+discriminator.to(device)
+
+out = discriminator(x_sample['A'], x_sample['B'])
+
+print(out.shape)

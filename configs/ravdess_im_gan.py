@@ -1,7 +1,7 @@
 import os
 import torch
 
-from models import models
+from models import gan_models
 from solver import ClassificationSolver
 from utils import Config
 
@@ -18,6 +18,7 @@ config = Config({
     'validation_split': .2,
     'sequence_length': 9,
     'step_size': 1,
+    'image_size': 64,
 
     # Hyper parameters
     'num_epochs': 30,
@@ -31,12 +32,14 @@ config = Config({
 })
 
 config.update({
-    # Model parameters
-    'model': models.ConvAndConvLSTM(config.use_gray)
+    # Models
+    'generator': gan_models.SequenceGeneratorUNet(config.use_gray),
+    'discriminator': gan_models.SequenceDiscriminator(config.sequence_length,
+                                                      config.use_gray),
 })
 
 config.update({
-    # Optimizer
-    'optim': torch.optim.Adam(params=config.model.parameters(),
-                              lr=config.learning_rate),
+    # Optimizers
+    'optimizer_G': torch.optim.Adam(params=config.generator.parameters(),
+                                    lr=config.learning_rate),
 })
