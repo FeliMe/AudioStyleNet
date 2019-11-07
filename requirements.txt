@@ -28,7 +28,6 @@ opencv-python==4.1.1.26
 pandas==0.24.2
 pathtools==0.1.2
 Pillow==6.2.0
-pkg-resources==0.0.0
 plotly==4.1.1
 promise==2.2.1
 protobuf==3.10.0
