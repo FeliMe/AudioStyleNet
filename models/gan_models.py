@@ -73,7 +73,7 @@ class SequenceGeneratorUNet(nn.Module):
         input shape: [batch_size, sequence_length, c, h, w]
         """
         y = []
-        for idx in range(x.shape[1]):
+        for idx in range(x.size(1)):
             y.append(self.unet(x[:, idx]))
         y = torch.stack(y, dim=1)
         return y

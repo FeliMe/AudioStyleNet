@@ -46,49 +46,6 @@ class PreTrainedResNet18(nn.Module):
         return y
 
 
-class TestModel(nn.Module):
-    def __init__(self):
-        super(TestModel, self).__init__()
-
-        self.temporal = model_utils.MaxChannelPool()
-
-        self.convolutions = nn.Sequential(
-            # shape: [batch_size, 1, 224, 224]
-            nn.Conv2d(1, 16, 5, padding=2),
-            # shape: [batch_size, 16, 224, 224]
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 16, 112, 112]
-            nn.Conv2d(16, 32, 5, padding=2),
-            # shape: [batch_size, 32, 112, 112]
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 32, 56, 56]
-            nn.Conv2d(32, 16, 5, padding=2),
-            # shape: [batch_size, 16, 56, 56]
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 16, 28, 28]
-        )
-
-        self.classifier = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(16 * 28 * 28, 40),
-            nn.ReLU(),
-            nn.Linear(40, 8)
-        )
-
-    def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
-        y = self.temporal(x)
-        # shape: [batch_size, channels, height, width]
-        y = self.convolutions(y)
-        # shape: [batch_size, 16, 28, 28]
-        y = self.classifier(y)
-        # shape: [batch_size, 8]
-        return y
-
-
 class SiameseConvNet(nn.Module):
     def __init__(self, gray=False):
         super(SiameseConvNet, self).__init__()
@@ -116,8 +73,8 @@ class SiameseConvNet(nn.Module):
 
     def forward(self, x):
         """
-        input shape: [batch_size, sequence_length, 1, 224, 224]
-        output shape: [batch_size, sequence_length, 16, 28, 28]
+        input shape: [b, sequence_length, 1 | 3, 64, 64]
+        output shape: [b, sequence_length, 16, 8, 8]
         """
         y = []
         for idx in range(x.shape[1]):
@@ -135,15 +92,15 @@ class ConvAndCat(nn.Module):
         # sequence length: 5, params: 527.000
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(16 * 28 * 28 * sequence_length, 8),
+            nn.Linear(16 * 8 * 8 * sequence_length, 8),
         )
 
     def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
+        # shape: [b, sequence_length, c, 64, 64]
         y = self.convolutions(x)
-        # shape: [batch_size, sequence_length, 16, 28, 28]
+        # shape: [b, sequence_length, 16, 8, 8]
         y = y.view((y.size(0), y.size(1) * y.size(2), y.size(3), y.size(4)))
-        # shape: [batch_size, sequence_length * 16, 28, 28]
+        # shape: [batch_size, sequence_length * 16, 8, 8]
         y = self.classifier(y)
         # shape: [batch_size, 8]
         return y
@@ -160,19 +117,19 @@ class ConvAndPool(nn.Module):
         # sequence length: 5, params: 527.000
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(16 * 28 * 28, 40),
+            nn.Linear(16 * 8 * 8, 64),
             nn.ReLU(),
-            nn.Linear(40, 8)
+            nn.Linear(64, 8)
         )
 
     def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
+        # shape: [b, sequence_length, c, h, w]
         y = self.convolutions(x)
-        # shape: [batch_size, sequence_length, 16, 28, 28]
+        # shape: [b, sequence_length, 16, 8, 8]
         y = self.temporal(y)
-        # shape: [batch_size, 16, 28, 28]
+        # shape: [b, 16, 8, 8]
         y = self.classifier(y)
-        # shape: [batch_size, 8]
+        # shape: [b, 8]
         return y
 
 
@@ -188,33 +145,33 @@ class ConvAnd3D(nn.Module):
         # sequence length: 5, params: 527.000
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(16 * 28 * 28, 64),
+            nn.Linear(16 * 8 * 8, 64),
             nn.ReLU(),
             nn.Linear(64, 8)
         )
 
     def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
+        # shape: [b, sequence_length, c, h, w]
         y = self.convolutions(x)
-        # shape: [batch_size, 16, sequence_length, 28, 28]
+        # shape: [b, 16, sequence_length, 8, 8]
         y = self.temporal(y)
-        # shape: [batch_size, 1, 16, 28, 28]
+        # shape: [b, 1, 16, 8, 8]
         y = self.classifier(y)
-        # shape: [batch_size, 8]
+        # shape: [b, 8]
         return y
 
 
 class ConvAndRNN(nn.Module):
     def __init__(self, gray):
         super(ConvAndRNN, self).__init__()
-        hidden_size = 40
+        hidden_size = 64
         num_layers = 1
 
         # Convolutional Layers
         self.convolutions = SiameseConvNet(gray)
 
         # RNN Layers
-        self.temporal = nn.RNN(28 * 28 * 16, hidden_size,
+        self.temporal = nn.RNN(8 * 8 * 16, hidden_size,
                                num_layers, batch_first=True)
 
         # sequence length: 5, params: 527.000
@@ -224,22 +181,22 @@ class ConvAndRNN(nn.Module):
         )
 
     def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
+        # shape: [b, sequence_length, c, h, w]
         x = self.convolutions(x)
-        # shape: [batch_size, sequence_length, 16, 28, 28]
+        # shape: [b, sequence_length, 16, 8, 8]
         x = x.view((*x.shape[:2], -1))
-        # shape: [batch_size, sequence_length, 16 * 28 * 28]
+        # shape: [b, sequence_length, 16 * 8 * 8]
         out, _ = self.temporal(x)
-        # shape: [batch_size, sequence_length, hidden_size]
+        # shape: [b, sequence_length, hidden_size]
         out = self.classifier(out[:, -1])
-        # shape: [batch_size, hidden_size]
+        # shape: [b, hidden_size]
         return out
 
 
 class ConvAndConvLSTM(nn.Module):
     def __init__(self, gray):
         super(ConvAndConvLSTM, self).__init__()
-        hidden_size = 57
+        hidden_size = 32
 
         self.convolutions = SiameseConvNet(gray)
 
@@ -247,17 +204,17 @@ class ConvAndConvLSTM(nn.Module):
         self.temporal = model_utils.ConvLSTM(16, hidden_size)
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(hidden_size * 28 * 28, 8)
+            nn.Linear(hidden_size * 8 * 8, 8)
         )
 
     def forward(self, x):
-        # shape: [batch_size, sequence_length, channels, height, width]
+        # shape: [b, sequence_length, c, h, w]
         y = self.convolutions(x)
-        # shape: [batch_size, sequence_length, 16, 28, 28]
+        # shape: [b, sequence_length, 16, 8, 8]
         y, _ = self.temporal(y)
-        # shape: [batch_size, hidden_size, 28, 28]
+        # shape: [b, hidden_size, 8, 8]
         y = self.classifier(y)
-        # shape: [batch_size, 8]
+        # shape: [b, 8]
         return y
 
 

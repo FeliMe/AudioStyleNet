@@ -24,7 +24,7 @@ config = Config({
     # Hyper parameters
     'num_epochs': 30,
     'lr_g': 0.0002,
-    'lr_d': 0.0002,
+    'lr_d': 0.0001,
     'batch_size': 32,
     'lambda_pixel': 100,
 

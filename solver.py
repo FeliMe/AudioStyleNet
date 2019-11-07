@@ -257,7 +257,8 @@ class GANSolver(object):
                     config,
                     lambda_pixel=100,
                     plot_grads=False,
-                    log_run=True):
+                    log_run=True,
+                    tensorboard_writer=None):
 
         self.config = config
         self.log_run = log_run
@@ -270,6 +271,8 @@ class GANSolver(object):
 
         grad_plotter = None
 
+        step = 0
+
         print("Starting training")
         t_start = time.time()
 
@@ -278,6 +281,9 @@ class GANSolver(object):
             print('-' * 10)
 
             for batch in data_loader:
+
+                # Increment step counter
+                step += 1
 
                 # Inputs
                 real_a = batch['A'].to(device)
@@ -327,20 +333,28 @@ class GANSolver(object):
                 # Total loss
                 discriminator_loss = 0.5 * (loss_real + loss_fake)
 
-                discriminator_loss.backward()
-                optimizer_d.step()
+                # Don't train discriminator if already too good
+                if discriminator_loss.item() > 0.3:
+                    discriminator_loss.backward()
+                    optimizer_d.step()
 
                 # W&B Logging
                 if self.log_run:
-                    wandb.log({'Generator loss': generator_loss,
-                               'Discriminator loss': discriminator_loss})
+                    tensorboard_writer.add_scalar('Generator GAN loss',
+                                                  gan_loss, step)
+                    tensorboard_writer.add_scalar('Generator pixelwise loss',
+                                                  pixel_loss, step)
+                    tensorboard_writer.add_scalar('Discriminator loss',
+                                                  discriminator_loss, step)
 
             # --------------
             #  Log Progress
             # --------------
 
-            print('Generator loss: {:.4f} Discriminator loss: {:.4f}'.format(
-                generator_loss, discriminator_loss))
+            logstr = 'Generator GAN loss: {:.4f} '.format(gan_loss)
+            logstr += 'Generator pixelwise loss: {:.4f} '.format(pixel_loss)
+            logstr += 'Discriminator loss: {:.4f} '.format(discriminator_loss)
+            print(logstr)
             time_elapsed = time.time() - t_start
             print('Time elapsed {}'.format(
                 utils.time_to_str(time_elapsed)))

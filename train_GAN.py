@@ -5,6 +5,7 @@ import torch
 import wandb
 
 from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from torchsummaryX import summary
 
 import dataloader
@@ -14,7 +15,7 @@ from solver import GANSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
-LOG_RUN = False
+LOG_RUN = True
 
 if PLOT_GRADS:
     print("WARNING: Plot gradients is on. This may cause slow training time!")
@@ -35,7 +36,10 @@ config = importlib.import_module('configs.' + args.config).config
 """ Init wandb """
 
 if LOG_RUN:
-    wandb.init(project="emotion-pix2pix", config=config)
+    writer = SummaryWriter()
+    wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
+else:
+    writer = None
 
 
 """ Add a seed to have reproducible results """
@@ -77,8 +81,8 @@ data_loader = DataLoader(ds,
 
 """ Show data example """
 
-x_sample = next(iter(data_loader))
-print('Input Shape: {}'.format(x_sample['A'].shape))
+sample = next(iter(data_loader))
+print('Input Shape: {}'.format(sample['A'].shape))
 # ds.show_sample()
 
 
@@ -95,8 +99,10 @@ discriminator.train()
 discriminator.to(device)
 discriminator.apply(weights_init)
 
-if LOG_RUN:
-    wandb.watch(generator)
+# if LOG_RUN:
+#     # wandb.watch(generator)
+#     writer.add_graph(generator, sample['A'].to(device))
+#     # writer.add_graph(discriminator, (sample['B'], sample['A']))
 
 # Initialize Loss functions
 criterion_gan = config.criterion_gan
@@ -121,4 +127,5 @@ solver.train_model(optimizer_g,
                    config,
                    config.lambda_pixel,
                    PLOT_GRADS,
-                   LOG_RUN)
+                   LOG_RUN,
+                   writer)
