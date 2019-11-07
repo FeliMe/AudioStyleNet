@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn as nn
 
 from models import gan_models
 from solver import ClassificationSolver
@@ -22,7 +23,8 @@ config = Config({
 
     # Hyper parameters
     'num_epochs': 30,
-    'learning_rate': 0.001,
+    'lr_g': 0.0002,
+    'lr_d': 0.0002,
     'batch_size': 32,
     'lambda_pixel': 100,
 
@@ -42,11 +44,11 @@ config.update({
 config.update({
     # Optimizers
     'optimizer_g': torch.optim.Adam(config.generator.parameters(),
-                                    lr=config.learning_rate),
+                                    lr=config.lr_g, betas=(0.5, 0.999)),
     'optimizer_d': torch.optim.Adam(config.discriminator.parameters(),
-                                    lr=config.learning_rate),
+                                    lr=config.lr_d, betas=(0.5, 0.999)),
 
     # Loss functions
-    'criterion_gan': torch.nn.MSELoss(),
-    'criterion_pix': torch.nn.L1Loss(),
+    'criterion_gan': nn.BCEWithLogitsLoss(),
+    'criterion_pix': nn.L1Loss(),
 })

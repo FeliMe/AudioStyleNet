@@ -4,6 +4,15 @@ import torch
 import models.model_utils as mu
 
 
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
+
+
 class GeneratorUNet(nn.Module):
     """
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
@@ -80,9 +89,9 @@ class SequenceDiscriminator(nn.Module):
             *mu.discriminator_block(sequence_length * self.channels * 2, 64,
                                     normalization=False),
             *mu.discriminator_block(64, 128),
-            *mu.discriminator_block(128, 256),
+            # *mu.discriminator_block(128, 256),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(256, 1, 4, padding=1, bias=False)
+            nn.Conv2d(128, 1, 4, padding=1, bias=False)
 
         )
 
@@ -96,5 +105,5 @@ class SequenceDiscriminator(nn.Module):
         b, s, c, h, w = img_input.size()
         img_input = img_input.view(b, s * c, h, w)
 
-        patch_size = (b, 1, h // 2 ** 3, w // 2 ** 3)
+        patch_size = (b, 1, h // 2 ** 2, w // 2 ** 2)
         return self.model(img_input), patch_size

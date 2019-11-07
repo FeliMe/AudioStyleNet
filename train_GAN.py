@@ -9,6 +9,7 @@ from torchsummaryX import summary
 
 import dataloader
 
+from models.gan_models import weights_init
 from solver import GANSolver
 
 HOME = os.path.expanduser('~')
@@ -87,10 +88,12 @@ print('Input Shape: {}'.format(x_sample['A'].shape))
 generator = config.generator
 generator.train()
 generator.to(device)
+generator.apply(weights_init)
 
 discriminator = config.discriminator
 discriminator.train()
 discriminator.to(device)
+discriminator.apply(weights_init)
 
 if LOG_RUN:
     wandb.watch(generator)
@@ -104,7 +107,7 @@ optimizer_g = config.optimizer_g
 optimizer_d = config.optimizer_d
 
 # Initialize solver
-solver = GANSolver(generator, discriminator)
+solver = GANSolver(generator, discriminator, ds.mean, ds.std)
 
 
 """ Do training """

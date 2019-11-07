@@ -199,44 +199,53 @@ class ClassificationSolver(BaseSolver):
 
 
 class GANSolver(object):
-    def __init__(self, generator, discriminator):
+    def __init__(self, generator, discriminator, mean, std):
         self.generator = generator
         self.discriminator = discriminator
         self.save_path = 'saves'
         self.config = None
         self.log_run = False
         self.kill_now = False
+        self.mean = mean
+        self.std = std
 
     def exit_gracefully(self, signum, frame):
         print("Stopping gracefully, saving best model...")
-        self.save('aborted')
+        self.save()
         self.kill_now = True
 
-    def save(self, i_epoch):
+    def save(self):
         os.makedirs(self.save_path, exist_ok=True)
         torch.save(self.generator.state_dict(),
-                   os.path.join(self.save_path,
-                                'generator_{}.pt'.format(i_epoch)))
+                   os.path.join(self.save_path, 'generator.pt'))
         torch.save(self.discriminator.state_dict(),
-                   os.path.join(self.save_path,
-                                'discriminator_{}.pt'.format(i_epoch)))
+                   os.path.join(self.save_path, 'discriminator.pt'))
         if self.log_run:
             torch.save(self.generator.state_dict(),
-                       os.path.join(wandb.run.dir,
-                                    'generator_{}.pt'.format(i_epoch)))
+                       os.path.join(wandb.run.dir, 'generator.pt'))
             torch.save(self.discriminator.state_dict(),
-                       os.path.join(wandb.run.dir,
-                                    'discriminator_{}.pt'.format(i_epoch)))
+                       os.path.join(wandb.run.dir, 'discriminator.pt'))
 
     def sample_images(self, real_a, real_b, i_epoch):
         """ Saves a generated sample """
-        fake_b = self.generator(real_a)
-        img_sample = torch.cat(
-            (real_a[:, 0].data, fake_b[:, 0].data, real_b[:, 0].data), -2)
+
+        # Generate fake sequence
+        fake_b = self.generator(real_a[0].unsqueeze(0))
+
+        # Denormalize one sequence
+        transform = utils.denormalize(self.mean, self.std)
+        real_a = torch.stack([transform(img) for img in real_a[0].data], dim=0)
+        real_b = torch.stack([transform(img) for img in real_b[0].data], dim=0)
+        fake_b = torch.stack([transform(img) for img in fake_b[0].data], dim=0)
+
+        # Specify and create target folder
         target_dir = os.path.join(self.save_path, 'images')
         os.makedirs(target_dir, exist_ok=True)
+
+        # Save
+        img_sample = torch.cat((real_a, fake_b, real_b), -2)
         save_image(img_sample, target_dir + "/{}.png".format(i_epoch),
-                   nrow=5, normalize=True)
+                   nrow=real_a.size(0), normalize=True)
 
     def train_model(self,
                     optimizer_g,
@@ -283,11 +292,11 @@ class GANSolver(object):
                 # Generate fake
                 fake_b = self.generator(real_a)
 
-                # Predict fake
+                # Discriminate fake
                 pred_fake, patch_size = self.discriminator(fake_b, real_a)
+                valid_patch = torch.ones(patch_size, device=device)
 
                 # GAN loss
-                valid_patch = torch.ones(patch_size).to(device)
                 gan_loss = criterion_gan(pred_fake, valid_patch)
 
                 # Pixel-wise loss
@@ -306,12 +315,12 @@ class GANSolver(object):
 
                 optimizer_d.zero_grad()
 
-                # Real loss
-                fake_patch = torch.zeros(patch_size).to(device)
+                # Train with all-real batch
+                fake_patch = torch.zeros(patch_size, device=device)
                 pred_real, _ = self.discriminator(real_b, real_a)
                 loss_real = criterion_gan(pred_real, valid_patch)
 
-                # Fake loss
+                # Train with all-fake batch
                 pred_fake, _ = self.discriminator(fake_b.detach(), real_a)
                 loss_fake = criterion_gan(pred_fake, fake_patch)
 
@@ -321,9 +330,14 @@ class GANSolver(object):
                 discriminator_loss.backward()
                 optimizer_d.step()
 
-                # --------------
-                #  Log Progress
-                # --------------
+                # W&B Logging
+                if self.log_run:
+                    wandb.log({'Generator loss': generator_loss,
+                               'Discriminator loss': discriminator_loss})
+
+            # --------------
+            #  Log Progress
+            # --------------
 
             print('Generator loss: {:.4f} Discriminator loss: {:.4f}'.format(
                 generator_loss, discriminator_loss))
@@ -333,15 +347,13 @@ class GANSolver(object):
             print('Time left: {}\n'.format(
                 utils.time_left(t_start, config.num_epochs, i_epoch)))
 
+            self.sample_images(real_a, real_b, i_epoch)
             if log_run:
-                self.sample_images(real_a, real_b, i_epoch)
-                wandb.log({'Generator loss': generator_loss,
-                           'Discriminator loss': discriminator_loss})
-                self.save(i_epoch)
+                self.save()
 
         time_elapsed = time.time() - t_start
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60))
 
         if self.log_run:
-            self.save('final')
+            self.save()
