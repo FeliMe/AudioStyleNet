@@ -15,7 +15,7 @@ from solver import ClassificationSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
-LOG_RUN = False
+LOG_RUN = True
 
 if PLOT_GRADS:
     print("WARNING: Plot gradients is on. This may cause slow training time!")
@@ -122,6 +122,8 @@ print('Input Shape: {}'.format(x_sample.shape))
 model = config.model
 optimizer = config.optim
 criterion = nn.CrossEntropyLoss()
+
+print("Model type: {}".format(type(model)))
 
 exp_lr_scheduler = torch.optim.lr_scheduler.StepLR(
     optimizer, step_size=7, gamma=0.1)

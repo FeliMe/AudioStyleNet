@@ -46,6 +46,9 @@ class GeneratorUNet(nn.Module):
         )
 
     def forward(self, x):
+        """
+        input shape: [b, sequence_length, c, h, w]
+        """
         # U-Net generator with skip connections from encoder to decoder
         d1 = self.down1(x)
         d2 = self.down2(d1)
@@ -70,8 +73,9 @@ class SequenceGeneratorUNet(nn.Module):
 
     def forward(self, x):
         """
-        input shape: [batch_size, sequence_length, c, h, w]
+        input shape: [b, sequence_length, c, h, w]
         """
+
         y = []
         for idx in range(x.size(1)):
             y.append(self.unet(x[:, idx]))

@@ -97,5 +97,15 @@ def time_to_str(t):
 def time_left(t_start, n_iters, i_iter):
     iters_left = n_iters - i_iter
     time_per_iter = (time.time() - t_start) / i_iter
-    time_left = time_per_iter * iters_left
-    return time_to_str(time_left)
+    time_remaining = time_per_iter * iters_left
+    return time_to_str(time_remaining)
+
+
+def ada_loss(curr_loss, prev_v, beta=0.99):
+    curr_loss = curr_loss.view((curr_loss.size(0), -1)).mean(1)
+    curr_v = beta * prev_v + (1 - beta) * curr_loss.pow(2).mean()
+    curr_v_ = curr_v / (1 - beta)
+
+    loss = curr_loss.mean() / (curr_v_.sqrt() + 1e-10)
+
+    return loss, curr_v

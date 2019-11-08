@@ -32,11 +32,11 @@ config = Config({
 
 config.update({
     # Model parameters
-    'model': models.ConvAndCat(config.sequence_length, config.use_gray)
+    # 'model': models.ConvAndCat(config.sequence_length, config.use_gray)
     # 'model': models.ConvAndPool(config.use_gray)
     # 'model': models.ConvAnd3D(config.sequence_length, config.use_gray)
     # 'model': models.ConvAndRNN(config.use_gray)
-    # 'model': models.ConvAndConvLSTM(config.use_gray)
+    'model': models.ConvAndConvLSTM(config.use_gray)
     # 'model': models.SiameseConv3D(config.use_gray)
     #
     # 'model': models.TestModel()

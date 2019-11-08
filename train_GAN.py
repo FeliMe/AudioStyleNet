@@ -15,7 +15,7 @@ from solver import GANSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
-LOG_RUN = True
+LOG_RUN = False
 
 if PLOT_GRADS:
     print("WARNING: Plot gradients is on. This may cause slow training time!")
@@ -99,21 +99,28 @@ discriminator.train()
 discriminator.to(device)
 discriminator.apply(weights_init)
 
-# if LOG_RUN:
-#     # wandb.watch(generator)
-#     writer.add_graph(generator, sample['A'].to(device))
-#     # writer.add_graph(discriminator, (sample['B'], sample['A']))
+classifier = config.classifier
+classifier.load_state_dict(torch.load(config.classifier_path, map_location=device))
+classifier.train()
+classifier.to(device)
+for param in classifier.parameters():
+    param.requires_grad = False
+
+if LOG_RUN:
+    wandb.watch(generator)
+    wandb.watch(discriminator)
 
 # Initialize Loss functions
 criterion_gan = config.criterion_gan
 criterion_pix = config.criterion_pix
+criterion_emotion = config.criterion_emotion
 
 # Initialize optimizers
 optimizer_g = config.optimizer_g
 optimizer_d = config.optimizer_d
 
 # Initialize solver
-solver = GANSolver(generator, discriminator, ds.mean, ds.std)
+solver = GANSolver(generator, discriminator, classifier, ds.mean, ds.std)
 
 
 """ Do training """
@@ -122,10 +129,12 @@ solver.train_model(optimizer_g,
                    optimizer_d,
                    criterion_gan,
                    criterion_pix,
+                   criterion_emotion,
                    device,
                    data_loader,
                    config,
                    config.lambda_pixel,
+                   config.lambda_emotion,
                    PLOT_GRADS,
                    LOG_RUN,
                    writer)

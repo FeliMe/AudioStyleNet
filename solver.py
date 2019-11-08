@@ -27,9 +27,13 @@ class BaseSolver(object):
     def save(self):
         self.model.load_state_dict(self.best_model_wts)
         os.makedirs(self.save_path, exist_ok=True)
-        torch.save(self.model.state_dict(), os.path.join(self.save_path, 'best_model.pt'))
+        print('Saving model to {}'.format(
+            os.path.join(self.save_path, 'best_model.pt')))
+        torch.save(self.model.state_dict(),
+                   os.path.join(self.save_path, 'best_model.pt'))
         if self.log_run:
-            torch.save(self.model.state_dict(), os.path.join(wandb.run.dir, 'best_model.pt'))
+            torch.save(self.model.state_dict(),
+                       os.path.join(wandb.run.dir, 'best_model.pt'))
 
     def exit_gracefully(self, signum, frame):
         print("Stopping gracefully, saving best model...")
@@ -199,9 +203,10 @@ class ClassificationSolver(BaseSolver):
 
 
 class GANSolver(object):
-    def __init__(self, generator, discriminator, mean, std):
+    def __init__(self, generator, discriminator, classifier, mean, std):
         self.generator = generator
         self.discriminator = discriminator
+        self.classifier = classifier
         self.save_path = 'saves'
         self.config = None
         self.log_run = False
@@ -216,6 +221,7 @@ class GANSolver(object):
 
     def save(self):
         os.makedirs(self.save_path, exist_ok=True)
+        print('Saving models to {}'.format(self.save_path))
         torch.save(self.generator.state_dict(),
                    os.path.join(self.save_path, 'generator.pt'))
         torch.save(self.discriminator.state_dict(),
@@ -252,10 +258,12 @@ class GANSolver(object):
                     optimizer_d,
                     criterion_gan,
                     criterion_pix,
+                    criterion_emotion,
                     device,
                     data_loader,
                     config,
                     lambda_pixel=100,
+                    lambda_emotion=1,
                     plot_grads=False,
                     log_run=True,
                     tensorboard_writer=None):
@@ -272,6 +280,9 @@ class GANSolver(object):
         grad_plotter = None
 
         step = 0
+
+        # Initialize vs
+        v_gan, v_pixel, v_emotion = 0, 0, 0
 
         print("Starting training")
         t_start = time.time()
@@ -308,12 +319,28 @@ class GANSolver(object):
                 # Pixel-wise loss
                 pixel_loss = criterion_pix(fake_b, real_b)
 
+                # Emotion loss
+                embedding_fake = self.classifier(fake_b)
+                embedding_real = self.classifier(real_b)
+                emotion_loss = criterion_emotion(embedding_fake, embedding_real)
+
+                # Adapt losses
+                # ada_gan_loss, v_gan = utils.ada_loss(gan_loss, v_gan)
+                # ada_pixel_loss, v_pixel = utils.ada_loss(pixel_loss, v_pixel)
+                # ada_emotion_loss, v_emotion = utils.ada_loss(emotion_loss, v_emotion)
+
                 # Total loss
-                generator_loss = gan_loss + lambda_pixel * pixel_loss
+                # generator_loss = ada_gan_loss + ada_pixel_loss + ada_emotion_loss
+                generator_loss = gan_loss + lambda_pixel * pixel_loss + \
+                    lambda_emotion * emotion_loss
 
                 generator_loss.backward()
 
                 optimizer_g.step()
+
+                # v_gan = v_gan.detach()
+                # v_pixel = v_pixel.detach()
+                # v_emotion = v_emotion.detach()
 
                 # ---------------------
                 #  Train Discriminator
@@ -338,12 +365,19 @@ class GANSolver(object):
                     discriminator_loss.backward()
                     optimizer_d.step()
 
+                # Get mean anyway for logging
+                # gan_loss = gan_loss.mean()
+                # pixel_loss = pixel_loss.mean()
+                # emotion_loss = emotion_loss.mean()
+
                 # W&B Logging
                 if self.log_run:
                     tensorboard_writer.add_scalar('Generator GAN loss',
                                                   gan_loss, step)
                     tensorboard_writer.add_scalar('Generator pixelwise loss',
                                                   pixel_loss, step)
+                    tensorboard_writer.add_scalar('Generator emotion loss',
+                                                  emotion_loss, step)
                     tensorboard_writer.add_scalar('Discriminator loss',
                                                   discriminator_loss, step)
 
@@ -351,18 +385,18 @@ class GANSolver(object):
             #  Log Progress
             # --------------
 
-            logstr = 'Generator GAN loss: {:.4f} '.format(gan_loss)
-            logstr += 'Generator pixelwise loss: {:.4f} '.format(pixel_loss)
-            logstr += 'Discriminator loss: {:.4f} '.format(discriminator_loss)
-            print(logstr)
+            print('Generator GAN loss: {:.4f}'.format(gan_loss))
+            print('Generator pixelwise loss: {:.4f}'.format(pixel_loss))
+            print('Generator emotion loss: {:.4f}'.format(emotion_loss))
+            print('Discriminator loss: {:.4f}'.format(discriminator_loss))
             time_elapsed = time.time() - t_start
             print('Time elapsed {}'.format(
                 utils.time_to_str(time_elapsed)))
             print('Time left: {}\n'.format(
                 utils.time_left(t_start, config.num_epochs, i_epoch)))
 
-            self.sample_images(real_a, real_b, i_epoch)
             if log_run:
+                self.sample_images(real_a, real_b, i_epoch)
                 self.save()
 
         time_elapsed = time.time() - t_start
