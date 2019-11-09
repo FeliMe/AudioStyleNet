@@ -14,6 +14,7 @@ import random
 
 from PIL import Image
 from torchvision import transforms
+from tqdm import tqdm
 
 from dataloader import RAVDESSDataset
 
@@ -22,6 +23,7 @@ HOME = os.path.expanduser('~')
 IMAGE_224_PATH = HOME + '/Datasets/RAVDESS/Image224'
 IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/Image128'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
+LANDMARKS_128_PATH = HOME + '/Datasets/RAVDESS/Landmarks128'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
 
@@ -74,7 +76,8 @@ def ravdess_convert_to_frames(root_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    target_path = IMAGE_128_PATH
+    image_path = IMAGE_128_PATH
+    landmarks_path = LANDMARKS_128_PATH
     target_size = 128
     root_dir = pathlib.Path(root_path)
 
@@ -85,14 +88,23 @@ def ravdess_convert_to_frames(root_path):
         paths = [str(p) for p in list(folder.glob('*/'))]
         actor = paths[0].split('/')[-2]
 
-        for i_path, path in enumerate(paths):
+        for i_path, path in enumerate(tqdm(paths)):
             utterance = path.split('/')[-1][:-4]
-            path_to_utt = os.path.join(target_path, actor, utterance)
+            path_to_utt_img = os.path.join(image_path, actor, utterance)
+            path_to_utt_landmarks = os.path.join(landmarks_path, actor, utterance)
             print("Utterance {} of {}, actor {} of {}, {}".format(
                 i_path + 1, len(paths), i_folder + 1, len(all_folders),
-                path_to_utt))
-            os.makedirs(path_to_utt, exist_ok=True)
+                path_to_utt_img))
+            os.makedirs(path_to_utt_img, exist_ok=True)
+            os.makedirs(path_to_utt_landmarks, exist_ok=True)
+
+            # h_ needs to be computed for every utterance
+            h = None
+            # Restart frame counter
             i_frame = 0
+
+            # path = '/home/meissen/Datasets/RAVDESS/Video/Actor_17/01-01-06-01-01-01-17.mp4'
+
             cap = cv2.VideoCapture(path)
             while cap.isOpened():
                 # Frame shape: (720, 1280, 3)
@@ -102,13 +114,15 @@ def ravdess_convert_to_frames(root_path):
                 i_frame += 1
 
                 # Get target file name
-                save_str = os.path.join(
-                    path_to_utt, str(i_frame).zfill(3) + '.jpg')
+                save_str_img = os.path.join(
+                    path_to_utt_img, str(i_frame).zfill(3) + '.jpg')
+                save_str_landmarks = os.path.join(
+                    path_to_utt_landmarks, str(i_frame).zfill(3) + '.jpg')
 
                 # If file already exists, skip
-                if os.path.exists(save_str):
-                    print("Already exists. Skipping...")
-                    continue
+                # if os.path.exists(save_str_img):
+                #     print("Already exists. Skipping...")
+                #     continue
 
                 # Pre-resize to save computation (3 * target_size)
                 shape = frame.shape
@@ -127,40 +141,73 @@ def ravdess_convert_to_frames(root_path):
                     landmarks = shape_to_np(landmarks)
 
                     # Center of face
-                    cx, cy = landmarks[33]
+                    top_ = min(landmarks[19, 1], landmarks[24, 1])
+                    bottom_ = max(landmarks[6:10, 1])
+                    left_ = min(landmarks[:4, 0])
+                    right_ = max(landmarks[12:16, 0])
+                    cx = (left_ + right_) // 2
+                    cy = (top_ + bottom_) // 2
 
-                    # Top and bottom
-                    top = min(landmarks[19, 1], landmarks[24, 1])
-                    bottom = max(landmarks[6:10, 1])
-                    h = bottom - top
+                    if h is None:
+                        # Top and bottom
+                        h = bottom_ - top_
+                        # Add margin
+                        margin = int(.35 * h)
+                        h = h + margin
 
-                    # Left and right
-                    left = cx - h // 2
-                    right = cx + h // 2
+                # Compute left right
+                if cx - (h // 2) < 0:
+                    left = 0
+                    right = h
+                elif cx + (h // 2) > shape[1]:
+                    right = shape[1]
+                    left = shape[1] - h
+                else:
+                    left = cx - (h // 2)
+                    right = cx + (h // 2)
 
-                    # Add margin
-                    margin = int(.1 * h)
-                    top -= int(1.8 * margin)
-                    bottom += int(0.2 * margin)
-                    left -= margin
-                    right += margin
+                # Compute top bottom
+                if cy - (h // 2) < 0:
+                    top = 0
+                    bottom = h
+                elif cy + (h // 2) > shape[0]:
+                    bottom = shape[0]
+                    top = shape[0] - h
+                else:
+                    top = cy - (h // 2)
+                    bottom = cy + (h // 2)
 
-                # Visualize
+                # # Visualize
                 # cv2.rectangle(frame,
                 #               (left, top),
                 #               (right, bottom),
                 #               (0, 0, 255), 1)
+                # for (x, y) in landmarks:
+                #     cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
                 # cv2.imshow("Output", frame)
                 # cv2.waitKey(0)
 
                 # Cut center
                 frame = frame[top:bottom, left:right]
+                landmarks[:, 0] -= left
+                landmarks[:, 1] -= top
 
-                # Resize
+                # Resize landmarks
+                landmarks[:, 0] = landmarks[:, 0] * (target_size / frame.shape[1])
+                landmarks[:, 1] = landmarks[:, 1] * (target_size / frame.shape[0])
+
+                # Resize frame
                 frame = cv2.resize(frame, (target_size, target_size))
 
+                # # Visualize 2
+                # for (x, y) in landmarks:
+                #     cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
+                # cv2.imshow("Output", frame)
+                # cv2.waitKey(0)
+
                 # Save
-                cv2.imwrite(save_str, frame)
+                np.save(save_str_landmarks, landmarks)
+                cv2.imwrite(save_str_img, frame)
 
 
 def ravdess_extract_landmarks(root_path):
