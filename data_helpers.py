@@ -24,6 +24,8 @@ IMAGE_224_PATH = HOME + '/Datasets/RAVDESS/Image224'
 IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/Image128'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
 LANDMARKS_128_PATH = HOME + '/Datasets/RAVDESS/Landmarks128'
+LANDMARKS_POINT_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksPointImage128'
+LANDMARKS_LINE_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksLineImage128'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
 
@@ -103,8 +105,6 @@ def ravdess_convert_to_frames(root_path):
             # Restart frame counter
             i_frame = 0
 
-            # path = '/home/meissen/Datasets/RAVDESS/Video/Actor_17/01-01-06-01-01-01-17.mp4'
-
             cap = cv2.VideoCapture(path)
             while cap.isOpened():
                 # Frame shape: (720, 1280, 3)
@@ -120,9 +120,9 @@ def ravdess_convert_to_frames(root_path):
                     path_to_utt_landmarks, str(i_frame).zfill(3) + '.jpg')
 
                 # If file already exists, skip
-                # if os.path.exists(save_str_img):
-                #     print("Already exists. Skipping...")
-                #     continue
+                if os.path.exists(save_str_img):
+                    print("Already exists. Skipping...")
+                    continue
 
                 # Pre-resize to save computation (3 * target_size)
                 shape = frame.shape
@@ -314,8 +314,45 @@ def ravdess_plot_label_distribution(data_path):
     plt.show()
 
 
+def ravdess_landmark_to_point_image(data_path):
+
+    target_path = LANDMARKS_POINT_IMAGE_128_PATH
+    image_size = 128
+    data_dir = pathlib.Path(data_path)
+
+    all_files = [str(p) for p in list(data_dir.glob('*/*/*'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+    for i_file, file in enumerate(tqdm(all_files)):
+        save_dir = os.path.join(target_path, *file.split('/')[-3:-1])
+        save_str = os.path.join(save_dir, file.split('/')[-1][:3] + '.jpg')
+
+        # Load landmarks
+        landmarks = np.load(file)
+
+        # Create blank image
+        img = np.zeros((image_size, image_size, 1), np.uint8)
+
+        # Draw landmarks as circles
+        for (x, y) in landmarks:
+            cv2.circle(img, (x, y), 1, 255, -1)
+
+        # Visualize
+        # cv2.imshow("Output", img)
+        # cv2.waitKey(0)
+
+        # Save image
+        os.makedirs(save_dir, exist_ok=True)
+        cv2.imwrite(save_str, img)
+
+
+def ravdess_landmark_to_line_image(data_path):
+    pass
+
+
 # ravdess_get_mean_std_image(IMAGE_224_PATH, True)
-ravdess_convert_to_frames(VIDEO_PATH)
 # ravdess_extract_landmarks(IMAGE_224_PATH)
 # ravdess_group_by_utterance(IMAGE_224_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)
+# ravdess_convert_to_frames(VIDEO_PATH)
+ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
