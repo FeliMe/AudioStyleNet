@@ -83,20 +83,19 @@ class SequenceGeneratorUNet(nn.Module):
         return y
 
 
-class SequenceDiscriminator(nn.Module):
-    def __init__(self, sequence_length, gray):
-        super(SequenceDiscriminator, self).__init__()
+class SequencePatchDiscriminator(nn.Module):
+    def __init__(self, gray):
+        super(SequencePatchDiscriminator, self).__init__()
 
-        self.channels = 1 if gray else 3
+        channels = 1 if gray else 3
 
         self.model = nn.Sequential(
-            *mu.discriminator_block(sequence_length * self.channels * 2, 64,
-                                    normalization=False),
+            *mu.discriminator_block(channels * 2, 64, normalization=False),
             *mu.discriminator_block(64, 128),
-            # *mu.discriminator_block(128, 256),
+            *mu.discriminator_block(128, 256),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(128, 1, 4, padding=1, bias=False)
-
+            nn.Conv2d(256, 1, 4, padding=1, bias=False),
+            nn.Sigmoid()
         )
 
     def forward(self, img_a, img_b):
@@ -105,9 +104,50 @@ class SequenceDiscriminator(nn.Module):
         b.shape -> [b, sequence_length, c, h, w]
         img_input.shape -> [b, 2 * sequence_length * c, h, w]
         """
-        img_input = torch.cat((img_a, img_b), 1)
+        img_input = torch.cat((img_a, img_b), 2)
         b, s, c, h, w = img_input.size()
-        img_input = img_input.view(b, s * c, h, w)
+        patch_size = (b, s, 1, h // 2 ** 3, w // 2 ** 3)
 
-        patch_size = (b, 1, h // 2 ** 2, w // 2 ** 2)
-        return self.model(img_input), patch_size
+        out = []
+        for i_seq in range(s):
+            out.append(self.model(img_input[:, i_seq]))
+        out = torch.stack(out, 1)
+
+        return out, patch_size
+
+
+class SequenceDiscriminator(nn.Module):
+    def __init__(self, gray):
+        super(SequenceDiscriminator, self).__init__()
+
+        channels = 1 if gray else 3
+
+        self.model = nn.Sequential(
+            *mu.discriminator_block(channels * 2, 64, normalization=False),
+            *mu.discriminator_block(64, 128),
+            # *mu.discriminator_block(128, 256),
+            nn.ZeroPad2d((1, 0, 1, 0)),
+            nn.Conv2d(128, 32, 4, padding=1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Flatten(),
+            nn.Linear(32 * 16 * 16, 2),
+            nn.Sigmoid()
+        )
+
+    def forward(self, img_a, img_b):
+        """
+        a.shape -> [b, sequence_length, c, h, w]
+        b.shape -> [b, sequence_length, c, h, w]
+        img_input.shape -> [b, 2 * sequence_length * c, h, w]
+        out.shape -> [b, sequence_length, 1]
+        """
+        img_input = torch.cat((img_a, img_b), 2)
+        b, s, c, h, w = img_input.size()
+        patch_size = (b, s, 2)
+
+        out = []
+        for i_seq in range(s):
+            out.append(self.model(img_input[:, i_seq]))
+        out = torch.stack(out, 1)
+
+        return out, patch_size

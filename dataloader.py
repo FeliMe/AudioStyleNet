@@ -2,7 +2,6 @@
 File to specify dataloaders for different datasets
 """
 
-import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -11,8 +10,10 @@ import random
 import torch
 
 from PIL import Image
+from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
+from torchvision.utils import make_grid
 
 import utils
 
@@ -37,14 +38,8 @@ class RAVDESSDataset(Dataset):
     Shortest sentence in RAVDESS has 94 frames.
 
     Output shapes:
-
-        if sequence_length > 1:
-            'image': [batch_size, sequence_length, 3, height, width]
-            'landmarks': [batch_size, sequence_length, 68 * 2]
-
-        if sequence_length == 1:
-            'image': [batch_size, 3, height, width]
-            'landmarks': [batch_size, 68 * 2]
+        'image': [batch_size, sequence_length, 1 or 3, height, width]
+        'landmarks': [batch_size, sequence_length, 68 * 2]
 
     Arguments:
         root_path (str): Path to data files
@@ -114,28 +109,34 @@ class RAVDESSDataset(Dataset):
 
         if data_format == 'image':
             self.load_fn = load_images
-            self.show_fn = show_image
+            self.show_fn = show_images
         elif data_format == 'landmarks':
             self.load_fn = load_landmarks
             self.show_fn = show_landmarks
         else:
             raise (RuntimeError('Unknown format {}'.format(data_format)))
 
-    def _get_sample(self, sentence, len_sentence):
+    def _get_sample(self, sentence, indices):
         # Get paths to load
-        rand_idx = np.random.randint(1, len_sentence - self.sequence_length)
-
-        indices = list(range(rand_idx,
-                             rand_idx + (self.sequence_length * self.step_size),
-                             self.step_size))
-
         paths = [os.path.join(sentence, str(idx).zfill(3))
                  for idx in indices]
         x = self.load_fn(paths, self.transforms)
 
         return x
 
+    def _get_random_indices(self, sentence):
+        len_sentence = len(list(pathlib.Path(sentence).glob('*')))
+        rand_idx = np.random.randint(1, len_sentence - self.sequence_length)
+        indices = list(range(rand_idx,
+                             rand_idx + (self.sequence_length * self.step_size),
+                             self.step_size))
+
+        return indices
+
     def show_sample(self):
+        """
+        Plot a random sample
+        """
         sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
         self.show_fn(sample, self.mean, self.std)
 
@@ -143,20 +144,22 @@ class RAVDESSDataset(Dataset):
         return len(self.sentences)
 
     def __getitem__(self, item):
-        # Get sequence
+        # Select a sentence
         sentence = self.sentences[item]
-        x = self._get_sample(sentence,
-                             len(list(pathlib.Path(sentence).glob('*'))))
+
+        # Get sample
+        x = self._get_sample(sentence, self._get_random_indices(sentence))
 
         # Get emotion
         emotion = int(sentence.split('/')[-1].split('-')[2]) - 1
 
-        return x, emotion
+        return {'x': x, 'y': emotion}
 
 
 class RAVDESSDSPix2Pix(RAVDESSDataset):
     def __init__(self,
                  root_path,
+                 target_root_path,
                  data_format='image',
                  use_gray=False,
                  max_samples=None,
@@ -169,49 +172,33 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                                                sequence_length, step_size,
                                                image_size)
 
-    def __getitem__(self, item):
-        # Sequence A
-        sentence_a = self.sentences[item]
-        a = self._get_sample(sentence_a,
-                             len(list(pathlib.Path(sentence_a).glob('*'))))
+        self.target_root_path = target_root_path
+        self.show_fn = show_pix2pix
 
-        # Sequence B
-        actor = os.path.join('/', *sentence_a.split('/')[:-1])
-        sentences = [str(p) for p in list(pathlib.Path(actor).glob('*/'))]
-        sentence_b = random.choice(sentences)
-        b = self._get_sample(sentence_b,
-                             len(list(pathlib.Path(sentence_b).glob('*'))))
+    def __getitem__(self, item):
+        """
+        Gets a pair of sequences (input b and target a). Source of the sequences
+        is defined by root_path for input and target_root_path for target
+        """
+
+        # Target sentence
+        input_sentence = self.sentences[item]
+        a = self._get_sample(input_sentence, self._get_random_indices(input_sentence))
+
+        # Input sentence
+        actor = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:-1])
+        all_sentences = [str(p) for p in list(pathlib.Path(actor).glob('*'))]
+        target_sentence = random.choice(all_sentences)
+        b = self._get_sample(target_sentence, self._get_random_indices(target_sentence))
 
         return {'A': a, 'B': b}
 
     def show_sample(self):
+        """
+        Plot a random sample
+        """
         sample = self.__getitem__(np.random.randint(0, self.__len__() - 1))
-        if len(sample['A'].shape) == 4:
-            # Sequence lenght > 1
-            img_a = sample['A'][0]
-            img_b = sample['B'][0]
-        else:
-            # Sequence length == 1
-            img_a = sample['A']
-            img_b = sample['B']
-
-        # Denormalize
-        transform = utils.denormalize(self.mean, self.std)
-        img_a = transform(img_a)
-        img_b = transform(img_b)
-
-        plt.subplot(1, 2, 1)
-        plt.axis('off')
-        plt.title("First frame of sequence A")
-        plt.imshow(np.moveaxis(img_a.numpy(), 0, 2))
-
-        plt.subplot(1, 2, 2)
-        plt.axis('off')
-        plt.title("First frame of sequence B")
-        plt.imshow(np.moveaxis(img_b.numpy(), 0, 2))
-
-        plt.tight_layout()
-        plt.show()
+        self.show_fn(sample, self.mean, self.std)
 
 
 def load_images(paths, transform):
@@ -237,17 +224,18 @@ def load_landmarks(paths, transform):
 
 def load_landmark(path, transform):
     landmarks = torch.tensor(np.load(path), dtype=torch.float)
-    # landmarks = compute_euclidean_landmark_feats(landmarks)
     return landmarks.reshape(-1)
 
 
-def show_image(image, mean, std):
-    if len(image.shape) == 4:
-        # Sequence length > 1
-        image = image[0]
+def show_images(img, mean, std):
+    """
+    Plots a sequence of images
+    """
     transform = utils.denormalize(mean, std)
-    image = transform(image)
-    plt.imshow(np.moveaxis(image.numpy(), 0, 2))
+    img = torch.stack([transform(a) for a in img], 0)
+    img = make_grid(img, nrow=img.size(0), normalize=True)
+    plt.figure(figsize=(img.size(0), 1))
+    plt.imshow(np.moveaxis(img.numpy(), 0, 2))
     plt.show()
 
 
@@ -257,3 +245,69 @@ def show_landmarks(landmarks, mean, std):
     landmarks = landmarks[:2 * 68].reshape(-1, 2)
     plt.scatter(landmarks[:, 0], -landmarks[:, 1])
     plt.show()
+
+
+def show_pix2pix(sample, mean, std):
+    """
+    Plots a sample (input sequence and target sequence)
+    """
+    img_a = sample['A']
+    img_b = sample['B']
+
+    # Denormalize
+    transform = utils.denormalize(mean, std)
+    img_a = torch.stack([transform(a) for a in img_a], 0)
+    img_b = torch.stack([transform(b) for b in img_b], 0)
+
+    # Make image grid
+    imgs = torch.cat([img_a, img_b])
+    imgs = make_grid(imgs, nrow=img_a.size(0), normalize=True)
+
+    # Plot image
+    plt.figure(figsize=(img_a.size(0), 2))
+    plt.imshow(np.moveaxis(imgs.numpy(), 0, 2))
+    plt.axis('off')
+    plt.show()
+
+
+def get_data_loaders(dataset, validation_split, batch_size, use_cuda):
+    dataset_size = len(dataset)
+    indices = list(range(dataset_size))
+    split = int(np.floor(validation_split * dataset_size))
+
+    train_indices, val_indices = indices[split:], indices[:split]
+
+    train_sampler = RandomSampler(train_indices)
+    val_sampler = RandomSampler(val_indices)
+
+    if use_cuda and torch.cuda.is_available():
+        print("Pinning memory")
+        kwargs = {'pin_memory': True}
+    else:
+        kwargs = {}
+
+    train_loader = DataLoader(dataset,
+                              batch_size=batch_size,
+                              num_workers=8,
+                              sampler=train_sampler,
+                              drop_last=True,
+                              **kwargs)
+
+    val_loader = DataLoader(dataset,
+                            batch_size=batch_size,
+                            num_workers=8,
+                            sampler=val_sampler,
+                            drop_last=True,
+                            **kwargs)
+
+    data_loaders = {
+        'train': train_loader,
+        'val': val_loader
+    }
+
+    dataset_sizes = {
+        'train': len(train_indices),
+        'val': len(val_indices)
+    }
+
+    return data_loaders, dataset_sizes

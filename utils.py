@@ -109,3 +109,11 @@ def ada_loss(curr_loss, prev_v, beta=0.99):
     loss = curr_loss.mean() / (curr_v_.sqrt() + 1e-10)
 
     return loss, curr_v
+
+
+def count_params(model):
+    return sum(p.numel() for p in model.parameters())
+
+
+def count_trainable_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)

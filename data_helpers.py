@@ -347,7 +347,49 @@ def ravdess_landmark_to_point_image(data_path):
 
 
 def ravdess_landmark_to_line_image(data_path):
-    pass
+    target_path = LANDMARKS_LINE_IMAGE_128_PATH
+    image_size = 128
+    data_dir = pathlib.Path(data_path)
+
+    all_files = [str(p) for p in list(data_dir.glob('*/*/*'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+    for i_file, file in enumerate(tqdm(all_files)):
+        save_dir = os.path.join(target_path, *file.split('/')[-3:-1])
+        save_str = os.path.join(save_dir, file.split('/')[-1][:3] + '.jpg')
+
+        # Load landmarks
+        landmarks = np.load(file)
+
+        # Create blank image
+        img = np.zeros((image_size, image_size, 1), np.uint8)
+
+        # Draw face
+        thickness = 1
+        _draw_lines(img, landmarks[:17], thickness)  # Jaw line
+        _draw_lines(img, landmarks[17:22], thickness)  # Right eyebrow
+        _draw_lines(img, landmarks[22:27], thickness)  # Left eyebrow
+        _draw_lines(img, landmarks[27:31], thickness)  # Nose vertical
+        _draw_lines(img, landmarks[31:36], thickness)  # Nose horizontal
+        cv2.drawContours(img, [landmarks[36:42]], 0, 255, thickness)  # Right eye
+        cv2.drawContours(img, [landmarks[42:48]], 0, 255, thickness)  # Left eye
+        cv2.drawContours(img, [landmarks[48:59]], 0, 255, thickness)  # Outer lips
+        cv2.drawContours(img, [landmarks[60:]], 0, 255, thickness)  # Inner lips
+
+        # Visualize
+        cv2.imshow("Output", img)
+        cv2.waitKey(0)
+
+        # Save image
+        # os.makedirs(save_dir, exist_ok=True)
+        # cv2.imwrite(save_str, img)
+
+
+def _draw_lines(img, points, thickness):
+    for index, item in enumerate(points):
+        if index == len(points) - 1:
+            break
+        cv2.line(img, tuple(item), tuple(points[index + 1]), 255, thickness)
 
 
 # ravdess_get_mean_std_image(IMAGE_224_PATH, True)
@@ -355,4 +397,5 @@ def ravdess_landmark_to_line_image(data_path):
 # ravdess_group_by_utterance(IMAGE_224_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)
 # ravdess_convert_to_frames(VIDEO_PATH)
-ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
+# ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
+ravdess_landmark_to_line_image(LANDMARKS_128_PATH)

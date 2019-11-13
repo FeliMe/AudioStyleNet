@@ -10,70 +10,130 @@ import torch
 import wandb
 
 from sklearn.metrics import confusion_matrix
-from torchvision.utils import save_image
+from torchvision.utils import make_grid
 
 import utils
 
 
-class BaseSolver(object):
-    def __init__(self, model):
-        self.model = model
+class ClassificationSolver:
+    def __init__(self, config):
+
+        self.save_dir = 'saves'
+        self.config = config
+        self.device = 'cuda' if (torch.cuda.is_available() and config.use_cuda) else 'cpu'
+        self.loss_names = ['bce_loss']
+        self.model = config.model.train().to(self.device)
         self.best_model_wts = copy.deepcopy(self.model.state_dict())
-        self.save_path = 'saves'
-        self.config = None
-        self.log_run = False
-        self.kill_now = False
+        if config.log_run:
+            wandb.watch(self.model)
+
+        print("Training on {}".format(self.device))
+        print("Model type: {}".format(type(self.model)))
+
+        self.optimizer = torch.optim.Adam(params=config.model.parameters(),
+                                          lr=config.learning_rate)
+
+        self.criterion = torch.nn.CrossEntropyLoss()
+
+        self.scheduler = torch.optim.lr_scheduler.StepLR(
+            self.optimizer, step_size=7, gamma=0.1)
+
+        self.x = None
+        self.y = None
+        self.logits = None
+        self.y_ = None
+        self.loss = None
+        self.running_loss = None
+        self.running_corrects = None
 
     def save(self):
+        """
+        Save the best model to self.save_dir
+        """
         self.model.load_state_dict(self.best_model_wts)
-        os.makedirs(self.save_path, exist_ok=True)
+        os.makedirs(self.save_dir, exist_ok=True)
         print('Saving model to {}'.format(
-            os.path.join(self.save_path, 'best_model.pt')))
+            os.path.join(self.save_dir, 'best_model.pt')))
         torch.save(self.model.state_dict(),
-                   os.path.join(self.save_path, 'best_model.pt'))
-        if self.log_run:
+                   os.path.join(self.save_dir, 'best_model.pt'))
+        if self.config.log_run:
             torch.save(self.model.state_dict(),
                        os.path.join(wandb.run.dir, 'best_model.pt'))
 
-    def exit_gracefully(self, signum, frame):
-        print("Stopping gracefully, saving best model...")
-        self.save()
-        self.kill_now = True
+    def plot_grads(self, grad_plotter):
+        """
+        Plots the gradients in every iteration or initializes the grad_plotter
+        when first calles
+        args:
+            grad_plotter (GradPlotter): object which updates figure with gradients
+                                        on every iteration
+        """
+        if grad_plotter is None:
+            grad_plotter = utils.GradPlotter(self.model.named_parameters())
+        grad_plotter.plot_grad_flow(self.model.named_parameters())
 
+    def set_input(self, inputs):
+        """
+        Unpack input data from the dataloader and perform necessary pre-processing steps
 
-class ClassificationSolver(BaseSolver):
-    def __init__(self, model):
-        super(ClassificationSolver, self).__init__(model)
+        args:
+            inputs (dict): includes the data itself and its metadata information
+        """
+        self.x = inputs['x'].to(self.device)
+        self.y = inputs['y'].to(self.device)
+
+    def forward(self):
+        """
+        Run forward pass
+        """
+        self.logits = self.model(self.x)
+
+    def optimize_parameters(self, phase):
+        """
+        Calculate losses, gradients, and update network weights
+        """
+        self.forward()
+        self.optimizer.zero_grad()
+        self.loss = self.criterion(self.logits, self.y)
+
+        if phase == 'train':
+            self.loss.backward()
+            self.optimizer.step()
+
+    def update_statistics(self):
+        self.running_loss += self.loss.item() * self.x.size(0)
+        _, self.y_ = torch.max(self.logits, 1)
+        self.running_corrects += torch.sum(self.y_ == self.y.data)
 
     def train_model(self,
-                    criterion,
-                    optimizer,
-                    device,
                     data_loaders,
                     dataset_sizes,
-                    config,
-                    scheduler=None,
-                    plot_grads=False,
-                    log_run=True):
+                    tb_writer,
+                    plot_grads=False):
+        """
+        Run training of the classification model
 
-        self.config = config
-        self.log_run = log_run
-        self.kill_now = False
-        signal.signal(signal.SIGINT, self.exit_gracefully)
-        signal.signal(signal.SIGTERM, self.exit_gracefully)
-        self.save_path = os.path.join(
-            config.save_path,
-            'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+        args:
+            data_loaders (dict of torch.utils.data.Datasets): Iterable data_loaders
+            dataset_sizes (dict of ints): Number of samples in each data_loader
+            tb_writer (torch.utils.tensorboard.SummaryWriter): Tensorboard writer
+            plot_grads (Bool): Plot gradient flow or not
+        """
 
-        grad_plotter = None
+        self.save_dir = os.path.join(
+            self.config.save_path,
+            'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        )
 
         print("Starting training")
+
         t_start = time.time()
-
+        grad_plotter = None
         best_acc = 0.0
+        global_step = 0
 
-        for i_epoch in range(1, config.num_epochs + 1):
-            print('Epoch {}/{}'.format(i_epoch, config.num_epochs))
+        for i_epoch in range(1, self.config.num_epochs + 1):
+            print('Epoch {}/{}'.format(i_epoch, self.config.num_epochs))
             print('-' * 10)
 
             # Each epoch has a training and validation phase
@@ -83,52 +143,30 @@ class ClassificationSolver(BaseSolver):
                 else:
                     self.model.eval()  # Set model to evaluate mode
 
-                running_loss = 0.0
-                running_corrects = 0
-                i_step = 0
+                self.running_loss = 0.0
+                self.running_corrects = 0
 
                 # Iterate over data.
-                for x, y in data_loaders[phase]:
-                    x = x.to(device)
-                    y = y.to(device)
+                for batch in data_loaders[phase]:
 
-                    # zero the parameter gradients
-                    optimizer.zero_grad()
+                    self.set_input(batch)
 
                     # forward
                     # track history if only in train
                     with torch.set_grad_enabled(phase == 'train'):
-                        logits = self.model(x)
-                        _, y_ = torch.max(logits, 1)
-                        loss = criterion(logits, y)
-
-                        # backward + optimize only if in training phase
+                        self.optimize_parameters(phase)
                         if phase == 'train':
-                            i_step += 1
-                            loss.backward()
-                            optimizer.step()
-
                             if plot_grads:
-                                if grad_plotter is None:
-                                    grad_plotter = utils.GradPlotter(self.model.named_parameters())
-                                grad_plotter.plot_grad_flow(self.model.named_parameters())
-
-                    if (i_step + 1) % config.log_interval == 0:
-                        print("Step {}/{}".format(i_step + 1,
-                                                  len(data_loaders[phase])))
+                                self.plot_grads(grad_plotter)
 
                     # statistics
-                    running_loss += loss.item() * x.size(0)
-                    running_corrects += torch.sum(y_ == y.data)
+                    self.update_statistics()
 
-                    if self.kill_now:
-                        return self.model
+                if phase == 'train' and self.scheduler is not None:
+                    self.scheduler.step()
 
-                if phase == 'train' and scheduler is not None:
-                    scheduler.step()
-
-                epoch_loss = running_loss / dataset_sizes[phase]
-                epoch_acc = running_corrects.double() / dataset_sizes[phase]
+                epoch_loss = self.running_loss / dataset_sizes[phase]
+                epoch_acc = self.running_corrects.double() / dataset_sizes[phase]
 
                 # Logging
                 print('{} Loss: {:.4f} Acc: {:.4f}'.format(
@@ -138,12 +176,14 @@ class ClassificationSolver(BaseSolver):
                     print('Time elapsed {}'.format(
                         utils.time_to_str(time_elapsed)))
                     print('Time left: {}\n'.format(
-                        utils.time_left(t_start, config.num_epochs, i_epoch)))
+                        utils.time_left(t_start, self.config.num_epochs, i_epoch)))
 
                 # W&B logging
-                if self.log_run:
-                    wandb.log({phase + ' Loss': epoch_loss,
-                               phase + ' Accuracy': epoch_acc})
+                if self.config.log_run:
+                    tb_writer.add_scalar(phase + '/Loss',
+                                         epoch_loss, global_step)
+                    tb_writer.add_scalar(phase + '/Accuracy',
+                                         epoch_acc, global_step)
 
                 # deep copy the model
                 if phase == 'val' and epoch_acc > best_acc:
@@ -160,14 +200,14 @@ class ClassificationSolver(BaseSolver):
         return self.model
 
     def eval_model(self,
-                   device,
                    data_loaders,
+                   tb_writer,
                    num_eval=10000):
         y_true = []
         y_pred = []
         for i_stop, (x, y) in enumerate(data_loaders['val']):
-            x = x.to(device)
-            y = y.to(device)
+            x = x.to(self.device)
+            y = y.to(self.device)
 
             logits = self.model(x)
             _, y_ = torch.max(logits, 1)
@@ -183,7 +223,7 @@ class ClassificationSolver(BaseSolver):
 
         cm = confusion_matrix(y_true, y_pred)
         cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
-        plt.figure(figsize=(8, 8))
+        f = plt.figure(figsize=(8, 8))
         sns.heatmap(
             cm,
             annot=True,
@@ -196,10 +236,10 @@ class ClassificationSolver(BaseSolver):
         )
         plt.ylabel('Actual label')
         plt.xlabel('Predicted label')
-        os.makedirs(self.save_path, exist_ok=True)
-        plt.savefig(os.path.join(self.save_path, 'confusion_matrix.jpg'))
-        if self.log_run:
-            wandb.log({'confusion matrix': [wandb.Image(plt)]})
+        os.makedirs(self.save_dir, exist_ok=True)
+        f.savefig(os.path.join(self.save_dir, 'confusion_matrix.jpg'))
+        if self.config.log_run:
+            tb_writer.add_figure('confusion matrix', f)
 
 
 class GANSolver(object):
@@ -248,10 +288,11 @@ class GANSolver(object):
         target_dir = os.path.join(self.save_path, 'images')
         os.makedirs(target_dir, exist_ok=True)
 
-        # Save
+        # Make grid image
         img_sample = torch.cat((real_a, fake_b, real_b), -2)
-        save_image(img_sample, target_dir + "/{}.png".format(i_epoch),
-                   nrow=real_a.size(0), normalize=True)
+        img_sample = make_grid(img_sample, nrow=real_a.size(0), normalize=True)
+
+        return img_sample
 
     def train_model(self,
                     optimizer_g,
@@ -260,13 +301,12 @@ class GANSolver(object):
                     criterion_pix,
                     criterion_emotion,
                     device,
-                    data_loader,
+                    train_loader,
+                    val_loader,
                     config,
-                    lambda_pixel=100,
-                    lambda_emotion=1,
                     plot_grads=False,
                     log_run=True,
-                    tensorboard_writer=None):
+                    tb_writer=None):
 
         self.config = config
         self.log_run = log_run
@@ -277,7 +317,7 @@ class GANSolver(object):
             config.save_path,
             'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
 
-        grad_plotter = None
+        grad_plotter_g, grad_plotter_d = None, None
 
         step = 0
 
@@ -291,7 +331,10 @@ class GANSolver(object):
             print('Epoch {}/{}'.format(i_epoch, config.num_epochs))
             print('-' * 10)
 
-            for batch in data_loader:
+            epoch_acc_real = 0.
+            epoch_acc_fake = 0.
+
+            for batch in train_loader:
 
                 # Increment step counter
                 step += 1
@@ -331,8 +374,8 @@ class GANSolver(object):
 
                 # Total loss
                 # generator_loss = ada_gan_loss + ada_pixel_loss + ada_emotion_loss
-                generator_loss = gan_loss + lambda_pixel * pixel_loss + \
-                    lambda_emotion * emotion_loss
+                generator_loss = gan_loss + config.lambda_pixel * pixel_loss + \
+                    config.lambda_emotion * emotion_loss
 
                 generator_loss.backward()
 
@@ -363,6 +406,7 @@ class GANSolver(object):
                 # Don't train discriminator if already too good
                 if discriminator_loss.item() > 0.3:
                     discriminator_loss.backward()
+                    # torch.nn.utils.clip_grad_value_(self.discriminator.parameters(), 0.6)
                     optimizer_d.step()
 
                 # Get mean anyway for logging
@@ -370,33 +414,71 @@ class GANSolver(object):
                 # pixel_loss = pixel_loss.mean()
                 # emotion_loss = emotion_loss.mean()
 
+                # Plot gradients
+                if plot_grads:
+                    # Plot generator gradients
+                    if grad_plotter_g is None:
+                        grad_plotter_g = utils.GradPlotter(self.generator.named_parameters())
+                    grad_plotter_g.plot_grad_flow(self.generator.named_parameters())
+
+                    # Plot discriminator gradients
+                    if grad_plotter_d is None:
+                        grad_plotter_d = utils.GradPlotter(self.discriminator.named_parameters())
+                    grad_plotter_d.plot_grad_flow(self.discriminator.named_parameters())
+
+                # Accuracy of discriminator
+                acc_real = pred_real.round() == valid_patch.view(pred_real.size()).data
+                acc_fake = pred_fake.round() == fake_patch.view(pred_fake.size()).data
+                acc_real = acc_real.double().mean()
+                acc_fake = acc_fake.double().mean()
+                epoch_acc_real += acc_real
+                epoch_acc_fake += acc_fake
+
                 # W&B Logging
                 if self.log_run:
-                    tensorboard_writer.add_scalar('Generator GAN loss',
-                                                  gan_loss, step)
-                    tensorboard_writer.add_scalar('Generator pixelwise loss',
-                                                  pixel_loss, step)
-                    tensorboard_writer.add_scalar('Generator emotion loss',
-                                                  emotion_loss, step)
-                    tensorboard_writer.add_scalar('Discriminator loss',
-                                                  discriminator_loss, step)
+                    tb_writer.add_scalars(
+                        'generator/',
+                        {
+                            'GAN': gan_loss,
+                            'pixelwise': pixel_loss,
+                            'emotion': emotion_loss
+                        },
+                        step)
+                    tb_writer.add_scalar('discriminator/loss',
+                                         discriminator_loss, step)
+                    tb_writer.add_scalar('discriminator/acc_fake',
+                                         acc_fake, step)
+                    tb_writer.add_scalar('discriminator/acc_real',
+                                         acc_real, step)
 
             # --------------
             #  Log Progress
             # --------------
 
+            epoch_acc_real /= len(train_loader)
+            epoch_acc_fake /= len(train_loader)
+
             print('Generator GAN loss: {:.4f}'.format(gan_loss))
             print('Generator pixelwise loss: {:.4f}'.format(pixel_loss))
             print('Generator emotion loss: {:.4f}'.format(emotion_loss))
             print('Discriminator loss: {:.4f}'.format(discriminator_loss))
-            time_elapsed = time.time() - t_start
-            print('Time elapsed {}'.format(
-                utils.time_to_str(time_elapsed)))
+            print('Discriminator acc real: {:.4f}'.format(epoch_acc_real))
+            print('Discriminator acc fake: {:.4f}'.format(epoch_acc_fake))
+            print('Time elapsed {}'.format(utils.time_to_str(time.time() - t_start)))
             print('Time left: {}\n'.format(
                 utils.time_left(t_start, config.num_epochs, i_epoch)))
 
             if log_run:
-                self.sample_images(real_a, real_b, i_epoch)
+                # Get sample from validation set
+                val_batch = next(iter(val_loader))
+                val_a = val_batch['A'].to(device)
+                val_b = val_batch['B'].to(device)
+
+                # Generate sample images
+                img_sample = self.sample_images(val_a, val_b, i_epoch)
+                tb_writer.add_image('sample', img_sample, i_epoch)
+
+                # Save model
                 self.save()
 
         time_elapsed = time.time() - t_start

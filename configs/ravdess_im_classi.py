@@ -1,5 +1,4 @@
 import os
-import torch
 
 from models import models
 from utils import Config
@@ -9,13 +8,14 @@ HOME = os.path.expanduser('~')
 config = Config({
     # General configs
     'use_cuda': True,
+    'log_run': False,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
     'validation_split': .2,
-    'sequence_length': 9,
+    'sequence_length': 5,
     'step_size': 1,
     'image_size': 64,
 
@@ -25,7 +25,6 @@ config = Config({
     'batch_size': 32,
 
     # Logging
-    'log_interval': 1000,
     'save_interval': 1,
     'save_path': 'saves/Classification_Image'
 })
@@ -40,10 +39,4 @@ config.update({
     # 'model': models.SiameseConv3D(config.use_gray)
     #
     # 'model': models.TestModel()
-})
-
-config.update({
-    # Optimizer
-    'optim': torch.optim.Adam(params=config.model.parameters(),
-                              lr=config.learning_rate),
 })
