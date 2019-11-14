@@ -20,6 +20,8 @@ class ClassificationSolver:
         self.save_dir = 'saves'
         self.config = config
         self.device = 'cuda' if (torch.cuda.is_available() and config.use_cuda) else 'cpu'
+        self.global_step = 0
+        self.t_start = 0
         print("Training on {}".format(self.device))
 
         # Models
@@ -44,8 +46,8 @@ class ClassificationSolver:
         # Losses
         self.loss_names = ['bce_loss']
         self.loss_classifier_bce = None
-        self.running_loss = 0
-        self.running_corrects = 0
+        self.epoch_loss = 0.0
+        self.epoch_acc = 0
 
         self.scheduler = torch.optim.lr_scheduler.StepLR(
             self.optimizer, step_size=7, gamma=0.1)
@@ -79,6 +81,33 @@ class ClassificationSolver:
             grad_plotter = utils.GradPlotter(self.model.named_parameters())
         grad_plotter.plot_grad_flow(self.model.named_parameters())
 
+    def log_tensorboard(self, tb_writer, phase):
+        """
+        Log metrics to tensorboard
+        """
+        tb_writer.add_scalar(phase + '/Loss',
+                             self.epoch_loss, self.global_step)
+        tb_writer.add_scalar(phase + '/Accuracy',
+                             self.epoch_acc, self.global_step)
+
+    def log_console(self, i_epoch, phase):
+        """
+        Log running metrics to console after each epoch
+
+        args:
+            i_epoch (int): Current epoch
+        """
+        print('{} Loss: {:.4f} Acc: {:.4f}'.format(
+            phase, self.epoch_loss, self.epoch_acc))
+        if phase == 'val':
+            time_elapsed = time.time() - self.t_start
+            print('Time elapsed {}'.format(
+                utils.time_to_str(time_elapsed)))
+            print('Time left: {}'.format(
+                utils.time_left(self.t_start, self.config.num_epochs, i_epoch)))
+            max_memory = torch.cuda.max_memory_allocated(self.device) / 1e6
+            print("Max memory on {}: {} MB\n".format(self.device, int(max_memory)))
+
     def set_input(self, inputs):
         """
         Unpack input data from the dataloader
@@ -103,18 +132,17 @@ class ClassificationSolver:
         self.optimizer.zero_grad()
         self.loss_classifier_bce = self.criterion(self.logits, self.y)
 
+        # Update running metrics
+        self.epoch_loss += self.loss_classifier_bce.item()
+        _, self.y_ = torch.max(self.logits, 1)
+        self.epoch_acc += torch.sum(self.y_ == self.y.data, dtype=torch.float) / self.y_.numel()
+
         if phase == 'train':
             self.loss_classifier_bce.backward()
             self.optimizer.step()
 
-    def update_statistics(self):
-        self.running_loss += self.loss_classifier_bce.item() * self.x.size(0)
-        _, self.y_ = torch.max(self.logits, 1)
-        self.running_corrects += torch.sum(self.y_ == self.y.data)
-
     def train_model(self,
                     data_loaders,
-                    dataset_sizes,
                     tb_writer,
                     plot_grads=False):
         """
@@ -134,10 +162,9 @@ class ClassificationSolver:
 
         print("Starting training")
 
-        t_start = time.time()
+        self.t_start = time.time()
         grad_plotter = None
         best_acc = 0.0
-        global_step = 0
 
         for i_epoch in range(1, self.config.num_epochs + 1):
             print('Epoch {}/{}'.format(i_epoch, self.config.num_epochs))
@@ -150,11 +177,14 @@ class ClassificationSolver:
                 else:
                     self.model.eval()  # Set model to evaluate mode
 
-                self.running_loss = 0.0
-                self.running_corrects = 0
+                # Zero running metrics
+                self.epoch_loss = 0.0
+                self.epoch_acc = 0
 
                 # Iterate over data.
                 for batch in data_loaders[phase]:
+
+                    self.global_step += 1
 
                     self.set_input(batch)
 
@@ -165,38 +195,30 @@ class ClassificationSolver:
                             if plot_grads:
                                 self.plot_grads(grad_plotter)
 
-                    # statistics
-                    self.update_statistics()
+                    # Tensorboard logging
+                    if self.config.log_run:
+                        self.log_tensorboard(tb_writer, phase)
+
+                # ---------------
+                #  Epoch finished
+                # ---------------
 
                 if phase == 'train' and self.scheduler is not None:
                     self.scheduler.step()
 
-                epoch_loss = self.running_loss / dataset_sizes[phase]
-                epoch_acc = self.running_corrects.double() / dataset_sizes[phase]
+                # Mean running metrics
+                self.epoch_loss = self.epoch_loss / len(data_loaders[phase])
+                self.epoch_acc = self.epoch_acc.double() / len(data_loaders[phase])
 
                 # Logging
-                print('{} Loss: {:.4f} Acc: {:.4f}'.format(
-                    phase, epoch_loss, epoch_acc))
-                if phase == 'val':
-                    time_elapsed = time.time() - t_start
-                    print('Time elapsed {}'.format(
-                        utils.time_to_str(time_elapsed)))
-                    print('Time left: {}\n'.format(
-                        utils.time_left(t_start, self.config.num_epochs, i_epoch)))
-
-                # W&B logging
-                if self.config.log_run:
-                    tb_writer.add_scalar(phase + '/Loss',
-                                         epoch_loss, global_step)
-                    tb_writer.add_scalar(phase + '/Accuracy',
-                                         epoch_acc, global_step)
+                self.log_console(i_epoch, phase)
 
                 # deep copy the model
-                if phase == 'val' and epoch_acc > best_acc:
-                    best_acc = epoch_acc
+                if phase == 'val' and self.epoch_acc > best_acc:
+                    best_acc = self.epoch_acc
                     self.best_model_wts = copy.deepcopy(self.model.state_dict())
 
-        time_elapsed = time.time() - t_start
+        time_elapsed = time.time() - self.t_start
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(
             time_elapsed // 60, time_elapsed % 60))
         print('Best val Acc: {:4f}'.format(best_acc))

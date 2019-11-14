@@ -88,12 +88,12 @@ class GANSolver(object):
         self.epoch_acc_D_fake = torch.tensor(0.)
 
         self.iteration_metric_names = ['loss_G_GAN', 'loss_G_pixel',
-                                       'loss_D_total']
+                                       'loss_G_emotion', 'loss_D_total']
         self.epoch_metric_names = ['epoch_loss_G_GAN', 'epoch_loss_G_pixel',
-                                   'epoch_loss_D_total', 'epoch_acc_D_real',
-                                   'epoch_acc_D_fake']
+                                   'epoch_loss_G_emotion', 'epoch_loss_D_total',
+                                   'epoch_acc_D_real', 'epoch_acc_D_fake']
 
-    def save(self, epoch):
+    def save(self):
         """
         Save models
 
@@ -102,7 +102,7 @@ class GANSolver(object):
         """
         for name in self.model_names:
             if isinstance(name, str):
-                save_filename = '%s_%s.pt' % (epoch, name)
+                save_filename = '%s.pt' % (name)
                 save_path = os.path.join(self.save_dir, save_filename)
                 print('Saving {} to {}'.format(name, save_path))
 
@@ -141,11 +141,11 @@ class GANSolver(object):
             if isinstance(name, str):
                 setattr(self, name, torch.tensor(0.))
 
-    def mean_running_metrics(self):
+    def mean_running_metrics(self, len_loader):
         for name in self.epoch_metric_names:
             if isinstance(name, str):
                 metric = getattr(self, name)
-                setattr(self, name, metric.mean())
+                setattr(self, name, metric / len_loader)
 
     @staticmethod
     def set_requires_grad(nets, requires_grad=False):
@@ -163,6 +163,32 @@ class GANSolver(object):
             if net is not None:
                 for param in net.parameters():
                     param.requires_grad = requires_grad
+
+    def log_tensorboard(self, tb_writer):
+        """
+        Log metrics to tensorboard
+        """
+        for metric_name in self.iteration_metric_names:
+            if isinstance(metric_name, str):
+                # e.g. loss_G_GAN
+                metric, model, name = metric_name.split('_')
+                m = getattr(self, metric_name)
+                tb_writer.add_scalar(model + '/' + metric + '/' + name,
+                                     m, self.global_step)
+
+    def log_console(self, i_epoch):
+        for metric_name in self.epoch_metric_names:
+            if isinstance(metric_name, str):
+                # e.g. loss_G_GAN
+                _, metric, model, name = metric_name.split('_')
+                m = getattr(self, metric_name)
+                m = m.mean()
+                print('{} {} {}: {:.4f}'.format(model, name, metric, m))
+        print('Time elapsed {}'.format(utils.time_to_str(time.time() - self.t_start)))
+        print('Time left: {}'.format(
+            utils.time_left(self.t_start, self.config.num_epochs, i_epoch)))
+        max_memory = torch.cuda.max_memory_allocated(self.device) / 1e6
+        print("Max memory on {}: {} MB\n".format(self.device, int(max_memory)))
 
     def set_inputs(self, inputs):
         """
@@ -199,9 +225,11 @@ class GANSolver(object):
         self.epoch_acc_D_fake += self.acc_D_fake.item()
 
         # Combined loss
-        self.loss_D_total = (self.loss_D_fake + self.loss_D_real) * 0.5
+        self.loss_D_total = (0.9 * self.loss_D_fake + self.loss_D_real) * 0.5
         self.epoch_loss_D_total += self.loss_D_total.item()
-        self.loss_D_total.backward(retain_graph=True)
+
+        if self.acc_D_fake < 0.6:
+            self.loss_D_total.backward(retain_graph=True)
 
     def backward_G(self):
         """
@@ -213,17 +241,18 @@ class GANSolver(object):
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
 
         # Pixelwise loss
-        self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B) * self.config.lambda_pixel
+        self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
         self.epoch_loss_G_pixel += self.loss_G_pixel.item()
 
         # Emotion loss
         embedding_fake = self.classifier(self.fake_B)
         embedding_real = self.classifier(self.real_B)
-        self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real) * self.config.lambda_emotion
+        self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
         self.epoch_loss_G_emotion += self.loss_G_emotion.item()
 
         # Combined loss
-        self.loss_G_total = self.loss_G_GAN + self.loss_G_pixel + self.loss_G_emotion
+        self.loss_G_total = self.loss_G_GAN + self.loss_G_pixel * self.config.lambda_pixel \
+                            + self.loss_G_emotion * self.config.lambda_emotion
         self.loss_G_total.backward(retain_graph=False)
 
     def optimize_parameters(self):
@@ -243,32 +272,6 @@ class GANSolver(object):
         self.optimizer_G.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
-
-    def log_tensorboard(self, tb_writer):
-        """
-        Log metrics to tensorboard
-        """
-        for metric_name in self.iteration_metric_names:
-            if isinstance(metric_name, str):
-                # e.g. loss_G_GAN
-                metric, model, name = metric_name.split('_')
-                m = getattr(self, metric_name)
-                tb_writer.add_scalar(model + '/' + metric + '/' + name,
-                                     m, self.global_step)
-
-    def log_console(self, i_epoch):
-        for metric_name in self.epoch_metric_names:
-            if isinstance(metric_name, str):
-                # e.g. loss_G_GAN
-                _, metric, model, name = metric_name.split('_')
-                m = getattr(self, metric_name)
-                m = m.mean()
-                print('{} {} {}: {:.4f}'.format(model, name, metric, m))
-        print('Time elapsed {}'.format(utils.time_to_str(time.time() - self.t_start)))
-        print('Time left: {}\n'.format(
-            utils.time_left(self.t_start, self.config.num_epochs, i_epoch)))
-        max_memory = torch.cuda.max_memory_allocated(self.device) / 1e6
-        print("Max memory on {}: {} MB".format(self.device, max_memory))
 
     def train_model(self,
                     data_loaders,
@@ -321,7 +324,7 @@ class GANSolver(object):
             #  Epoch finished
             # ---------------
 
-            self.mean_running_metrics()
+            self.mean_running_metrics(len(data_loaders['train']))
 
             # Epoch logging
             self.log_console(i_epoch)
@@ -336,7 +339,7 @@ class GANSolver(object):
                 tb_writer.add_image('sample', img_sample, i_epoch)
 
                 # Save model
-                self.save(i_epoch)
+                self.save()
 
         time_elapsed = time.time() - self.t_start
         print('\nTraining complete in {:.0f}m {:.0f}s'.format(

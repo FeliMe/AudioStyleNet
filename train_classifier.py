@@ -81,7 +81,6 @@ solver = ClassificationSolver(config)
 """ Do training """
 
 model = solver.train_model(data_loaders,
-                           dataset_sizes,
                            writer,
                            PLOT_GRADS)
 

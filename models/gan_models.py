@@ -92,9 +92,9 @@ class SequencePatchDiscriminator(nn.Module):
         self.model = nn.Sequential(
             *mu.discriminator_block(channels * 2, 64, normalization=False),
             *mu.discriminator_block(64, 128),
-            *mu.discriminator_block(128, 256),
+            # *mu.discriminator_block(128, 256),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(256, 1, 4, padding=1, bias=False),
+            nn.Conv2d(128, 1, 4, padding=1, bias=False),
             nn.Sigmoid()
         )
 

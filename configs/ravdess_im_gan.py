@@ -1,16 +1,15 @@
 import os
-import torch
 import torch.nn as nn
 
 from models import gan_models, models
-from utils import Config, GANLoss
+from utils import Config
 
 HOME = os.path.expanduser('~')
 
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': False,
+    'log_run': True,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
@@ -25,12 +24,12 @@ config = Config({
     'std': [0.300, 0.348, 0.361],  # [0.332]
 
     # Hyper parameters
-    'num_epochs': 30,
-    'lr_G': 0.0004,
-    'lr_D': 0.0004,
+    'num_epochs': 100,
+    'lr_G': 0.0002,
+    'lr_D': 0.0002,
     'batch_size': 32,
-    'lambda_pixel': 50.,
-    'lambda_emotion': 0.,
+    'lambda_pixel': 10.,
+    'lambda_emotion': .1,
 
     # Loss functions
     'GAN_mode': 'vanilla',
