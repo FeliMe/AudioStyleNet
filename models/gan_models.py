@@ -105,15 +105,13 @@ class SequencePatchDiscriminator(nn.Module):
         img_input.shape -> [b, 2 * sequence_length * c, h, w]
         """
         img_input = torch.cat((img_a, img_b), 2)
-        b, s, c, h, w = img_input.size()
-        patch_size = (b, s, 1, h // 2 ** 3, w // 2 ** 3)
 
         out = []
-        for i_seq in range(s):
+        for i_seq in range(img_a.size(1)):
             out.append(self.model(img_input[:, i_seq]))
         out = torch.stack(out, 1)
 
-        return out, patch_size
+        return out
 
 
 class SequenceDiscriminator(nn.Module):
@@ -142,12 +140,10 @@ class SequenceDiscriminator(nn.Module):
         out.shape -> [b, sequence_length, 1]
         """
         img_input = torch.cat((img_a, img_b), 2)
-        b, s, c, h, w = img_input.size()
-        patch_size = (b, s, 2)
 
         out = []
-        for i_seq in range(s):
+        for i_seq in range(img_a.size(1)):
             out.append(self.model(img_input[:, i_seq]))
         out = torch.stack(out, 1)
 
-        return out, patch_size
+        return out

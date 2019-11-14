@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from models import gan_models, models
-from utils import Config
+from utils import Config, GANLoss
 
 HOME = os.path.expanduser('~')
 
@@ -21,18 +21,25 @@ config = Config({
     'sequence_length': 9,
     'step_size': 1,
     'image_size': 64,
+    'mean': [0.755, 0.673, 0.652],  # [0.694]
+    'std': [0.300, 0.348, 0.361],  # [0.332]
 
     # Hyper parameters
     'num_epochs': 30,
-    'lr_g': 0.0004,
-    'lr_d': 0.0004,
+    'lr_G': 0.0004,
+    'lr_D': 0.0004,
     'batch_size': 32,
     'lambda_pixel': 50.,
     'lambda_emotion': 0.,
 
+    # Loss functions
+    'GAN_mode': 'vanilla',
+    'criterion_pix': nn.L1Loss(),
+    'criterion_emotion': nn.MSELoss(),
+
     # Logging
     'save_interval': 1,
-    'save_path': 'saves/GAN',
+    'save_dir': 'saves/GAN',
 })
 
 config.update({
@@ -44,17 +51,4 @@ config.update({
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
     'classifier_path': 'saves/classifier_seq%d.pt' % int(config.sequence_length),
-})
-
-config.update({
-    # Optimizers
-    'optimizer_g': torch.optim.Adam(config.generator.parameters(),
-                                    lr=config.lr_g, betas=(0.5, 0.999)),
-    'optimizer_d': torch.optim.Adam(config.discriminator.parameters(),
-                                    lr=config.lr_d, betas=(0.5, 0.999)),
-
-    # Loss functions
-    'criterion_gan': nn.BCEWithLogitsLoss(),
-    'criterion_pix': nn.L1Loss(),
-    'criterion_emotion': nn.MSELoss(),
 })

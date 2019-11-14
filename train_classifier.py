@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 
 import dataloader
 
-from solver import ClassificationSolver
+from solver_classifier import ClassificationSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
