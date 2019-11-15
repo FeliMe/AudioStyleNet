@@ -1,4 +1,5 @@
 import os
+import torch
 import torch.nn as nn
 
 from models import gan_models, models
@@ -10,26 +11,29 @@ config = Config({
     # General configs
     'use_cuda': True,
     'log_run': True,
+    'random_seed': 123,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
+    'use_same_sentence': True,
     'validation_split': .1,
-    'sequence_length': 9,
+    'sequence_length': 5,
     'step_size': 1,
     'image_size': 64,
     'mean': [0.755, 0.673, 0.652],  # [0.694]
     'std': [0.300, 0.348, 0.361],  # [0.332]
 
     # Hyper parameters
-    'num_epochs': 100,
+    'num_epochs': 30,
     'lr_G': 0.0002,
     'lr_D': 0.0002,
     'batch_size': 32,
+    'lambda_G_GAN': 1.,  # vanilla: noisy .5 not noisy
     'lambda_pixel': 10.,
-    'lambda_emotion': .1,
+    'lambda_emotion': 0.,  # .1,
 
     # Loss functions
     'GAN_mode': 'vanilla',
@@ -38,7 +42,9 @@ config = Config({
 
     # Logging
     'save_interval': 1,
-    'save_dir': 'saves/GAN',
+
+    # GAN hacks
+    'noisy_labels': True,
 })
 
 config.update({
@@ -50,4 +56,14 @@ config.update({
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
     'classifier_path': 'saves/classifier_seq%d.pt' % int(config.sequence_length),
+})
+
+config.update({
+# Optimizers
+    'optimizer_G': torch.optim.Adam(config.generator.parameters(),
+                                    lr=config.lr_G, betas=(0.5, 0.999)),
+    # 'optimizer_D': torch.optim.Adam(config.discriminator.parameters(),
+    #                                 lr=config.lr_D,  betas=(0.5, 0.999)),
+    'optimizer_D': torch.optim.SGD(config.discriminator.parameters(),
+                                   lr=config.lr_D)
 })

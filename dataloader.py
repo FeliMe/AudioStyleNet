@@ -44,6 +44,7 @@ class RAVDESSDataset(Dataset):
     Arguments:
         root_path (str): Path to data files
         data_format (str): Format of data files ('image' or 'landmarks')
+        use_gray (bool): Convert images to grayscale or not
         max_samples (int or None): Maximum number of samples to be considered.
                                    Choose None for whole dataset
         seed (int): Random seed for reproducible shuffling
@@ -74,8 +75,12 @@ class RAVDESSDataset(Dataset):
         if len(sentences) == 0:
             raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
 
-        # Shuffle sentences
+        # Random seeds
         random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        # Shuffle sentences
         random.shuffle(sentences)
 
         if max_samples is not None:
@@ -161,6 +166,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  root_path,
                  target_root_path,
                  data_format='image',
+                 use_same_sentence=True,
                  use_gray=False,
                  max_samples=None,
                  seed=123,
@@ -173,6 +179,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                                                image_size)
 
         self.target_root_path = target_root_path
+        self.use_same_sentence = use_same_sentence
         self.show_fn = show_pix2pix
 
     def __getitem__(self, item):
@@ -181,15 +188,20 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
         is defined by root_path for input and target_root_path for target
         """
 
-        # Target sentence
-        input_sentence = self.sentences[item]
-        a = self._get_sample(input_sentence, self._get_random_indices(input_sentence))
-
         # Input sentence
-        actor = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:-1])
-        all_sentences = [str(p) for p in list(pathlib.Path(actor).glob('*'))]
-        target_sentence = random.choice(all_sentences)
-        b = self._get_sample(target_sentence, self._get_random_indices(target_sentence))
+        input_sentence = self.sentences[item]
+        indices = self._get_random_indices(input_sentence)
+        a = self._get_sample(input_sentence, indices)
+
+        # Target sentence
+        if self.use_same_sentence:
+            target_sentence = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:])
+        else:
+            actor = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:-1])
+            all_sentences = [str(p) for p in list(pathlib.Path(actor).glob('*'))]
+            target_sentence = random.choice(all_sentences)
+            indices = self._get_random_indices(target_sentence)
+        b = self._get_sample(target_sentence, indices)
 
         return {'A': a, 'B': b}
 

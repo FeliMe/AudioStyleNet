@@ -1,9 +1,12 @@
 import datetime
+import numpy as np
 import os
+import random
 import time
 import torch
 import wandb
 
+from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid
 
 import utils
@@ -14,8 +17,11 @@ from models.gan_models import weights_init
 class GANSolver(object):
     def __init__(self, config):
 
+        random.seed(config.random_seed)
+        np.random.seed(config.random_seed)
+        torch.manual_seed(config.random_seed)
+
         # General
-        self.save_dir = 'saves'
         self.config = config
         self.device = 'cuda' if (torch.cuda.is_available() and config.use_cuda) else 'cpu'
         self.global_step = 0
@@ -46,19 +52,21 @@ class GANSolver(object):
                 ))
 
         if config.log_run:
+            self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.writer = SummaryWriter(self.save_dir)
+            wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
             wandb.watch(self.generator)
             wandb.watch(self.discriminator)
+        else:
+            self.writer = None
 
         # Optimizers
-        self.optimizer_G = torch.optim.Adam(params=self.generator.parameters(),
-                                            lr=config.lr_G,
-                                            betas=(0.5, 0.999))
-        self.optimizer_D = torch.optim.Adam(params=self.discriminator.parameters(),
-                                            lr=config.lr_D,
-                                            betas=(0.5, 0.999))
+        self.optimizer_G = self.config.optimizer_G
+        self.optimizer_D = self.config.optimizer_D
 
         # Loss Functions
-        self.criterionGAN = utils.GANLoss(config.GAN_mode, self.device)
+        self.criterionGAN = utils.GANLoss(config.GAN_mode, self.device,
+                                          noisy_labels=self.config.noisy_labels)
         self.criterionPix = config.criterion_pix
         self.criterionEmotion = config.criterion_emotion
 
@@ -79,19 +87,24 @@ class GANSolver(object):
         self.epoch_loss_D_total = torch.tensor(0.)
 
         # Other metrics
+        self.acc_G = torch.tensor(0.)
         self.acc_D_real = torch.tensor(0.)
         self.acc_D_fake = torch.tensor(0.)
+        self.epoch_acc_G_ = torch.tensor(0.)
         self.epoch_acc_D_real = torch.tensor(0.)
         self.epoch_acc_D_fake = torch.tensor(0.)
 
         self.epoch_acc_D_real = torch.tensor(0.)
         self.epoch_acc_D_fake = torch.tensor(0.)
+        self.epoch_maxNorm_D = 0
+        self.epoch_maxNorm_G = 0
 
         self.iteration_metric_names = ['loss_G_GAN', 'loss_G_pixel',
                                        'loss_G_emotion', 'loss_D_total']
         self.epoch_metric_names = ['epoch_loss_G_GAN', 'epoch_loss_G_pixel',
                                    'epoch_loss_G_emotion', 'epoch_loss_D_total',
-                                   'epoch_acc_D_real', 'epoch_acc_D_fake']
+                                   'epoch_acc_D_real', 'epoch_acc_D_fake',
+                                   'epoch_acc_G_']
 
     def save(self):
         """
@@ -164,7 +177,7 @@ class GANSolver(object):
                 for param in net.parameters():
                     param.requires_grad = requires_grad
 
-    def log_tensorboard(self, tb_writer):
+    def log_tensorboard(self):
         """
         Log metrics to tensorboard
         """
@@ -173,10 +186,12 @@ class GANSolver(object):
                 # e.g. loss_G_GAN
                 metric, model, name = metric_name.split('_')
                 m = getattr(self, metric_name)
-                tb_writer.add_scalar(model + '/' + metric + '/' + name,
-                                     m, self.global_step)
+                self.writer.add_scalar(model + '/' + metric + '/' + name,
+                                       m, self.global_step)
 
     def log_console(self, i_epoch):
+        print("G updates: {} Real updates: {} fake updates: {} steps: {}".format(
+            self.G_updates, self.real_updates, self.fake_updates, self.steps))
         for metric_name in self.epoch_metric_names:
             if isinstance(metric_name, str):
                 # e.g. loss_G_GAN
@@ -184,9 +199,12 @@ class GANSolver(object):
                 m = getattr(self, metric_name)
                 m = m.mean()
                 print('{} {} {}: {:.4f}'.format(model, name, metric, m))
-        print('Time elapsed {}'.format(utils.time_to_str(time.time() - self.t_start)))
-        print('Time left: {}'.format(
-            utils.time_left(self.t_start, self.config.num_epochs, i_epoch)))
+        print("Max gradient norm D: {:.4f} | Max gradient norm G: {:.4f}".format(
+            self.epoch_maxNorm_D, self.epoch_maxNorm_G))
+        print('Time elapsed {} | Time left: {}'.format(
+            utils.time_to_str(time.time() - self.t_start),
+            utils.time_left(self.t_start, self.config.num_epochs, i_epoch)
+        ))
         max_memory = torch.cuda.max_memory_allocated(self.device) / 1e6
         print("Max memory on {}: {} MB\n".format(self.device, int(max_memory)))
 
@@ -212,24 +230,32 @@ class GANSolver(object):
         """
         # All real batch
         pred_real = self.discriminator(self.real_A, self.real_B)
-        self.loss_D_real = self.criterionGAN(pred_real, True)
-        self.acc_D_real = (pred_real.round() == self.criterionGAN.real_label.data).double().mean()
+        self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
+        self.acc_D_real = (torch.sigmoid(pred_real).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_D_real += self.loss_D_real.item()
         self.epoch_acc_D_real += self.acc_D_real.item()
 
         # All fake batch
         pred_fake = self.discriminator(self.real_A, self.fake_B)
-        self.loss_D_fake = self.criterionGAN(pred_fake, False)
-        self.acc_D_fake = (pred_fake.round() == self.criterionGAN.fake_label.data).double().mean()
+        self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
+        self.acc_D_fake = (torch.sigmoid(pred_fake).round() == self.criterionGAN.fake_label.data).double().mean()
         self.epoch_loss_D_fake += self.loss_D_fake.item()
         self.epoch_acc_D_fake += self.acc_D_fake.item()
 
         # Combined loss
-        self.loss_D_total = (0.9 * self.loss_D_fake + self.loss_D_real) * 0.5
+        self.loss_D_real *= (0.5 * 0.9)
+        self.loss_D_fake *= 0.5
+        self.loss_D_total = self.loss_D_fake + self.loss_D_real
         self.epoch_loss_D_total += self.loss_D_total.item()
 
+        if self.acc_D_real < 0.6:
+            self.real_updates += 1
+            self.loss_D_real.backward(retain_graph=False)
         if self.acc_D_fake < 0.6:
-            self.loss_D_total.backward(retain_graph=True)
+            self.fake_updates += 1
+            self.loss_D_fake.backward(retain_graph=True)
+
+        self.steps += 1
 
     def backward_G(self):
         """
@@ -238,7 +264,9 @@ class GANSolver(object):
         # GAN loss
         pred_fake = self.discriminator(self.real_A, self.fake_B)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
+        self.acc_G = (torch.sigmoid(pred_fake).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
+        self.epoch_acc_G_ += self.acc_G.item()
 
         # Pixelwise loss
         self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
@@ -251,9 +279,13 @@ class GANSolver(object):
         self.epoch_loss_G_emotion += self.loss_G_emotion.item()
 
         # Combined loss
-        self.loss_G_total = self.loss_G_GAN + self.loss_G_pixel * self.config.lambda_pixel \
+        self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
+                            + self.loss_G_pixel * self.config.lambda_pixel \
                             + self.loss_G_emotion * self.config.lambda_emotion
-        self.loss_G_total.backward(retain_graph=False)
+
+        if self.acc_G < 0.6:
+            self.G_updates += 1
+            self.loss_G_total.backward(retain_graph=False)
 
     def optimize_parameters(self):
         """
@@ -267,20 +299,22 @@ class GANSolver(object):
         self.backward_D()
         self.optimizer_D.step()
 
+        for p in list(filter(lambda p: p.grad is not None, self.discriminator.parameters())):
+            norm = p.grad.data.norm(2).item()
+            if norm > self.epoch_maxNorm_D:
+                self.epoch_maxNorm_D = norm
         # Train Generator
         self.set_requires_grad(self.discriminator, False)
         self.optimizer_G.zero_grad()
         self.backward_G()
         self.optimizer_G.step()
 
-    def train_model(self,
-                    data_loaders,
-                    plot_grads=False,
-                    tb_writer=None):
+        for p in list(filter(lambda p: p.grad is not None, self.generator.parameters())):
+            norm = p.grad.data.norm(2).item()
+            if norm > self.epoch_maxNorm_G:
+                self.epoch_maxNorm_G = norm
 
-        self.save_dir = os.path.join(
-            self.config.save_dir,
-            'train' + datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+    def train_model(self, data_loaders, plot_grads=False):
 
         grad_plotter_g, grad_plotter_d = None, None
 
@@ -292,6 +326,13 @@ class GANSolver(object):
             print('-' * 10)
 
             self.zero_running_metrics()
+
+            self.G_updates = 0
+            self.real_updates = 0
+            self.fake_updates = 0
+            self.steps = 0
+            self.epoch_maxNorm_D = 0
+            self.epoch_maxNorm_G = 0
 
             for batch in data_loaders['train']:
 
@@ -318,7 +359,7 @@ class GANSolver(object):
 
                 # Tensorboard logging
                 if self.config.log_run:
-                    self.log_tensorboard(tb_writer)
+                    self.log_tensorboard()
 
             # ---------------
             #  Epoch finished
@@ -336,7 +377,7 @@ class GANSolver(object):
 
                 # Generate sample images
                 img_sample = self.sample_images()
-                tb_writer.add_image('sample', img_sample, i_epoch)
+                self.writer.add_image('sample', img_sample, i_epoch)
 
                 # Save model
                 self.save()
@@ -346,4 +387,4 @@ class GANSolver(object):
             time_elapsed // 60, time_elapsed % 60))
 
         if self.config.log_run:
-            self.save(-1)
+            self.save()

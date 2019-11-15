@@ -2,10 +2,6 @@ import argparse
 import importlib
 import os
 import torch
-import wandb
-
-from datetime import datetime
-from torch.utils.tensorboard import SummaryWriter
 
 import dataloader
 
@@ -30,16 +26,6 @@ args = parser.parse_args()
 config = importlib.import_module('configs.' + args.config).config
 
 
-""" Init wandb """
-
-if config.log_run:
-    writer = SummaryWriter(
-        'tensorboard_runs/pix2pix/' + datetime.now().strftime("%Y%m%d-%H%M%S"))
-    wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
-else:
-    writer = None
-
-
 """ Add a seed to have reproducible results """
 
 seed = 123
@@ -51,9 +37,11 @@ torch.cuda.manual_seed(seed)
 
 ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  config.target_data_path,
-                                 data_format=config.data_format,
-                                 use_gray=config.use_gray,
+                                 config.data_format,
+                                 config.use_same_sentence,
+                                 config.use_gray,
                                  max_samples=None,
+                                 seed=config.random_seed,
                                  sequence_length=config.sequence_length,
                                  step_size=config.step_size,
                                  image_size=config.image_size)
@@ -82,5 +70,4 @@ solver = GANSolver(config)
 """ Do training """
 
 solver.train_model(data_loaders,
-                   PLOT_GRADS,
-                   writer)
+                   PLOT_GRADS)

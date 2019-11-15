@@ -90,12 +90,14 @@ class SequencePatchDiscriminator(nn.Module):
         channels = 1 if gray else 3
 
         self.model = nn.Sequential(
-            *mu.discriminator_block(channels * 2, 64, normalization=False),
-            *mu.discriminator_block(64, 128),
+            # *mu.discriminator_block(channels * 2, 64, normalization=False),
+            # *mu.discriminator_block(64, 128),
             # *mu.discriminator_block(128, 256),
+            *mu.discriminator_block(channels * 2, 8, normalization=False),
+            *mu.discriminator_block(8, 8),
+            *mu.discriminator_block(8, 16),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(128, 1, 4, padding=1, bias=False),
-            nn.Sigmoid()
+            nn.Conv2d(16, 1, 4, padding=1, bias=False),
         )
 
     def forward(self, img_a, img_b):
