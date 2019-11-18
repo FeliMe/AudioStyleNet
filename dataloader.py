@@ -203,7 +203,10 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
             indices = self._get_random_indices(target_sentence)
         b = self._get_sample(target_sentence, indices)
 
-        return {'A': a, 'B': b}
+        # Get emotion from target sentence
+        emotion = int(target_sentence.split('/')[-1].split('-')[2]) - 1
+
+        return {'A': a, 'B': b, 'y': emotion}
 
     def show_sample(self):
         """

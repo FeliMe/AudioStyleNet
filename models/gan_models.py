@@ -22,6 +22,7 @@ class GeneratorUNet(nn.Module):
         super(GeneratorUNet, self).__init__()
 
         channels = 1 if gray else 3
+        latent_channels = 512
 
         # Encoder
         self.down1 = mu.UNetDown(channels, 64, normalize=False)
@@ -29,10 +30,10 @@ class GeneratorUNet(nn.Module):
         self.down3 = mu.UNetDown(128, 256)
         self.down4 = mu.UNetDown(256, 512, dropout=0.5)
         self.down5 = mu.UNetDown(512, 512, dropout=0.5)
-        self.down6 = mu.UNetDown(512, 512, normalize=False, dropout=0.5)
+        self.down6 = mu.UNetDown(512, latent_channels, normalize=False, dropout=0.5)
 
         # Decoder
-        self.up1 = mu.UNetUp(512, 512, dropout=0.5)
+        self.up1 = mu.UNetUp(latent_channels, 512, dropout=0.5)
         self.up2 = mu.UNetUp(1024, 512, dropout=0.5)
         self.up3 = mu.UNetUp(1024, 256)
         self.up4 = mu.UNetUp(512, 128)
@@ -47,15 +48,22 @@ class GeneratorUNet(nn.Module):
 
     def forward(self, x):
         """
-        input shape: [b, sequence_length, c, h, w]
+        x shape: [b, c, h, w]
+
+        args:
+            x (torch.tensor): input sequence
         """
         # U-Net generator with skip connections from encoder to decoder
+
+        # Encoder
         d1 = self.down1(x)
         d2 = self.down2(d1)
         d3 = self.down3(d2)
         d4 = self.down4(d3)
         d5 = self.down5(d4)
         d6 = self.down6(d5)
+
+        # Decoder
         u1 = self.up1(d6, d5)
         u2 = self.up2(u1, d4)
         u3 = self.up3(u2, d3)
@@ -73,9 +81,11 @@ class SequenceGeneratorUNet(nn.Module):
 
     def forward(self, x):
         """
-        input shape: [b, sequence_length, c, h, w]
-        """
+        x shape: [b, sequence_length, c, h, w]
 
+        args:
+            x (torch.tensor): input sequence
+        """
         y = []
         for idx in range(x.size(1)):
             y.append(self.unet(x[:, idx]))
@@ -83,34 +93,49 @@ class SequenceGeneratorUNet(nn.Module):
         return y
 
 
+class PatchDiscriminator(nn.Module):
+    def __init__(self, gray):
+        super(PatchDiscriminator, self).__init__()
+
+        channels = 1 if gray else 3
+
+        self.d1 = nn.Sequential(
+            *mu.discriminator_block(2 * channels, 8, normalization=False),
+            *mu.discriminator_block(8, 8),
+            *mu.discriminator_block(8, 16),
+            nn.ZeroPad2d((1, 0, 1, 0)),
+        )
+
+        self.d2 = nn.Conv2d(16, 1, 4, padding=1, bias=False)
+
+    def forward(self, x):
+        """
+        x.shape -> [b, 2 * c, h, w]
+        """
+        y = self.d1(x)
+        y = self.d2(y)
+
+        return y
+
+
 class SequencePatchDiscriminator(nn.Module):
     def __init__(self, gray):
         super(SequencePatchDiscriminator, self).__init__()
 
-        channels = 1 if gray else 3
-
-        self.model = nn.Sequential(
-            # *mu.discriminator_block(channels * 2, 64, normalization=False),
-            # *mu.discriminator_block(64, 128),
-            # *mu.discriminator_block(128, 256),
-            *mu.discriminator_block(channels * 2, 8, normalization=False),
-            *mu.discriminator_block(8, 8),
-            *mu.discriminator_block(8, 16),
-            nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(16, 1, 4, padding=1, bias=False),
-        )
+        self.d = PatchDiscriminator(gray)
 
     def forward(self, img_a, img_b):
         """
         a.shape -> [b, sequence_length, c, h, w]
         b.shape -> [b, sequence_length, c, h, w]
-        img_input.shape -> [b, 2 * sequence_length * c, h, w]
+
+        img_input.shape -> [b, sequence_length, 2 * c, h, w]
         """
         img_input = torch.cat((img_a, img_b), 2)
 
         out = []
-        for i_seq in range(img_a.size(1)):
-            out.append(self.model(img_input[:, i_seq]))
+        for i_seq in range(img_b.size(1)):
+            out.append(self.d(img_input[:, i_seq]))
         out = torch.stack(out, 1)
 
         return out
@@ -123,14 +148,14 @@ class SequenceDiscriminator(nn.Module):
         channels = 1 if gray else 3
 
         self.model = nn.Sequential(
-            *mu.discriminator_block(channels * 2, 64, normalization=False),
-            *mu.discriminator_block(64, 128),
-            # *mu.discriminator_block(128, 256),
+            *mu.discriminator_block(channels * 2, 8, normalization=False),
+            *mu.discriminator_block(8, 8),
+            *mu.discriminator_block(8, 16),
             nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(128, 32, 4, padding=1, bias=False),
+            nn.Conv2d(16, 16, 4, padding=1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Flatten(),
-            nn.Linear(32 * 16 * 16, 2),
+            nn.Linear(16 * 2 * 2, 2),
             nn.Sigmoid()
         )
 

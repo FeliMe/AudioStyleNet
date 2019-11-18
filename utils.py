@@ -128,7 +128,9 @@ class GANLoss(torch.nn.Module):
     that has the same size as the input.
     """
 
-    def __init__(self, gan_mode, device, target_real_label=1.0, target_fake_label=0.0, noisy_labels=False):
+    def __init__(self, gan_mode, device, target_real_label=1.0,
+                 target_fake_label=0.0, noisy_labels=False,
+                 label_range_real=(1.0, 1.0), label_range_fake=(0.0, 0.0)):
         """
         Initialize the GANLoss class.
 
@@ -137,6 +139,8 @@ class GANLoss(torch.nn.Module):
             target_real_label (bool): label for a real image
             target_fake_label (bool): label of a fake image
             noisy_labels (bool): Use noisy labels or not
+            label_range_real (tuple of floats): Min and max for real labels if noisy_labels == True
+            label_range_fake (tuple of floats): Min and max for fake labels if noisy_labels == True
 
         Note: Do not use sigmoid as the last layer of Discriminator.
         LSGAN needs no sigmoid. vanilla GANs will handle it with BCEWithLogitsLoss.
@@ -144,6 +148,8 @@ class GANLoss(torch.nn.Module):
         super(GANLoss, self).__init__()
         self.device = device
         self.noisy_labels = noisy_labels
+        self.label_range_real = label_range_real
+        self.label_range_fake = label_range_fake
         self.register_buffer('real_label', torch.tensor(target_real_label))
         self.register_buffer('fake_label', torch.tensor(target_fake_label))
         self.gan_mode = gan_mode
@@ -159,20 +165,22 @@ class GANLoss(torch.nn.Module):
     def get_target_tensor(self, prediction, target_is_real, discriminator):
         """Create label tensors with the same size as the input.
         Parameters:
-            prediction (tensor) - - tpyically the prediction from a discriminator
-            target_is_real (bool) - - if the ground truth label is for real images or fake images
+            prediction (tensor): tpyically the prediction from a discriminator
+            target_is_real (bool): if the ground truth label is for real images or fake images
         Returns:
             A label tensor filled with ground truth label, and with the size of the input
         """
 
         if target_is_real:
             if self.noisy_labels and discriminator:
-                target_tensor = self.real_label + ((np.random.random() * 0.3) - 0.2)
+                mini, maxi = self.label_range_real
+                target_tensor = self.real_label + ((np.random.random() * (maxi - mini)) - (self.real_label - abs(mini)))
             else:
                 target_tensor = self.real_label
         else:
             if self.noisy_labels and discriminator:
-                target_tensor = self.fake_label + (np.random.random() * 0.2)
+                mini, maxi = self.label_range_fake
+                target_tensor = self.fake_label + (np.random.random() * (maxi - mini)) - (self.fake_label - abs(mini))
             else:
                 target_tensor = self.fake_label
         return target_tensor.expand_as(prediction).to(self.device)

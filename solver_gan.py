@@ -66,7 +66,9 @@ class GANSolver(object):
 
         # Loss Functions
         self.criterionGAN = utils.GANLoss(config.GAN_mode, self.device,
-                                          noisy_labels=self.config.noisy_labels)
+                                          noisy_labels=config.noisy_labels,
+                                          label_range_real=config.label_range_real,
+                                          label_range_fake=config.label_range_fake)
         self.criterionPix = config.criterion_pix
         self.criterionEmotion = config.criterion_emotion
 
@@ -149,19 +151,19 @@ class GANSolver(object):
 
         return img_sample
 
-    def zero_running_metrics(self):
+    def _zero_running_metrics(self):
         for name in self.epoch_metric_names:
             if isinstance(name, str):
                 setattr(self, name, torch.tensor(0.))
 
-    def mean_running_metrics(self, len_loader):
+    def _mean_running_metrics(self, len_loader):
         for name in self.epoch_metric_names:
             if isinstance(name, str):
                 metric = getattr(self, name)
                 setattr(self, name, metric / len_loader)
 
     @staticmethod
-    def set_requires_grad(nets, requires_grad=False):
+    def _set_requires_grad(nets, requires_grad=False):
         """
         Source: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/base_model.py
         Set requies_grad=Fasle for all the networks to avoid unnecessary computations
@@ -176,6 +178,18 @@ class GANSolver(object):
             if net is not None:
                 for param in net.parameters():
                     param.requires_grad = requires_grad
+
+    @staticmethod
+    def _get_max_grad_norm(net, current_max):
+        for p in list(filter(lambda p: p.grad is not None, net.parameters())):
+            norm = p.grad.data.norm(2).item()
+            if norm > current_max:
+                current_max = norm
+        return current_max
+
+    @staticmethod
+    def _clip_gradient(net, max_grad):
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_grad)
 
     def log_tensorboard(self):
         """
@@ -217,6 +231,11 @@ class GANSolver(object):
         """
         self.real_A = inputs['A'].to(self.device)
         self.real_B = inputs['B'].to(self.device)
+
+        if 'y' in inputs.keys():
+            self.cond = inputs['y'].to(self.device)
+        else:
+            self.cond = torch.tensor(0.).to(self.device)
 
     def forward(self):
         """
@@ -294,25 +313,22 @@ class GANSolver(object):
         self.forward()
 
         # Train Discriminator
-        self.set_requires_grad(self.discriminator, True)
+        self._set_requires_grad(self.discriminator, True)
         self.optimizer_D.zero_grad()
         self.backward_D()
+        if self.config.grad_clip_val:
+            self._clip_gradient(self.discriminator, self.config.grad_clip_val)
+        self.epoch_maxNorm_D = self._get_max_grad_norm(self.discriminator,
+                                                       self.epoch_maxNorm_D)
         self.optimizer_D.step()
 
-        for p in list(filter(lambda p: p.grad is not None, self.discriminator.parameters())):
-            norm = p.grad.data.norm(2).item()
-            if norm > self.epoch_maxNorm_D:
-                self.epoch_maxNorm_D = norm
         # Train Generator
-        self.set_requires_grad(self.discriminator, False)
+        self._set_requires_grad(self.discriminator, False)
         self.optimizer_G.zero_grad()
         self.backward_G()
+        self.epoch_maxNorm_G = self._get_max_grad_norm(self.generator,
+                                                       self.epoch_maxNorm_G)
         self.optimizer_G.step()
-
-        for p in list(filter(lambda p: p.grad is not None, self.generator.parameters())):
-            norm = p.grad.data.norm(2).item()
-            if norm > self.epoch_maxNorm_G:
-                self.epoch_maxNorm_G = norm
 
     def train_model(self, data_loaders, plot_grads=False):
 
@@ -325,7 +341,7 @@ class GANSolver(object):
             print('Epoch {}/{}'.format(i_epoch, self.config.num_epochs))
             print('-' * 10)
 
-            self.zero_running_metrics()
+            self._zero_running_metrics()
 
             self.G_updates = 0
             self.real_updates = 0
@@ -365,7 +381,7 @@ class GANSolver(object):
             #  Epoch finished
             # ---------------
 
-            self.mean_running_metrics(len(data_loaders['train']))
+            self._mean_running_metrics(len(data_loaders['train']))
 
             # Epoch logging
             self.log_console(i_epoch)
