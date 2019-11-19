@@ -10,7 +10,7 @@ HOME = os.path.expanduser('~')
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': False,
+    'log_run': True,
     'random_seed': 123,
 
     # Dataset configs
@@ -18,7 +18,7 @@ config = Config({
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
-    'use_same_sentence': True,
+    'use_same_sentence': False,
     'validation_split': .1,
     'sequence_length': 5,
     'step_size': 1,
@@ -28,12 +28,12 @@ config = Config({
 
     # Hyper parameters
     'num_epochs': 30,
-    'lr_G': 0.0002,
-    'lr_D': 0.0002,
+    'lr_G': 0.0002,  # stable GAN: 0.0002
+    'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 32,
-    'lambda_G_GAN': 1.,  # vanilla: noisy .5 not noisy
-    'lambda_pixel': 10.,
-    'lambda_emotion': .1,  # .1,
+    'lambda_G_GAN': 1.,  # stable GAN: 1.
+    'lambda_pixel': 10.,  # stable GAN: 10.
+    'lambda_emotion': .1,  # stable GAN: .1,
 
     # Loss functions
     'GAN_mode': 'vanilla',
@@ -42,18 +42,20 @@ config = Config({
 
     # GAN hacks
     'noisy_labels': True,  # Use noisy labels for discriminator
-    'label_range_real': (0.8, 1.1),
-    'label_range_fake': (0.0, 0.2),
+    'label_range_real': (0.8, 1.1),  # stable GAN: (0.8, 1.1)
+    'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
     'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
 
     # Conditioning
-    'num_conditioning_classes': 0,
+    'num_conditioning_classes': 8,
 })
 
 config.update({
     # Models
-    'generator': gan_models.SequenceGeneratorUNet(config.use_gray),
-    'discriminator': gan_models.SequencePatchDiscriminator(config.use_gray),
+    'generator': gan_models.SequenceGeneratorUNet(config.use_gray,
+                                                  config.num_conditioning_classes),
+    'discriminator': gan_models.SequencePatchDiscriminator(config.use_gray,
+                                                  config.num_conditioning_classes),
     # 'discriminator': gan_models.SequenceDiscriminator(config.use_gray),
 
     # Classification model

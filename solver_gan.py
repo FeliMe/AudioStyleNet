@@ -133,7 +133,8 @@ class GANSolver(object):
         Saves a generated sample
         """
         # Generate fake sequence
-        fake_B = self.generator(self.real_A[0].unsqueeze(0))
+        fake_B = self.generator(self.real_A[0].unsqueeze(0),
+                                self.cond[0].unsqueeze(0))
 
         # Denormalize one sequence
         transform = utils.denormalize(self.config.mean, self.config.std)
@@ -241,21 +242,21 @@ class GANSolver(object):
         """
         Run forward pass
         """
-        self.fake_B = self.generator(self.real_A)
+        self.fake_B = self.generator(self.real_A, self.cond)
 
     def backward_D(self):
         """
         Compute losses for the discriminator
         """
         # All real batch
-        pred_real = self.discriminator(self.real_A, self.real_B)
+        pred_real = self.discriminator(self.real_A, self.real_B, self.cond)
         self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
         self.acc_D_real = (torch.sigmoid(pred_real).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_D_real += self.loss_D_real.item()
         self.epoch_acc_D_real += self.acc_D_real.item()
 
         # All fake batch
-        pred_fake = self.discriminator(self.real_A, self.fake_B)
+        pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
         self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
         self.acc_D_fake = (torch.sigmoid(pred_fake).round() == self.criterionGAN.fake_label.data).double().mean()
         self.epoch_loss_D_fake += self.loss_D_fake.item()
@@ -281,7 +282,7 @@ class GANSolver(object):
         Compute losses for the generator
         """
         # GAN loss
-        pred_fake = self.discriminator(self.real_A, self.fake_B)
+        pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
         self.acc_G = (torch.sigmoid(pred_fake).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
