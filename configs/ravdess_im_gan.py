@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 
-from models import gan_models, models
+from models import models, generators, discriminators
 from utils import Config
 
 HOME = os.path.expanduser('~')
@@ -10,7 +10,7 @@ HOME = os.path.expanduser('~')
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': True,
+    'log_run': False,
     'random_seed': 123,
 
     # Dataset configs
@@ -18,7 +18,7 @@ config = Config({
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
-    'use_same_sentence': False,
+    'use_same_sentence': True,
     'validation_split': .1,
     'sequence_length': 5,
     'step_size': 1,
@@ -27,13 +27,13 @@ config = Config({
     'std': [0.300, 0.348, 0.361],  # [0.332]
 
     # Hyper parameters
-    'num_epochs': 30,
+    'num_epochs': 100,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 32,
     'lambda_G_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 10.,  # stable GAN: 10.
-    'lambda_emotion': .1,  # stable GAN: .1,
+    'lambda_pixel': 0.,  # stable GAN: 10.
+    'lambda_emotion': 0.,  # stable GAN: .1,
 
     # Loss functions
     'GAN_mode': 'vanilla',
@@ -42,9 +42,10 @@ config = Config({
 
     # GAN hacks
     'noisy_labels': True,  # Use noisy labels for discriminator
-    'label_range_real': (0.8, 1.1),  # stable GAN: (0.8, 1.1)
+    'label_range_real': (0.9, 1.0),  # stable GAN: (0.8, 1.1)
     'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
     'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
+    'flip_prob': 0.1,
 
     # Conditioning
     'num_conditioning_classes': 8,
@@ -52,11 +53,12 @@ config = Config({
 
 config.update({
     # Models
-    'generator': gan_models.SequenceGeneratorUNet(config.use_gray,
-                                                  config.num_conditioning_classes),
-    'discriminator': gan_models.SequencePatchDiscriminator(config.use_gray,
-                                                  config.num_conditioning_classes),
-    # 'discriminator': gan_models.SequenceDiscriminator(config.use_gray),
+    'generator': generators.SequenceGenerator(
+        config.use_gray, config.num_conditioning_classes),
+    # 'discriminator': discriminators.SequencePatchDiscriminator(
+    #     config.use_gray, config.num_conditioning_classes),
+    # 'discriminator': discriminators.SequenceDiscriminator(config.use_gray),
+    'discriminator': discriminators.SimpleDiscriminator(config.use_gray),
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),

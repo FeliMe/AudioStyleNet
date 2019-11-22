@@ -7,11 +7,11 @@ import torch
 import wandb
 
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.utils import make_grid
+from torchvision.utils import make_grid, save_image
 
 import utils
 
-from models.gan_models import weights_init
+from models.model_utils import weights_init
 
 
 class GANSolver(object):
@@ -66,6 +66,7 @@ class GANSolver(object):
 
         # Loss Functions
         self.criterionGAN = utils.GANLoss(config.GAN_mode, self.device,
+                                          flip_p=config.flip_prob,
                                           noisy_labels=config.noisy_labels,
                                           label_range_real=config.label_range_real,
                                           label_range_fake=config.label_range_fake)
@@ -128,27 +129,49 @@ class GANSolver(object):
                 if self.config.log_run:
                     torch.save(model.state_dict(), os.path.join(wandb.run.dir, save_filename))
 
-    def sample_images(self):
+        print()
+
+    def _make_grid_image(self, real_A, real_B, fake_B):
+        # Denormalize one sequence
+        transform = utils.denormalize(self.config.mean, self.config.std)
+        real_a = torch.stack([transform(img) for img in real_A[0].data], dim=0)
+        real_b = torch.stack([transform(img) for img in real_B[0].data], dim=0)
+        fake_b = torch.stack([transform(img) for img in fake_B[0].data], dim=0)
+
+        # Make grid image
+        grid_image = torch.cat((real_a, fake_b, real_b), -2)
+        grid_image = make_grid(grid_image, nrow=real_a.size(0), normalize=False)
+
+        return grid_image
+
+    def sample_images(self, data_loaders):
         """
         Saves a generated sample
         """
+        # Get sample from train set
+        train_batch = next(iter(data_loaders['train']))
+        self.set_inputs(train_batch)
+
         # Generate fake sequence
         fake_B = self.generator(self.real_A[0].unsqueeze(0),
                                 self.cond[0].unsqueeze(0))
+        grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
-        # Denormalize one sequence
-        transform = utils.denormalize(self.config.mean, self.config.std)
-        real_a = torch.stack([transform(img) for img in self.real_A[0].data], dim=0)
-        real_b = torch.stack([transform(img) for img in self.real_B[0].data], dim=0)
-        fake_b = torch.stack([transform(img) for img in fake_B[0].data], dim=0)
+        # Get sample from val set
+        val_batch = next(iter(data_loaders['val']))
+        self.set_inputs(val_batch)
 
-        # Specify and create target folder
-        target_dir = os.path.join(self.save_dir, 'images')
-        os.makedirs(target_dir, exist_ok=True)
+        # Generate fake sequence
+        fake_B = self.generator(self.real_A[0].unsqueeze(0),
+                                self.cond[0].unsqueeze(0))
+        grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
-        # Make grid image
-        img_sample = torch.cat((real_a, fake_b, real_b), -2)
-        img_sample = make_grid(img_sample, nrow=real_a.size(0), normalize=True)
+        # Pad train grid
+        grid_image_train = torch.nn.functional.pad(grid_image_train, [0, 30, 0, 0], mode='constant')
+
+        # Cat train and val together
+        img_sample = torch.cat((grid_image_train, grid_image_val), -1)
+        img_sample = make_grid(img_sample, nrow=1, normalize=True)
 
         return img_sample
 
@@ -216,12 +239,10 @@ class GANSolver(object):
                 print('{} {} {}: {:.4f}'.format(model, name, metric, m))
         print("Max gradient norm D: {:.4f} | Max gradient norm G: {:.4f}".format(
             self.epoch_maxNorm_D, self.epoch_maxNorm_G))
-        print('Time elapsed {} | Time left: {}'.format(
+        print('Time elapsed {} | Time left: {}\n'.format(
             utils.time_to_str(time.time() - self.t_start),
             utils.time_left(self.t_start, self.config.num_epochs, i_epoch)
         ))
-        max_memory = torch.cuda.max_memory_allocated(self.device) / 1e6
-        print("Max memory on {}: {} MB\n".format(self.device, int(max_memory)))
 
     def set_inputs(self, inputs):
         """
@@ -268,10 +289,10 @@ class GANSolver(object):
         self.loss_D_total = self.loss_D_fake + self.loss_D_real
         self.epoch_loss_D_total += self.loss_D_total.item()
 
-        if self.acc_D_real < 0.6:
+        if self.acc_D_real < 1.0:  # 0.6
             self.real_updates += 1
             self.loss_D_real.backward(retain_graph=False)
-        if self.acc_D_fake < 0.6:
+        if self.acc_D_fake < 1.0:  # 0.6
             self.fake_updates += 1
             self.loss_D_fake.backward(retain_graph=True)
 
@@ -303,7 +324,7 @@ class GANSolver(object):
                             + self.loss_G_pixel * self.config.lambda_pixel \
                             + self.loss_G_emotion * self.config.lambda_emotion
 
-        if self.acc_G < 0.6:
+        if self.acc_G < 1.0:  # 0.6
             self.G_updates += 1
             self.loss_G_total.backward(retain_graph=False)
 
@@ -388,13 +409,16 @@ class GANSolver(object):
             self.log_console(i_epoch)
 
             if self.config.log_run:
-                # Get sample from validation set
-                val_batch = next(iter(data_loaders['val']))
-                self.set_inputs(val_batch)
-
                 # Generate sample images
-                img_sample = self.sample_images()
+                img_sample = self.sample_images(data_loaders)
+
+                # Specify and create target folder
+                target_dir = os.path.join(self.save_dir, 'images')
+                os.makedirs(target_dir, exist_ok=True)
+
+                # Save image (Important: wirter.add_image has to be before save_image!!!)
                 self.writer.add_image('sample', img_sample, i_epoch)
+                save_image(img_sample, os.path.join(target_dir, 'sample_{}.png'.format(i_epoch)))
 
                 # Save model
                 self.save()

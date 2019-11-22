@@ -131,7 +131,7 @@ class RAVDESSDataset(Dataset):
 
     def _get_random_indices(self, sentence):
         len_sentence = len(list(pathlib.Path(sentence).glob('*')))
-        rand_idx = np.random.randint(1, len_sentence - self.sequence_length)
+        rand_idx = torch.randint(1, len_sentence - self.sequence_length, (1,)).item()
         indices = list(range(rand_idx,
                              rand_idx + (self.sequence_length * self.step_size),
                              self.step_size))
