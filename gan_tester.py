@@ -16,9 +16,11 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from IPython.display import HTML
 
+import dataloader
+
+
 # Set random seed for reproducibility
 manualSeed = 999
-#manualSeed = random.randint(1, 10000) # use if you want new results
 print("Random Seed: ", manualSeed)
 random.seed(manualSeed)
 torch.manual_seed(manualSeed)
@@ -44,16 +46,30 @@ ndf = 64  # # Size of feature maps in discriminator
 #%%
 
 # Create the dataset
-dataset = dset.ImageFolder(root=dataroot,
-                           transform=transforms.Compose([
-                               transforms.Resize(image_size),
-                               transforms.CenterCrop(image_size),
-                               transforms.ToTensor(),
-                               transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-                           ]))
+# dataset = dset.ImageFolder(root=dataroot,
+#                            transform=transforms.Compose([
+#                                transforms.Resize(image_size),
+#                                transforms.CenterCrop(image_size),
+#                                transforms.ToTensor(),
+#                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+#                            ]))
+
+ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
+                                 HOME + '/Datasets/RAVDESS/Image128',
+                                 'image',
+                                 use_same_sentence=True,
+                                 use_gray=False,
+                                 normalize=False,
+                                 max_samples=None,
+                                 seed=123,
+                                 sequence_length=1,
+                                 step_size=1,
+                                 image_size=64)
+
 # Create the dataloader
-dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
+dataloader = torch.utils.data.DataLoader(ds, batch_size=batch_size,
                                          shuffle=True, num_workers=workers)
+
 
 # Decide which device we want to run on
 device = torch.device("cuda" if (torch.cuda.is_available()) else "cpu")
@@ -64,10 +80,10 @@ print("Training on {}".format(device))
 
 # Plot some training images
 real_batch = next(iter(dataloader))
-plt.figure(figsize=(8,8))
+plt.figure(figsize=(8, 8))
 plt.axis("off")
 plt.title("Training Images")
-plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
+plt.imshow(np.transpose(vutils.make_grid(real_batch['B'][:, 0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
 plt.savefig("Training_images.png")
 
 #%%

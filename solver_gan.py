@@ -51,7 +51,7 @@ class GANSolver(object):
                     utils.count_trainable_params(model)
                 ))
 
-        if config.log_run:
+        if self.config.log_run:
             self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
             self.writer = SummaryWriter(self.save_dir)
             wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
@@ -134,13 +134,13 @@ class GANSolver(object):
     def _make_grid_image(self, real_A, real_B, fake_B):
         # Denormalize one sequence
         transform = utils.denormalize(self.config.mean, self.config.std)
-        real_a = torch.stack([transform(img) for img in real_A[0].data], dim=0)
-        real_b = torch.stack([transform(img) for img in real_B[0].data], dim=0)
-        fake_b = torch.stack([transform(img) for img in fake_B[0].data], dim=0)
+        real_A = torch.stack([transform(a) for a in real_A[0]], 0).detach()
+        real_B = torch.stack([transform(a) for a in real_B[0]], 0).detach()
+        fake_B = torch.stack([transform(a) for a in fake_B[0]], 0).detach()
 
         # Make grid image
-        grid_image = torch.cat((real_a, fake_b, real_b), -2)
-        grid_image = make_grid(grid_image, nrow=real_a.size(0), normalize=False)
+        grid_image = torch.cat((real_A, fake_B, real_B), -2)
+        grid_image = make_grid(grid_image, nrow=real_A.size(0), normalize=False)
 
         return grid_image
 
@@ -151,6 +151,10 @@ class GANSolver(object):
         # Get sample from train set
         train_batch = next(iter(data_loaders['train']))
         self.set_inputs(train_batch)
+
+        import matplotlib.pyplot as plt
+        plt.imshow(np.moveaxis(self.real_B[0, 0].numpy(), 0, 2))
+        plt.show()
 
         # Generate fake sequence
         fake_B = self.generator(self.real_A[0].unsqueeze(0),
@@ -171,7 +175,7 @@ class GANSolver(object):
 
         # Cat train and val together
         img_sample = torch.cat((grid_image_train, grid_image_val), -1)
-        img_sample = make_grid(img_sample, nrow=1, normalize=True)
+        img_sample = make_grid(img_sample, nrow=1, normalize=False)
 
         return img_sample
 

@@ -39,7 +39,9 @@ ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  config.target_data_path,
                                  config.data_format,
                                  config.use_same_sentence,
-                                 config.use_gray,
+                                 normalize=config.normalize,
+                                 mean=config.mean,
+                                 std=config.std,
                                  max_samples=None,
                                  seed=config.random_seed,
                                  sequence_length=config.sequence_length,
@@ -59,7 +61,7 @@ print("Using {} samples for training and {} for validation".format(
 
 sample = next(iter(data_loaders['train']))
 print('Input Shape: {}'.format(sample['A'].shape))
-# ds.show_sample()
+ds.show_sample()
 
 
 """ Initialize solver """

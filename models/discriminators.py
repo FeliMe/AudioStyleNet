@@ -144,7 +144,7 @@ class SimpleDiscriminator(nn.Module):
             nn.Sigmoid()
         )
 
-    def forward(self, img_a, img_b):
+    def forward(self, img_a, img_b, cond):
         out = []
         for i_seq in range(img_a.size(1)):
             out.append(self.model(img_b[:, i_seq]))

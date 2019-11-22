@@ -10,6 +10,7 @@ HOME = os.path.expanduser('~')
 config = Config({
     # General configs
     'use_cuda': True,
+    'log_run': True,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/Landmarks',
@@ -20,7 +21,7 @@ config = Config({
     'image_size': 64,
 
     # Hyper parameters
-    'num_epochs': 30,
+    'num_epochs': 100,
     'learning_rate': 0.001,
     'batch_size': 32,
 

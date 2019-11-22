@@ -5,6 +5,18 @@ from utils import Config
 
 HOME = os.path.expanduser('~')
 
+# ImageNet mean / std
+IMG_NET_MEAN = [0.485, 0.456, 0.406]
+IMG_NET_STD = [0.229, 0.224, 0.225]
+
+# RAVDESS mean / std
+RAVDESS_MEAN = [0.755, 0.673, 0.652]
+RAVDESS_STD = [0.300, 0.348, 0.361]
+
+# ImageNet mean / std (Grayscale)
+RAVDESS_GRAY_MEAN = [0.694]
+RAVDESS_GRAY_STD = [0.332]
+
 config = Config({
     # General configs
     'use_cuda': True,
@@ -14,6 +26,7 @@ config = Config({
     'data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
+    'normalize': True,
     'validation_split': .2,
     'sequence_length': 5,
     'step_size': 1,
@@ -39,4 +52,9 @@ config.update({
     # 'model': models.SiameseConv3D(config.use_gray)
     #
     # 'model': models.TestModel()
+})
+
+config.update({
+    'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
+    'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
 })

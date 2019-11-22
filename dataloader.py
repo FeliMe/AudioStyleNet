@@ -18,19 +18,6 @@ from torchvision.utils import make_grid
 import utils
 
 
-# ImageNet mean / std
-IMG_NET_MEAN = [0.485, 0.456, 0.406]
-IMG_NET_STD = [0.229, 0.224, 0.225]
-
-# RAVDESS mean / std
-RAVDESS_MEAN = [0.755, 0.673, 0.652]
-RAVDESS_STD = [0.300, 0.348, 0.361]
-
-# ImageNet mean / std (Grayscale)
-RAVDESS_GRAY_MEAN = [0.694]
-RAVDESS_GRAY_STD = [0.332]
-
-
 class RAVDESSDataset(Dataset):
     """
     Dataset class for loading RAVDESS sentences in a sequential manner.
@@ -44,7 +31,9 @@ class RAVDESSDataset(Dataset):
     Arguments:
         root_path (str): Path to data files
         data_format (str): Format of data files ('image' or 'landmarks')
-        use_gray (bool): Convert images to grayscale or not
+        normalize (bool): Normalize data before outputting
+        mean (list): Dataset mean values
+        std (list): Dataset standard deviations
         max_samples (int or None): Maximum number of samples to be considered.
                                    Choose None for whole dataset
         seed (int): Random seed for reproducible shuffling
@@ -55,7 +44,9 @@ class RAVDESSDataset(Dataset):
     def __init__(self,
                  root_path,
                  data_format='image',
-                 use_gray=False,
+                 normalize=True,
+                 mean=[0., 0., 0.],
+                 std=[1., 1., 1.],
                  max_samples=None,
                  seed=123,
                  sequence_length=1,
@@ -65,6 +56,10 @@ class RAVDESSDataset(Dataset):
         assert (sequence_length * step_size) - 1 <= 94, \
             "Sequence is too long, step size too big or window size too" + \
             " big. Shortest sentence in RAVDESS is only 94 frames long."
+
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
 
         root_dir = pathlib.Path(root_path)
 
@@ -86,27 +81,13 @@ class RAVDESSDataset(Dataset):
         if max_samples is not None:
             sentences = sentences[:min(len(sentences), max_samples)]
 
-        # Add transforms
-        if use_gray:
-            self.mean = RAVDESS_GRAY_MEAN
-            self.std = RAVDESS_GRAY_STD
-            trans = transforms.Compose([
-                transforms.Grayscale(),
-                transforms.Resize(image_size),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=self.mean,
-                                     std=self.std)
-            ])
-        else:
-            self.mean = RAVDESS_MEAN
-            self.std = RAVDESS_STD
-            trans = transforms.Compose([
-                transforms.Resize(image_size),
-                transforms.ToTensor(),
-                transforms.Normalize(mean=self.mean,
-                                     std=self.std)
-            ])
-        self.transforms = trans
+        trans = [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+        ]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.transforms = transforms.Compose(trans)
 
         self.sentences = sentences
         self.sequence_length = sequence_length
@@ -143,7 +124,7 @@ class RAVDESSDataset(Dataset):
         Plot a random sample
         """
         sample, _ = self.__getitem__(np.random.randint(0, self.__len__() - 1))
-        self.show_fn(sample, self.mean, self.std)
+        self.show_fn(sample, self.mean, self.std, self.normalize)
 
     def __len__(self):
         return len(self.sentences)
@@ -167,20 +148,25 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  target_root_path,
                  data_format='image',
                  use_same_sentence=True,
-                 use_gray=False,
+                 normalize=True,
+                 mean=[0., 0., 0.],
+                 std=[1., 1., 1.],
                  max_samples=None,
                  seed=123,
                  sequence_length=1,
                  step_size=1,
                  image_size=64):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
-                                               use_gray, max_samples, seed,
+                                               normalize, mean, std,
+                                               max_samples, seed,
                                                sequence_length, step_size,
                                                image_size)
 
         self.target_root_path = target_root_path
         self.use_same_sentence = use_same_sentence
         self.show_fn = show_pix2pix
+
+        print(self.mean, self.std)
 
     def __getitem__(self, item):
         """
@@ -213,7 +199,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
         Plot a random sample
         """
         sample = self.__getitem__(np.random.randint(0, self.__len__() - 1))
-        self.show_fn(sample, self.mean, self.std)
+        self.show_fn(sample, self.mean, self.std, self.normalize)
 
 
 def load_images(paths, transform):
@@ -242,19 +228,20 @@ def load_landmark(path, transform):
     return landmarks.reshape(-1)
 
 
-def show_images(img, mean, std):
+def show_images(img, mean, std, normalize):
     """
     Plots a sequence of images
     """
-    transform = utils.denormalize(mean, std)
-    img = torch.stack([transform(a) for a in img], 0)
+    if normalize:
+        transform = utils.denormalize(mean, std)
+        img = torch.stack([transform(a) for a in img], 0)
     img = make_grid(img, nrow=img.size(0), normalize=True)
     plt.figure(figsize=(img.size(0), 1))
     plt.imshow(np.moveaxis(img.numpy(), 0, 2))
     plt.show()
 
 
-def show_landmarks(landmarks, mean, std):
+def show_landmarks(landmarks, *kargs):
     if len(landmarks.shape) == 2:
         landmarks = landmarks[0]
     landmarks = landmarks[:2 * 68].reshape(-1, 2)
@@ -262,7 +249,7 @@ def show_landmarks(landmarks, mean, std):
     plt.show()
 
 
-def show_pix2pix(sample, mean, std):
+def show_pix2pix(sample, mean, std, normalize):
     """
     Plots a sample (input sequence and target sequence)
     """
@@ -270,9 +257,10 @@ def show_pix2pix(sample, mean, std):
     img_b = sample['B']
 
     # Denormalize
-    transform = utils.denormalize(mean, std)
-    img_a = torch.stack([transform(a) for a in img_a], 0)
-    img_b = torch.stack([transform(b) for b in img_b], 0)
+    if normalize:
+        transform = utils.denormalize(mean, std)
+        img_a = torch.stack([transform(a) for a in img_a], 0)
+        img_b = torch.stack([transform(b) for b in img_b], 0)
 
     # Make image grid
     imgs = torch.cat([img_a, img_b])

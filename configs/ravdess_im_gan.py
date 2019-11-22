@@ -7,6 +7,18 @@ from utils import Config
 
 HOME = os.path.expanduser('~')
 
+# ImageNet mean / std
+IMG_NET_MEAN = [0.485, 0.456, 0.406]
+IMG_NET_STD = [0.229, 0.224, 0.225]
+
+# RAVDESS mean / std
+RAVDESS_MEAN = [0.755, 0.673, 0.652]
+RAVDESS_STD = [0.300, 0.348, 0.361]
+
+# ImageNet mean / std (Grayscale)
+RAVDESS_GRAY_MEAN = [0.694]
+RAVDESS_GRAY_STD = [0.332]
+
 config = Config({
     # General configs
     'use_cuda': True,
@@ -18,6 +30,7 @@ config = Config({
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
+    'normalize': True,
     'use_same_sentence': True,
     'validation_split': .1,
     'sequence_length': 5,
@@ -73,4 +86,9 @@ config.update({
     #                                 lr=config.lr_D,  betas=(0.5, 0.999)),
     'optimizer_D': torch.optim.SGD(config.discriminator.parameters(),
                                    lr=config.lr_D)
+})
+
+config.update({
+    'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
+    'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
 })

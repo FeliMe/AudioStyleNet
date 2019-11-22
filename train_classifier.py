@@ -50,7 +50,9 @@ torch.manual_seed(seed)
 
 ds = dataloader.RAVDESSDataset(config.data_path,
                                data_format=config.data_format,
-                               use_gray=config.use_gray,
+                               normalize=config.normalize,
+                               mean=config.mean,
+                               std=config.std,
                                max_samples=None,
                                sequence_length=config.sequence_length,
                                step_size=config.step_size,
