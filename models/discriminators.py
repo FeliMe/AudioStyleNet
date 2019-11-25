@@ -118,7 +118,7 @@ class SequenceDiscriminator(nn.Module):
 
 
 class SimpleDiscriminator(nn.Module):
-    def __init__(self, gray, n_features=64):
+    def __init__(self, gray, n_features=16):
         super(SimpleDiscriminator, self).__init__()
 
         nc = 1 if gray else 3

@@ -22,7 +22,7 @@ RAVDESS_GRAY_STD = [0.332]
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': False,
+    'log_run': True,
     'random_seed': 123,
 
     # Dataset configs
@@ -33,7 +33,7 @@ config = Config({
     'normalize': True,
     'use_same_sentence': True,
     'validation_split': .1,
-    'sequence_length': 5,
+    'sequence_length': 1,
     'step_size': 1,
     'image_size': 64,
     'mean': [0.755, 0.673, 0.652],  # [0.694]
@@ -54,11 +54,11 @@ config = Config({
     'criterion_emotion': nn.MSELoss(),
 
     # GAN hacks
-    'noisy_labels': True,  # Use noisy labels for discriminator
+    'noisy_labels': False,  # Use noisy labels for discriminator
     'label_range_real': (0.9, 1.0),  # stable GAN: (0.8, 1.1)
     'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
     'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
-    'flip_prob': 0.1,
+    'flip_prob': 0.0,
 
     # Conditioning
     'num_conditioning_classes': 8,
@@ -82,10 +82,10 @@ config.update({
     # Optimizers
     'optimizer_G': torch.optim.Adam(config.generator.parameters(),
                                     lr=config.lr_G, betas=(0.5, 0.999)),
-    # 'optimizer_D': torch.optim.Adam(config.discriminator.parameters(),
-    #                                 lr=config.lr_D,  betas=(0.5, 0.999)),
-    'optimizer_D': torch.optim.SGD(config.discriminator.parameters(),
-                                   lr=config.lr_D)
+    'optimizer_D': torch.optim.Adam(config.discriminator.parameters(),
+                                    lr=config.lr_D,  betas=(0.5, 0.999)),
+    # 'optimizer_D': torch.optim.SGD(config.discriminator.parameters(),
+    #                                lr=config.lr_D)
 })
 
 config.update({

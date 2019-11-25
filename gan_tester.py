@@ -33,15 +33,15 @@ dataroot = HOME + '/Datasets/celeba/'
 
 # Hyperparameters
 workers = 8
-batch_size = 128
+batch_size = 64
 image_size = 64
-num_epochs = 5
+num_epochs = 100
 lr = 0.0002
 beta1 = 0.5
 nc = 3  # Number of channels
 nz = 100  # Size of z latent vector
 ngf = 64  # Size of feature maps in generator
-ndf = 64  # # Size of feature maps in discriminator
+ndf = 16  # # Size of feature maps in discriminator
 
 #%%
 
@@ -58,13 +58,16 @@ ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128
                                  HOME + '/Datasets/RAVDESS/Image128',
                                  'image',
                                  use_same_sentence=True,
-                                 use_gray=False,
                                  normalize=False,
+                                 mean=[0.755, 0.673, 0.652],
+                                 std=[0.300, 0.348, 0.361],
                                  max_samples=None,
                                  seed=123,
                                  sequence_length=1,
                                  step_size=1,
                                  image_size=64)
+
+print("Found {} samples in total".format(len(ds)))
 
 # Create the dataloader
 dataloader = torch.utils.data.DataLoader(ds, batch_size=batch_size,
@@ -103,60 +106,95 @@ def weights_init(m):
 class Generator(nn.Module):
     def __init__(self):
         super(Generator, self).__init__()
+
+        self.g = NoiseGenerator()
+
+    def forward(self, x):
+        """
+        x.shape -> [b, sequence_length, c, h, w]
+        cond.shape -> [b, 1]
+
+        args:
+            x (torch.tensor): input sequence
+            cond(torch.tensor): conditioning label
+        """
+        y = []
+        for idx in range(x.size(1)):
+            y.append(self.g(x[:, idx]))
+        y = torch.stack(y, dim=1)
+        return y
+
+
+class NoiseGenerator(nn.Module):
+    def __init__(self, n_features=64, n_latent=100):
+        super(NoiseGenerator, self).__init__()
+
+        nc = 3
+        self.n_latent = n_latent
+
         self.main = nn.Sequential(
             # input is Z, going into a convolution
-            nn.ConvTranspose2d(nz, ngf * 8, 4, 1, 0, bias=False),
-            nn.BatchNorm2d(ngf * 8),
+            nn.ConvTranspose2d(n_latent, n_features * 8, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(n_features * 8),
             nn.ReLU(True),
-            # state size. (ngf*8) x 4 x 4
-            nn.ConvTranspose2d(ngf * 8, ngf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 4),
+            # state size. (n_features*8) x 4 x 4
+            nn.ConvTranspose2d(n_features * 8, n_features * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features * 4),
             nn.ReLU(True),
-            # state size. (ngf*4) x 8 x 8
-            nn.ConvTranspose2d(ngf * 4, ngf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf * 2),
+            # state size. (n_features*4) x 8 x 8
+            nn.ConvTranspose2d(n_features * 4, n_features * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features * 2),
             nn.ReLU(True),
-            # state size. (ngf*2) x 16 x 16
-            nn.ConvTranspose2d(ngf * 2, ngf, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ngf),
+            # state size. (n_features*2) x 16 x 16
+            nn.ConvTranspose2d(n_features * 2, n_features, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features),
             nn.ReLU(True),
-            # state size. (ngf) x 32 x 32
-            nn.ConvTranspose2d(ngf, nc, 4, 2, 1, bias=False),
+            # state size. (n_features) x 32 x 32
+            nn.ConvTranspose2d(n_features, nc, 4, 2, 1, bias=False),
             nn.Tanh()
             # state size. (nc) x 64 x 64
         )
 
-    def forward(self, input):
-        return self.main(input)
+    def forward(self, x):
+        noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
+        return self.main(noise)
 
 
 # Discriminator
 class Discriminator(nn.Module):
-    def __init__(self):
+    def __init__(self, n_features=16):
         super(Discriminator, self).__init__()
-        self.main = nn.Sequential(
+
+        nc = 3
+
+        self.model = nn.Sequential(
             # input is (nc) x 64 x 64
-            nn.Conv2d(nc, ndf, 4, 2, 1, bias=False),
+            nn.Conv2d(nc, n_features, 4, 2, 1, bias=False),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf) x 32 x 32
-            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 2),
+            # state size. (n_features) x 32 x 32
+            nn.Conv2d(n_features, n_features * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features * 2),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*2) x 16 x 16
-            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 4),
+            # state size. (n_features*2) x 16 x 16
+            nn.Conv2d(n_features * 2, n_features * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*4) x 8 x 8
-            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(ndf * 8),
+            # state size. (n_features*4) x 8 x 8
+            nn.Conv2d(n_features * 4, n_features * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(n_features * 8),
             nn.LeakyReLU(0.2, inplace=True),
-            # state size. (ndf*8) x 4 x 4
-            nn.Conv2d(ndf * 8, 1, 4, 1, 0, bias=False),
+            # state size. (n_features*8) x 4 x 4
+            nn.Conv2d(n_features * 8, 1, 4, 1, 0, bias=False),
             nn.Sigmoid()
         )
 
-    def forward(self, input):
-        return self.main(input)
+    def forward(self, img):
+        out = []
+        for i_seq in range(img.size(1)):
+            out.append(self.model(img[:, i_seq]))
+        out = torch.stack(out, 1)
+
+        return out
 
 
 #%%
@@ -167,12 +205,6 @@ netG.apply(weights_init)
 
 netD = Discriminator().to(device)
 netD.apply(weights_init)
-
-# Print the model
-print("Generator")
-print(netG)
-print("Discriminator")
-print(netD)
 
 #%%
 
@@ -213,7 +245,7 @@ for epoch in range(num_epochs):
         ## Train with all-real batch
         netD.zero_grad()
         # Format batch
-        real_cpu = data[0].to(device)
+        real_cpu = data['B'].to(device)
         b_size = real_cpu.size(0)
         label = torch.full((b_size,), real_label, device=device)
         # Forward pass real batch through D
@@ -226,7 +258,8 @@ for epoch in range(num_epochs):
 
         ## Train with all-fake batch
         # Generate batch of latent vectors
-        noise = torch.randn(b_size, nz, 1, 1, device=device)
+        # noise = torch.randn(b_size, nz, 1, 1, device=device)
+        noise = torch.randn(b_size, real_cpu.size(1), 1, 1, device=device)
         # Generate fake image batch with G
         fake = netG(noise)
         label.fill_(fake_label)
@@ -238,7 +271,7 @@ for epoch in range(num_epochs):
         errD_fake.backward()
         D_G_z1 = output.mean().item()
         # Add the gradients from the all-real and all-fake batches
-        errD = errD_real + errD_fake
+        errD = 0.5 * (errD_real + errD_fake)
         # Update D
         optimizerD.step()
 
@@ -278,7 +311,7 @@ for epoch in range(num_epochs):
 #%%
 
 # Plot loss
-plt.figure(figsize=(10,5))
+plt.figure(figsize=(10, 5))
 plt.title("Generator and Discriminator Loss During Training")
 plt.plot(G_losses, label="G")
 plt.plot(D_losses, label="D")
@@ -308,7 +341,7 @@ plt.figure(figsize=(15, 15))
 plt.subplot(1, 2, 1)
 plt.axis("off")
 plt.title("Real Images")
-plt.imshow(np.transpose(vutils.make_grid(real_batch[0].to(device)[:64], padding=5, normalize=True).cpu(),(1,2,0)))
+plt.imshow(np.transpose(vutils.make_grid(real_batch['B'][:, 0].to(device)[:64], padding=5, normalize=True).cpu(),(1,2,0)))
 
 # Plot the fake images from the last epoch
 plt.subplot(1, 2, 2)

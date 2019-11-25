@@ -132,5 +132,8 @@ class NoiseGenerator(nn.Module):
         )
 
     def forward(self, x, cond):
+        print(x.shape)
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
+        print(noise.shape)
+        print(self.main(noise).shape)
         return self.main(noise)

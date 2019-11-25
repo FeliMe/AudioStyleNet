@@ -97,17 +97,28 @@ class GANSolver(object):
         self.epoch_acc_D_real = torch.tensor(0.)
         self.epoch_acc_D_fake = torch.tensor(0.)
 
-        self.epoch_acc_D_real = torch.tensor(0.)
-        self.epoch_acc_D_fake = torch.tensor(0.)
         self.epoch_maxNorm_D = 0
         self.epoch_maxNorm_G = 0
 
-        self.iteration_metric_names = ['loss_G_GAN', 'loss_G_pixel',
-                                       'loss_G_emotion', 'loss_D_total']
-        self.epoch_metric_names = ['epoch_loss_G_GAN', 'epoch_loss_G_pixel',
-                                   'epoch_loss_G_emotion', 'epoch_loss_D_total',
-                                   'epoch_acc_D_real', 'epoch_acc_D_fake',
-                                   'epoch_acc_G_']
+        self.iteration_metric_names = [
+            'loss_G_GAN',
+            'loss_G_pixel',
+            'loss_G_emotion',
+            'loss_D_total']
+
+        self.epoch_metric_names = [
+            'epoch_loss_D_total',
+            'epoch_loss_D_fake',
+            'epoch_loss_D_real',
+            'epoch_loss_G_emotion',
+            'epoch_loss_G_pixel',
+            'epoch_loss_G_GAN',
+            'epoch_acc_G_',
+            'epoch_acc_D_real',
+            'epoch_acc_D_fake',
+            'epoch_maxNorm_D',
+            'epoch_maxNorm_G'
+        ]
 
     def save(self):
         """
@@ -151,10 +162,6 @@ class GANSolver(object):
         # Get sample from train set
         train_batch = next(iter(data_loaders['train']))
         self.set_inputs(train_batch)
-
-        import matplotlib.pyplot as plt
-        plt.imshow(np.moveaxis(self.real_B[0, 0].numpy(), 0, 2))
-        plt.show()
 
         # Generate fake sequence
         fake_B = self.generator(self.real_A[0].unsqueeze(0),
@@ -234,14 +241,16 @@ class GANSolver(object):
     def log_console(self, i_epoch):
         print("G updates: {} Real updates: {} fake updates: {} steps: {}".format(
             self.G_updates, self.real_updates, self.fake_updates, self.steps))
-        for metric_name in self.epoch_metric_names:
-            if isinstance(metric_name, str):
-                # e.g. loss_G_GAN
-                _, metric, model, name = metric_name.split('_')
-                m = getattr(self, metric_name)
-                m = m.mean()
-                print('{} {} {}: {:.4f}'.format(model, name, metric, m))
-        print("Max gradient norm D: {:.4f} | Max gradient norm G: {:.4f}".format(
+        print("G loss GAN: {:.3f}\tG loss Pix: {:.3f}\tG loss Emo: {:.3f}".format(
+            self.epoch_loss_G_GAN, self.epoch_loss_G_pixel, self.epoch_loss_G_emotion
+        ))
+        print("D loss real: {:.3f}\tD loss fake: {:.3f}\tD loss total: {:.3f}".format(
+            self.epoch_loss_D_real, self.epoch_loss_D_fake, self.epoch_loss_D_total
+        ))
+        print("D acc real: {:.3f}\tD acc fake: {:.3f}\tG acc: {:.3f}".format(
+            self.epoch_acc_D_real, self.epoch_acc_D_fake, self.epoch_acc_G_
+        ))
+        print("Max gradient norm D: {:.3f} | Max gradient norm G: {:.3f}".format(
             self.epoch_maxNorm_D, self.epoch_maxNorm_G))
         print('Time elapsed {} | Time left: {}\n'.format(
             utils.time_to_str(time.time() - self.t_start),
@@ -293,10 +302,10 @@ class GANSolver(object):
         self.loss_D_total = self.loss_D_fake + self.loss_D_real
         self.epoch_loss_D_total += self.loss_D_total.item()
 
-        if self.acc_D_real < 1.0:  # 0.6
+        if self.acc_D_real < 1.1:  # 0.6
             self.real_updates += 1
             self.loss_D_real.backward(retain_graph=False)
-        if self.acc_D_fake < 1.0:  # 0.6
+        if self.acc_D_fake < 1.1:  # 0.6
             self.fake_updates += 1
             self.loss_D_fake.backward(retain_graph=True)
 
@@ -328,7 +337,7 @@ class GANSolver(object):
                             + self.loss_G_pixel * self.config.lambda_pixel \
                             + self.loss_G_emotion * self.config.lambda_emotion
 
-        if self.acc_G < 1.0:  # 0.6
+        if self.acc_G < 1.1:  # 0.6
             self.G_updates += 1
             self.loss_G_total.backward(retain_graph=False)
 
@@ -373,8 +382,6 @@ class GANSolver(object):
             self.real_updates = 0
             self.fake_updates = 0
             self.steps = 0
-            self.epoch_maxNorm_D = 0
-            self.epoch_maxNorm_G = 0
 
             for batch in data_loaders['train']:
 

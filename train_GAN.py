@@ -61,7 +61,7 @@ print("Using {} samples for training and {} for validation".format(
 
 sample = next(iter(data_loaders['train']))
 print('Input Shape: {}'.format(sample['A'].shape))
-ds.show_sample()
+# ds.show_sample()
 
 
 """ Initialize solver """
