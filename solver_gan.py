@@ -164,8 +164,9 @@ class GANSolver(object):
         self.set_inputs(train_batch)
 
         # Generate fake sequence
-        fake_B = self.generator(self.real_A[0].unsqueeze(0),
-                                self.cond[0].unsqueeze(0))
+        # fake_B = self.generator(self.real_A[0].unsqueeze(0),
+        #                         self.cond[0].unsqueeze(0))
+        fake_B = self.generator(self.real_A[0].unsqueeze(0))
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
         # Get sample from val set
@@ -173,8 +174,9 @@ class GANSolver(object):
         self.set_inputs(val_batch)
 
         # Generate fake sequence
-        fake_B = self.generator(self.real_A[0].unsqueeze(0),
-                                self.cond[0].unsqueeze(0))
+        # fake_B = self.generator(self.real_A[0].unsqueeze(0),
+        #                         self.cond[0].unsqueeze(0))
+        fake_B = self.generator(self.real_A[0].unsqueeze(0))
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
         # Pad train grid
@@ -276,38 +278,45 @@ class GANSolver(object):
         """
         Run forward pass
         """
-        self.fake_B = self.generator(self.real_A, self.cond)
+        # self.fake_B = self.generator(self.real_A, self.cond)
+        self.fake_B = self.generator(self.real_A)
 
     def backward_D(self):
         """
         Compute losses for the discriminator
         """
         # All real batch
-        pred_real = self.discriminator(self.real_A, self.real_B, self.cond)
+        # pred_real = self.discriminator(self.real_A, self.real_B, self.cond)
+        pred_real = self.discriminator(self.real_B)
+
         self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
-        self.acc_D_real = (torch.sigmoid(pred_real).round() == self.criterionGAN.real_label.data).double().mean()
+
+        # Metrics
+        # self.acc_D_real = (torch.sigmoid(pred_real).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_D_real += self.loss_D_real.item()
         self.epoch_acc_D_real += self.acc_D_real.item()
 
         # All fake batch
-        pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
+        # pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
+        pred_fake = self.discriminator(self.fake_B.detach())
+
         self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
-        self.acc_D_fake = (torch.sigmoid(pred_fake).round() == self.criterionGAN.fake_label.data).double().mean()
+
+        # Metrics
+        # self.acc_D_fake = (torch.sigmoid(pred_fake).round() == self.criterionGAN.fake_label.data).double().mean()
         self.epoch_loss_D_fake += self.loss_D_fake.item()
         self.epoch_acc_D_fake += self.acc_D_fake.item()
 
         # Combined loss
-        self.loss_D_real *= (0.5 * 0.9)
-        self.loss_D_fake *= 0.5
+        # self.loss_D_real *= 0.5  # (0.5 * 0.9)
+        # self.loss_D_fake *= 0.5
         self.loss_D_total = self.loss_D_fake + self.loss_D_real
         self.epoch_loss_D_total += self.loss_D_total.item()
 
-        if self.acc_D_real < 1.1:  # 0.6
-            self.real_updates += 1
-            self.loss_D_real.backward(retain_graph=False)
-        if self.acc_D_fake < 1.1:  # 0.6
-            self.fake_updates += 1
-            self.loss_D_fake.backward(retain_graph=True)
+        self.real_updates += 1
+        self.loss_D_real.backward()
+        self.fake_updates += 1
+        self.loss_D_fake.backward()
 
         self.steps += 1
 
@@ -316,30 +325,36 @@ class GANSolver(object):
         Compute losses for the generator
         """
         # GAN loss
-        pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
+        # pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
+        pred_fake = self.discriminator(self.fake_B)
+
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
-        self.acc_G = (torch.sigmoid(pred_fake).round() == self.criterionGAN.real_label.data).double().mean()
+
+        # Metrics
+        # self.acc_G = (torch.sigmoid(pred_fake).round() == self.criterionGAN.real_label.data).double().mean()
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
         self.epoch_acc_G_ += self.acc_G.item()
 
         # Pixelwise loss
-        self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
-        self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+        # self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
+        # self.epoch_loss_G_pixel += self.loss_G_pixel.item()
 
         # Emotion loss
-        embedding_fake = self.classifier(self.fake_B)
-        embedding_real = self.classifier(self.real_B)
-        self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
-        self.epoch_loss_G_emotion += self.loss_G_emotion.item()
+        # embedding_fake = self.classifier(self.fake_B)
+        # embedding_real = self.classifier(self.real_B)
+        # self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
+        # self.epoch_loss_G_emotion += self.loss_G_emotion.item()
 
         # Combined loss
-        self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
-                            + self.loss_G_pixel * self.config.lambda_pixel \
-                            + self.loss_G_emotion * self.config.lambda_emotion
+        # self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
+        #                     + self.loss_G_pixel * self.config.lambda_pixel \
+        #                     + self.loss_G_emotion * self.config.lambda_emotion
 
-        if self.acc_G < 1.1:  # 0.6
-            self.G_updates += 1
-            self.loss_G_total.backward(retain_graph=False)
+        self.loss_G_total = self.loss_G_GAN
+
+        # if self.acc_G < 1.1:  # 0.6
+        self.G_updates += 1
+        self.loss_G_total.backward(retain_graph=False)
 
     def optimize_parameters(self):
         """
@@ -348,17 +363,15 @@ class GANSolver(object):
         self.forward()
 
         # Train Discriminator
-        self._set_requires_grad(self.discriminator, True)
         self.optimizer_D.zero_grad()
         self.backward_D()
-        if self.config.grad_clip_val:
-            self._clip_gradient(self.discriminator, self.config.grad_clip_val)
+        # if self.config.grad_clip_val:
+        #     self._clip_gradient(self.discriminator, self.config.grad_clip_val)
         self.epoch_maxNorm_D = self._get_max_grad_norm(self.discriminator,
                                                        self.epoch_maxNorm_D)
         self.optimizer_D.step()
 
         # Train Generator
-        self._set_requires_grad(self.discriminator, False)
         self.optimizer_G.zero_grad()
         self.backward_G()
         self.epoch_maxNorm_G = self._get_max_grad_norm(self.generator,
@@ -394,17 +407,17 @@ class GANSolver(object):
                 # Update parameters
                 self.optimize_parameters()
 
-                # Plot gradients
-                if plot_grads:
-                    # Plot generator gradients
-                    if grad_plotter_g is None:
-                        grad_plotter_g = utils.GradPlotter(self.generator.named_parameters())
-                    grad_plotter_g.plot_grad_flow(self.generator.named_parameters())
-
-                    # Plot discriminator gradients
-                    if grad_plotter_d is None:
-                        grad_plotter_d = utils.GradPlotter(self.discriminator.named_parameters())
-                    grad_plotter_d.plot_grad_flow(self.discriminator.named_parameters())
+                # # Plot gradients
+                # if plot_grads:
+                #     # Plot generator gradients
+                #     if grad_plotter_g is None:
+                #         grad_plotter_g = utils.GradPlotter(self.generator.named_parameters())
+                #     grad_plotter_g.plot_grad_flow(self.generator.named_parameters())
+                #
+                #     # Plot discriminator gradients
+                #     if grad_plotter_d is None:
+                #         grad_plotter_d = utils.GradPlotter(self.discriminator.named_parameters())
+                #     grad_plotter_d.plot_grad_flow(self.discriminator.named_parameters())
 
                 # Tensorboard logging
                 if self.config.log_run:

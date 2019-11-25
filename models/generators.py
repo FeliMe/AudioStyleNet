@@ -85,7 +85,7 @@ class SequenceGenerator(nn.Module):
         # self.g = GeneratorUNet(gray, num_conditioning_classes)
         self.g = NoiseGenerator(gray)
 
-    def forward(self, x, cond):
+    def forward(self, x):
         """
         x.shape -> [b, sequence_length, c, h, w]
         cond.shape -> [b, 1]
@@ -96,7 +96,7 @@ class SequenceGenerator(nn.Module):
         """
         y = []
         for idx in range(x.size(1)):
-            y.append(self.g(x[:, idx], cond))
+            y.append(self.g(x[:, idx]))
         y = torch.stack(y, dim=1)
         return y
 
@@ -131,9 +131,6 @@ class NoiseGenerator(nn.Module):
             # state size. (nc) x 64 x 64
         )
 
-    def forward(self, x, cond):
-        print(x.shape)
+    def forward(self, x):
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
-        print(noise.shape)
-        print(self.main(noise).shape)
         return self.main(noise)
