@@ -22,7 +22,7 @@ RAVDESS_GRAY_STD = [0.332]
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': True,
+    'log_run': False,
     'random_seed': 999,
     'save_interval': 10,
 
@@ -62,17 +62,18 @@ config = Config({
     'flip_prob': 0.0,
 
     # Conditioning
-    'num_conditioning_classes': 8,
+    'n_classes_cond': 8,
 })
 
 config.update({
     # Models
     'generator': generators.SequenceGenerator(
-        config.use_gray, config.num_conditioning_classes),
+        config.use_gray, config.n_classes_cond),
     # 'discriminator': discriminators.SequencePatchDiscriminator(
-    #     config.use_gray, config.num_conditioning_classes),
+    #     config.use_gray, config.n_classes_cond),
     # 'discriminator': discriminators.SequenceDiscriminator(config.use_gray),
-    'discriminator': discriminators.SimpleDiscriminator(config.use_gray),
+    'discriminator': discriminators.SequenceDiscriminator(config.use_gray,
+                                                          config.n_classes_cond),
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),

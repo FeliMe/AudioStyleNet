@@ -79,13 +79,13 @@ class GeneratorUNet(nn.Module):
 
 
 class SequenceGenerator(nn.Module):
-    def __init__(self, gray, num_conditioning_classes):
+    def __init__(self, gray, n_classes_cond):
         super(SequenceGenerator, self).__init__()
 
-        # self.g = GeneratorUNet(gray, num_conditioning_classes)
-        self.g = NoiseGenerator(gray)
+        # self.g = GeneratorUNet(gray, n_classes_cond)
+        self.g = NoiseGenerator(gray, n_classes_cond)
 
-    def forward(self, x):
+    def forward(self, x, cond):
         """
         x.shape -> [b, sequence_length, c, h, w]
         cond.shape -> [b, 1]
@@ -96,22 +96,23 @@ class SequenceGenerator(nn.Module):
         """
         y = []
         for idx in range(x.size(1)):
-            y.append(self.g(x[:, idx]))
+            y.append(self.g(x[:, idx], cond))
         y = torch.stack(y, dim=1)
         return y
 
 
 class NoiseGenerator(nn.Module):
-    def __init__(self, gray, n_features=64, n_latent=100):
+    def __init__(self, gray, n_classes_cond, n_features=64, n_latent=100):
         super(NoiseGenerator, self).__init__()
 
         nc = 1 if gray else 3
         self.n_latent = n_latent
 
-        # # Conditioning
-        # if self.num_conditioning_classes:
-        #     self.embedding = nn.Embedding(num_conditioning_classes, n_latent)
-        #     n_latent *= 2
+        # Conditioning
+        self.n_classes_cond = n_classes_cond
+        if self.n_classes_cond:
+            self.n_latent = self.n_latent // 2
+            self.embedding = nn.Embedding(n_classes_cond, self.n_latent)
 
         self.main = nn.Sequential(
             # input is Z, going into a convolution
@@ -141,9 +142,9 @@ class NoiseGenerator(nn.Module):
         # Generate noise
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
 
-        # # Conditioning
-        # if self.num_conditioning_classes:
-        #     emb = self.embedding(cond).view(*noise.size())
-        #     noise = torch.cat((emb, noise), 1)
+        # Conditioning
+        if self.n_classes_cond:
+            emb = self.embedding(cond).view(*noise.size())
+            noise = torch.cat((emb, noise), 1)
 
         return self.main(noise)

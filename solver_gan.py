@@ -1,4 +1,5 @@
 import datetime
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
@@ -153,14 +154,14 @@ class GANSolver(object):
         train_batch = next(iter(data_loaders['train']))
         self.set_inputs(train_batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0))
+            fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
         # Generate validation sample
         val_batch = next(iter(data_loaders['val']))
         self.set_inputs(val_batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0))
+            fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
         # Pad train grid
@@ -225,18 +226,20 @@ class GANSolver(object):
         """
         Run forward pass
         """
-        self.fake_B = self.generator(self.real_A)
+        self.fake_B = self.generator(self.real_A, self.cond)
 
     def backward_D(self):
         """
         Compute losses for the discriminator
         """
         # All real batch
-        pred_real = self.discriminator(self.real_B)
+        pred_real = self.discriminator(
+            {'img_a': self.real_A, 'img_b': self.real_B, 'cond': self.cond})
         self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
 
         # All fake batch
-        pred_fake = self.discriminator(self.fake_B.detach())
+        pred_fake = self.discriminator(
+            {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
         self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
 
         # Combine losses
@@ -256,7 +259,8 @@ class GANSolver(object):
         Compute losses for the generator
         """
         # GAN loss
-        pred_fake = self.discriminator(self.fake_B)
+        pred_fake = self.discriminator(
+            {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
 
         # Combine losses
@@ -331,10 +335,11 @@ class GANSolver(object):
     def eval_model(self, data_loaders):
         # Real images vs fake images
         batch = next(iter(data_loaders['val']))
-        real_B = batch['B'].to(self.device)
-        fake_B = self.generator(real_B)
+        self.set_inputs(batch)
+        with torch.no_grad():
+            fake_B = self.generator(self.real_B, self.cond)
 
-        real_B = real_B[:, 0]
+        real_B = self.real_B[:, 0]
         fake_B = fake_B[:, 0]
 
         # Denormalize
