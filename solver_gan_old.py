@@ -42,7 +42,6 @@ class GANSolver(object):
         for param in self.classifier.parameters():
             param.requires_grad = False
 
-        # Print model info
         for name in self.model_names:
             if isinstance(name, str):
                 model = getattr(self, name)
@@ -51,6 +50,15 @@ class GANSolver(object):
                     utils.count_params(model),
                     utils.count_trainable_params(model)
                 ))
+
+        if self.config.log_run:
+            self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+            self.writer = SummaryWriter(self.save_dir)
+            wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
+            wandb.watch(self.generator)
+            wandb.watch(self.discriminator)
+        else:
+            self.writer = None
 
         # Optimizers
         self.optimizer_G = self.config.optimizer_G
@@ -65,21 +73,7 @@ class GANSolver(object):
         self.criterionPix = config.criterion_pix
         self.criterionEmotion = config.criterion_emotion
 
-        # Set directories
-        self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.img_dir = os.path.join(self.save_dir, 'images')
-
-        # Init tensorboard
-        if self.config.log_run:
-            os.makedirs(self.img_dir, exist_ok=True)
-            self.writer = SummaryWriter(self.save_dir)
-            wandb.init(project="emotion-pix2pix", config=config, sync_tensorboard=True)
-            wandb.watch(self.generator)
-            wandb.watch(self.discriminator)
-        else:
-            self.writer = None
-
-        # Init variables
+        # Losses
         self.loss_G_GAN = torch.tensor(0.)
         self.loss_G_pixel = torch.tensor(0.)
         self.loss_G_emotion = torch.tensor(0.)
@@ -91,10 +85,26 @@ class GANSolver(object):
         self.epoch_loss_G_GAN = torch.tensor(0.)
         self.epoch_loss_G_pixel = torch.tensor(0.)
         self.epoch_loss_G_emotion = torch.tensor(0.)
-        self.epoch_loss_G_total = torch.tensor(0.)
-        self.epoch_loss_D_real = torch.tensor(0.)
         self.epoch_loss_D_fake = torch.tensor(0.)
+        self.epoch_loss_D_real = torch.tensor(0.)
         self.epoch_loss_D_total = torch.tensor(0.)
+
+        # Other metrics
+        self.acc_G = torch.tensor(0.)
+        self.acc_D_real = torch.tensor(0.)
+        self.acc_D_fake = torch.tensor(0.)
+        self.epoch_acc_G_ = torch.tensor(0.)
+        self.epoch_acc_D_real = torch.tensor(0.)
+        self.epoch_acc_D_fake = torch.tensor(0.)
+
+        self.epoch_maxNorm_D = 0
+        self.epoch_maxNorm_G = 0
+
+        self.iteration_metric_names = [
+            'loss_G_GAN',
+            'loss_G_pixel',
+            'loss_G_emotion',
+            'loss_D_total']
 
         self.epoch_metric_names = [
             'epoch_loss_D_total',
@@ -103,6 +113,11 @@ class GANSolver(object):
             'epoch_loss_G_emotion',
             'epoch_loss_G_pixel',
             'epoch_loss_G_GAN',
+            'epoch_acc_G_',
+            'epoch_acc_D_real',
+            'epoch_acc_D_fake',
+            'epoch_maxNorm_D',
+            'epoch_maxNorm_G'
         ]
 
     def save(self):
@@ -128,16 +143,11 @@ class GANSolver(object):
         print()
 
     def _make_grid_image(self, real_A, real_B, fake_B):
-        real_A = real_A[0]
-        real_B = real_B[0]
-        fake_B = fake_B[0]
-
         # Denormalize one sequence
-        if self.config.normalize:
-            transform = utils.denormalize(self.config.mean, self.config.std)
-            real_A = torch.stack([transform(a) for a in real_A], 0).detach()
-            real_B = torch.stack([transform(a) for a in real_B], 0).detach()
-            fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+        transform = utils.denormalize(self.config.mean, self.config.std)
+        real_A = torch.stack([transform(a) for a in real_A[0]], 0).detach()
+        real_B = torch.stack([transform(a) for a in real_B[0]], 0).detach()
+        fake_B = torch.stack([transform(a) for a in fake_B[0]], 0).detach()
 
         # Make grid image
         grid_image = torch.cat((real_A, fake_B, real_B), -2)
@@ -149,18 +159,24 @@ class GANSolver(object):
         """
         Saves a generated sample
         """
-        # Generate training sample
+        # Get sample from train set
         train_batch = next(iter(data_loaders['train']))
         self.set_inputs(train_batch)
-        with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0))
+
+        # Generate fake sequence
+        # fake_B = self.generator(self.real_A[0].unsqueeze(0),
+        #                         self.cond[0].unsqueeze(0))
+        fake_B = self.generator(self.real_A[0].unsqueeze(0))
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
-        # Generate validation sample
+        # Get sample from val set
         val_batch = next(iter(data_loaders['val']))
         self.set_inputs(val_batch)
-        with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0))
+
+        # Generate fake sequence
+        # fake_B = self.generator(self.real_A[0].unsqueeze(0),
+        #                         self.cond[0].unsqueeze(0))
+        fake_B = self.generator(self.real_A[0].unsqueeze(0))
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B)
 
         # Pad train grid
@@ -183,24 +199,59 @@ class GANSolver(object):
                 metric = getattr(self, name)
                 setattr(self, name, metric / len_loader)
 
+    @staticmethod
+    def _set_requires_grad(nets, requires_grad=False):
+        """
+        Source: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/base_model.py
+        Set requies_grad=Fasle for all the networks to avoid unnecessary computations
+
+        args:
+            nets (network list): a list of networks
+            requires_grad (bool): whether the networks require gradients or not
+        """
+        if not isinstance(nets, list):
+            nets = [nets]
+        for net in nets:
+            if net is not None:
+                for param in net.parameters():
+                    param.requires_grad = requires_grad
+
+    @staticmethod
+    def _get_max_grad_norm(net, current_max):
+        for p in list(filter(lambda p: p.grad is not None, net.parameters())):
+            norm = p.grad.data.norm(2).item()
+            if norm > current_max:
+                current_max = norm
+        return current_max
+
+    @staticmethod
+    def _clip_gradient(net, max_grad):
+        torch.nn.utils.clip_grad_norm_(net.parameters(), max_grad)
+
     def log_tensorboard(self):
         """
         Log metrics to tensorboard
         """
-        self.writer.add_scalar('G/loss/GAN', self.loss_G_GAN, self.global_step)
-        self.writer.add_scalar('G/loss/pixel', self.loss_G_pixel, self.global_step)
-        self.writer.add_scalar('G/loss/emotion', self.loss_G_emotion, self.global_step)
-        self.writer.add_scalar('D/loss/real', self.loss_D_real, self.global_step)
-        self.writer.add_scalar('D/loss/fake', self.loss_D_fake, self.global_step)
-        self.writer.add_scalar('D/loss/total', self.loss_D_total, self.global_step)
+        for metric_name in self.iteration_metric_names:
+            if isinstance(metric_name, str):
+                # e.g. loss_G_GAN
+                metric, model, name = metric_name.split('_')
+                m = getattr(self, metric_name)
+                self.writer.add_scalar(model + '/' + metric + '/' + name,
+                                       m, self.global_step)
 
     def log_console(self, i_epoch):
         print("G loss GAN: {:.3f}\tG loss Pix: {:.3f}\tG loss Emo: {:.3f}".format(
             self.epoch_loss_G_GAN, self.epoch_loss_G_pixel, self.epoch_loss_G_emotion
         ))
-        print("D loss total: {:.3f}\tD loss real: {:.3f}\tD loss fake: {:.3f}".format(
-            self.epoch_loss_D_total, self.epoch_loss_D_real, self.epoch_loss_D_fake
+        print("D loss real: {:.3f}\tD loss fake: {:.3f}\tD loss total: {:.3f}".format(
+            self.epoch_loss_D_real, self.epoch_loss_D_fake, self.epoch_loss_D_total
         ))
+        print("D acc real: {:.3f}\tD acc fake: {:.3f}\tG acc: {:.3f}".format(
+            self.epoch_acc_D_real, self.epoch_acc_D_fake, self.epoch_acc_G_
+        ))
+        print("Max gradient norm D: {:.3f} | Max gradient norm G: {:.3f}".format(
+            self.epoch_maxNorm_D, self.epoch_maxNorm_G))
         print('Time elapsed {} | Time left: {}\n'.format(
             utils.time_to_str(time.time() - self.t_start),
             utils.time_left(self.t_start, self.config.num_epochs, i_epoch)
@@ -233,21 +284,28 @@ class GANSolver(object):
         """
         # All real batch
         pred_real = self.discriminator(self.real_B)
+
         self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
+
+        # Metrics
+        # self.acc_D_real = (torch.sigmoid(pred_real).round() == self.criterionGAN.real_label.data).double().mean()
+        self.epoch_loss_D_real += self.loss_D_real.item()
+        # self.epoch_acc_D_real += self.acc_D_real.item()
 
         # All fake batch
         pred_fake = self.discriminator(self.fake_B.detach())
+
         self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
 
-        # Combine losses
-        self.loss_D_total = self.loss_D_fake + self.loss_D_real
-
         # Metrics
-        self.epoch_loss_D_real += self.loss_D_real.item()
+        # self.acc_D_fake = (torch.sigmoid(pred_fake).round() == self.criterionGAN.fake_label.data).double().mean()
         self.epoch_loss_D_fake += self.loss_D_fake.item()
+        # self.epoch_acc_D_fake += self.acc_D_fake.item()
+
+        # Combined loss
+        self.loss_D_total = self.loss_D_fake + self.loss_D_real
         self.epoch_loss_D_total += self.loss_D_total.item()
 
-        # Backward
         self.loss_D_real.backward()
         self.loss_D_fake.backward()
 
@@ -256,18 +314,56 @@ class GANSolver(object):
         Compute losses for the generator
         """
         # GAN loss
+        # pred_fake = self.discriminator(self.real_A, self.fake_B, self.cond)
         pred_fake = self.discriminator(self.fake_B)
+
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
 
-        # Combine losses
+        # Metrics
+        # self.acc_G = (torch.sigmoid(pred_fake).round() == self.criterionGAN.real_label.data).double().mean()
+        self.epoch_loss_G_GAN += self.loss_G_GAN.item()
+        # self.epoch_acc_G_ += self.acc_G.item()
+
+        # Pixelwise loss
+        # self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
+        # self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+
+        # Emotion loss
+        # embedding_fake = self.classifier(self.fake_B)
+        # embedding_real = self.classifier(self.real_B)
+        # self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
+        # self.epoch_loss_G_emotion += self.loss_G_emotion.item()
+
+        # Combined loss
+        # self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
+        #                     + self.loss_G_pixel * self.config.lambda_pixel \
+        #                     + self.loss_G_emotion * self.config.lambda_emotion
+
         self.loss_G_total = self.loss_G_GAN
 
-        # Metrics
-        self.epoch_loss_G_GAN += self.loss_G_GAN.item()
-        self.epoch_loss_G_total += self.loss_G_total.item()
-
-        # Backward
         self.loss_G_total.backward()
+
+    def optimize_parameters(self):
+        """
+        Do forward and backward step and optimize parameters
+        """
+        self.forward()
+
+        # Train Discriminator
+        self.optimizer_D.zero_grad()
+        self.backward_D()
+        # if self.config.grad_clip_val:
+        #     self._clip_gradient(self.discriminator, self.config.grad_clip_val)
+        self.epoch_maxNorm_D = self._get_max_grad_norm(self.discriminator,
+                                                       self.epoch_maxNorm_D)
+        self.optimizer_D.step()
+
+        # Train Generator
+        self.optimizer_G.zero_grad()
+        self.backward_G()
+        self.epoch_maxNorm_G = self._get_max_grad_norm(self.generator,
+                                                       self.epoch_maxNorm_G)
+        self.optimizer_G.step()
 
     def train_model(self, data_loaders, plot_grads=False):
 
@@ -285,44 +381,43 @@ class GANSolver(object):
                 # Increment step counter
                 self.global_step += 1
 
-                # Set inputs
+                # Inputs
                 self.set_inputs(batch)
 
-                # Forward
-                self.forward()
-
-                # (1) Train discriminator
-                self.optimizer_D.zero_grad()
-                self.backward_D()
-                self.optimizer_D.step()
-
-                # (2) Train Generator
-                self.optimizer_G.zero_grad()
-                self.backward_G()
-                self.optimizer_G.step()
+                # Update parameters
+                self.optimize_parameters()
 
                 # Tensorboard logging
                 if self.config.log_run:
                     self.log_tensorboard()
 
-            # Epoch finished
+            # ---------------
+            #  Epoch finished
+            # ---------------
+
             self._mean_running_metrics(len(data_loaders['train']))
 
+            # Epoch logging
             self.log_console(i_epoch)
 
-            if self.config.log_run and i_epoch % self.config.save_interval == 0:
+            if self.config.log_run:
                 # Generate sample images
                 img_sample = self.sample_images(data_loaders)
 
+                # Specify and create target folder
+                target_dir = os.path.join(self.save_dir, 'images')
+                os.makedirs(target_dir, exist_ok=True)
+
                 # Save image (Important: wirter.add_image has to be before save_image!!!)
                 self.writer.add_image('sample', img_sample, i_epoch)
-                save_image(img_sample, self.img_dir + '/sample_{}.png'.format(i_epoch))
+                save_image(img_sample, os.path.join(target_dir, 'sample_{}.png'.format(i_epoch)))
 
                 # Save model
                 self.save()
 
-        # Finished training
-        print("Training finished in {}".format(utils.time_to_str(time.time() - self.t_start)))
+        time_elapsed = time.time() - self.t_start
+        print('\nTraining complete in {:.0f}m {:.0f}s'.format(
+            time_elapsed // 60, time_elapsed % 60))
 
         if self.config.log_run:
             self.save()
@@ -332,19 +427,17 @@ class GANSolver(object):
         # Real images vs fake images
         batch = next(iter(data_loaders['val']))
         real_B = batch['B'].to(self.device)
-        fake_B = self.generator(real_B)
 
-        real_B = real_B[:, 0]
-        fake_B = fake_B[:, 0]
+        fake_B = self.generator(real_B)
 
         # Denormalize
         if self.config.normalize:
             transform = utils.denormalize(self.config.mean, self.config.std)
-            real_B = torch.stack([transform(a) for a in real_B], 0).detach()
-            fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+            real_B = torch.stack([transform(a) for a in real_B[:, 0]], 0).detach()
+            fake_B = torch.stack([transform(a) for a in fake_B[:, 0]], 0).detach()
 
-        real_img = make_grid(real_B, padding=5, normalize=False)
-        fake_img = make_grid(fake_B, padding=5, normalize=False)
+        real_img = make_grid(real_B[:64], padding=5, normalize=False)
+        fake_img = make_grid(fake_B[:64], padding=5, normalize=False)
 
         real_img = torch.nn.functional.pad(real_img, [0, 30, 0, 0], mode='constant')
 
@@ -353,4 +446,5 @@ class GANSolver(object):
         imgs = make_grid(imgs, nrow=1, normalize=False)
 
         self.writer.add_image('random_samples', imgs)
-        save_image(imgs, os.path.join(self.img_dir, 'random_samples.png'))
+        target_dir = os.path.join(self.save_dir, 'images')
+        save_image(imgs, os.path.join(target_dir, 'random_samples.png'))

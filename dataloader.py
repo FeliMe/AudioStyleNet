@@ -166,7 +166,10 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
         self.use_same_sentence = use_same_sentence
         self.show_fn = show_pix2pix
 
-        print("Mean: {}, std: {}".format(self.mean, self.std))
+        if normalize:
+            print("Mean: {}, std: {}".format(self.mean, self.std))
+        else:
+            print("No normalization")
 
     def __getitem__(self, item):
         """

@@ -108,6 +108,11 @@ class NoiseGenerator(nn.Module):
         nc = 1 if gray else 3
         self.n_latent = n_latent
 
+        # # Conditioning
+        # if self.num_conditioning_classes:
+        #     self.embedding = nn.Embedding(num_conditioning_classes, n_latent)
+        #     n_latent *= 2
+
         self.main = nn.Sequential(
             # input is Z, going into a convolution
             nn.ConvTranspose2d(n_latent, n_features * 8, 4, 1, 0, bias=False),
@@ -131,6 +136,14 @@ class NoiseGenerator(nn.Module):
             # state size. (nc) x 64 x 64
         )
 
-    def forward(self, x):
+    def forward(self, x, cond):
+
+        # Generate noise
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
+
+        # # Conditioning
+        # if self.num_conditioning_classes:
+        #     emb = self.embedding(cond).view(*noise.size())
+        #     noise = torch.cat((emb, noise), 1)
+
         return self.main(noise)

@@ -26,13 +26,6 @@ args = parser.parse_args()
 config = importlib.import_module('configs.' + args.config).config
 
 
-""" Add a seed to have reproducible results """
-
-seed = 123
-torch.manual_seed(seed)
-torch.cuda.manual_seed(seed)
-
-
 """ Load dataset """
 
 ds = dataloader.RAVDESSDSPix2Pix(config.data_path,

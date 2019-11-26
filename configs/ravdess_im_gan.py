@@ -23,14 +23,15 @@ config = Config({
     # General configs
     'use_cuda': True,
     'log_run': True,
-    'random_seed': 123,
+    'random_seed': 999,
+    'save_interval': 10,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
-    'normalize': True,
+    'normalize': False,
     'use_same_sentence': True,
     'validation_split': .1,
     'sequence_length': 1,
@@ -43,7 +44,7 @@ config = Config({
     'num_epochs': 100,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
-    'batch_size': 32,
+    'batch_size': 64,
     'lambda_G_GAN': 1.,  # stable GAN: 1.
     'lambda_pixel': 0.,  # stable GAN: 10.
     'lambda_emotion': 0.,  # stable GAN: .1,

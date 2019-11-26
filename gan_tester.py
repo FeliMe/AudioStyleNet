@@ -8,11 +8,10 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.utils.data
-import torchvision.datasets as dset
-import torchvision.transforms as transforms
-import torchvision.utils as vutils
 import numpy as np
 import matplotlib.pyplot as plt
+
+from torchvision.utils import make_grid, save_image
 
 import dataloader
 import models.discriminators as d
@@ -45,27 +44,21 @@ nz = 100  # Size of z latent vector
 ngf = 64  # Size of feature maps in generator
 ndf = 16  # # Size of feature maps in discriminator
 sequence_length = 1
+mean = [0.755, 0.673, 0.652]
+std = [0.300, 0.348, 0.361]
+normalize = False
 
 #%%
-
-# Create the dataset
-# dataset = dset.ImageFolder(root=dataroot,
-#                            transform=transforms.Compose([
-#                                transforms.Resize(image_size),
-#                                transforms.CenterCrop(image_size),
-#                                transforms.ToTensor(),
-#                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-#                            ]))
 
 ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
                                  HOME + '/Datasets/RAVDESS/Image128',
                                  'image',
                                  use_same_sentence=True,
-                                 normalize=False,
-                                 mean=[0.755, 0.673, 0.652],
-                                 std=[0.300, 0.348, 0.361],
+                                 normalize=normalize,
+                                 mean=mean,
+                                 std=std,
                                  max_samples=None,
-                                 seed=123,
+                                 seed=manualSeed,
                                  sequence_length=sequence_length,
                                  step_size=1,
                                  image_size=64)
@@ -88,13 +81,14 @@ print("Training on {}".format(device))
 #%%
 
 # Plot some training images
-real_batch = next(iter(data_loaders['train']))
-plt.figure(figsize=(8, 8))
-plt.axis("off")
-plt.title("Training Images")
-plt.imshow(np.transpose(vutils.make_grid(real_batch['B'][:, 0].to(device)[:64], padding=2, normalize=True).cpu(),(1,2,0)))
-plt.savefig("Training_images.png")
-
+batch = next(iter(data_loaders['train']))
+real_B = batch['B'][:, 0]
+if normalize:
+    transform = utils.denormalize(mean, std)
+    real_B = torch.stack([transform(a) for a in real_B], 0).detach()
+real_img = make_grid(real_B, padding=5, normalize=False)
+os.makedirs('test_images', exist_ok=True)
+save_image(real_img, 'test_images/Training_images.png')
 
 #%%
 
@@ -107,9 +101,7 @@ discriminator.apply(mutils.weights_init)
 
 #%%
 
-# Initialize BCELoss function
-criterion = nn.BCELoss()
-
+# Initialize Loss function
 criterionGAN = utils.GANLoss('vanilla', device)
 
 # Create batch of latent vectors that we will use to visualize
@@ -132,7 +124,7 @@ iters = 0
 
 print("Starting Training Loop...")
 # For each epoch
-for epoch in range(num_epochs):
+for i_epoch in range(num_epochs):
     # For each batch in the dataloader
     for i, data in enumerate(data_loaders['train'], 0):
         real_A = data['A'].to(device)
@@ -177,21 +169,32 @@ for epoch in range(num_epochs):
         # Output training stats
         if i % 50 == 0:
             print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f'
-                  % (epoch, num_epochs, i, len(data_loaders['train']),
+                  % (i_epoch + 1, num_epochs, i, len(data_loaders['train']),
                      loss_D_total.item(), loss_G.item()))
 
         # Save Losses for plotting later
         G_losses.append(loss_G.item())
         D_losses.append(loss_D_total.item())
 
-        # Check how the generator is doing by saving G's output on fixed_noise
-        if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(data_loaders['train'])-1)):
-            with torch.no_grad():
-                fake = generator(fixed_noise).detach().cpu()
-            # img_list.append(vutils.make_grid(fake, padding=2, normalize=True))
-            img_list.append(vutils.make_grid(fake[:, 0], padding=2, normalize=True))
-
         iters += 1
+
+    # Epoch finished
+    if (i_epoch + 1) % 10 == 0:
+        val_batch = next(iter(data_loaders['val']))
+        with torch.no_grad():
+            # Generate fake
+            fake_B = generator(val_batch['A'].to(device))[:, 0].detach().cpu()
+
+            # Denormalize
+            if normalize:
+                transform = utils.denormalize(mean, std)
+                fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+
+            # Create grid image
+            img = make_grid(fake_B, padding=5, normalize=False)
+
+            # Save image
+            save_image(img, 'test_images/sample_{}.png'.format(i_epoch + 1))
 
 #%%
 
@@ -204,34 +207,31 @@ plt.xlabel("iterations")
 plt.ylabel("Loss")
 plt.legend()
 # plt.show()
-plt.savefig('losses.png')
-
-#%%
-
-# Show images
-# fig = plt.figure(figsize=(8,v8))
-# plt.axis("off")
-# ims = [[plt.imshow(np.transpose(i, (1, 2, 0)), animated=True)] for i in img_list]
-# ani = animation.ArtistAnimation(fig, ims, interval=1000, repeat_delay=1000, blit=True)
-#
-# HTML(ani.to_jshtml())
+plt.savefig('test_images/losses.png')
 
 #%%
 
 # Real images vs fake images
-real_batch = next(iter(data_loaders['val']))
+batch = next(iter(data_loaders['val']))
+real_B = batch['B'].to(device)
+fake_B = generator(real_B)
 
-# Plot the real images
-plt.figure(figsize=(15, 15))
-plt.subplot(1, 2, 1)
-plt.axis("off")
-plt.title("Real Images")
-plt.imshow(np.transpose(vutils.make_grid(real_batch['B'][:, 0].to(device)[:64], padding=5, normalize=True).cpu(), (1, 2, 0)))
+real_B = real_B[:, 0]
+fake_B = fake_B[:, 0]
 
-# Plot the fake images from the last epoch
-plt.subplot(1, 2, 2)
-plt.axis("off")
-plt.title("Fake Images")
-plt.imshow(np.transpose(img_list[-1], (1, 2, 0)))
-# plt.show()
-plt.savefig('real_and_fake.png')
+# Denormalize
+if normalize:
+    transform = utils.denormalize(mean, std)
+    real_B = torch.stack([transform(a) for a in real_B], 0).detach()
+    fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+
+real_img = make_grid(real_B, padding=5, normalize=False)
+fake_img = make_grid(fake_B, padding=5, normalize=False)
+
+real_img = torch.nn.functional.pad(real_img, [0, 30, 0, 0], mode='constant')
+
+# Cat real and fake together
+imgs = torch.cat((real_img, fake_img), -1)
+imgs = make_grid(imgs, nrow=1, normalize=False)
+
+save_image(imgs, 'test_images/real_and_fake.png')
