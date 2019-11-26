@@ -22,7 +22,7 @@ RAVDESS_GRAY_STD = [0.332]
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': False,
+    'log_run': True,
     'random_seed': 999,
     'save_interval': 10,
 
@@ -31,7 +31,7 @@ config = Config({
     'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
     'data_format': 'image',
     'use_gray': False,
-    'normalize': False,
+    'normalize': True,
     'use_same_sentence': True,
     'validation_split': .1,
     'sequence_length': 1,
@@ -45,9 +45,9 @@ config = Config({
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,
-    'lambda_G_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 0.,  # stable GAN: 10.
-    'lambda_emotion': 0.,  # stable GAN: .1,
+    'lambda_G_GAN': 1.,
+    'lambda_pixel': 0.,
+    'lambda_emotion': 0.,
 
     # Loss functions
     'GAN_mode': 'vanilla',
@@ -55,25 +55,32 @@ config = Config({
     'criterion_emotion': nn.MSELoss(),
 
     # GAN hacks
-    'noisy_labels': False,  # Use noisy labels for discriminator
-    'label_range_real': (0.9, 1.0),  # stable GAN: (0.8, 1.1)
-    'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
+    'noisy_labels': True,  # Use noisy labels for discriminator
+    'label_range_real': (0.9, 1.0),
+    'label_range_fake': (0.0, 0.2),
     'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
-    'flip_prob': 0.0,
+    'flip_prob': 0.05,
 
     # Conditioning
-    'n_classes_cond': 8,
+    'n_classes_cond': 0,
 })
 
 config.update({
-    # Models
+    # Generator
     'generator': generators.SequenceGenerator(
-        config.use_gray, config.n_classes_cond),
+        config.use_gray,
+        config.n_classes_cond,
+    ),
+
+    # Discriminator
+    'discriminator': discriminators.SequenceDiscriminator(
+        config.use_gray,
+        config.n_classes_cond
+    ),
     # 'discriminator': discriminators.SequencePatchDiscriminator(
-    #     config.use_gray, config.n_classes_cond),
-    # 'discriminator': discriminators.SequenceDiscriminator(config.use_gray),
-    'discriminator': discriminators.SequenceDiscriminator(config.use_gray,
-                                                          config.n_classes_cond),
+    #     config.use_gray,
+    #     config.n_classes_cond
+    # ),
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
@@ -82,15 +89,25 @@ config.update({
 
 config.update({
     # Optimizers
-    'optimizer_G': torch.optim.Adam(config.generator.parameters(),
-                                    lr=config.lr_G, betas=(0.5, 0.999)),
-    'optimizer_D': torch.optim.Adam(config.discriminator.parameters(),
-                                    lr=config.lr_D,  betas=(0.5, 0.999)),
-    # 'optimizer_D': torch.optim.SGD(config.discriminator.parameters(),
-    #                                lr=config.lr_D)
+    'optimizer_G': torch.optim.Adam(
+        config.generator.parameters(),
+        lr=config.lr_G,
+        betas=(0.5, 0.999)
+    ),
+    'optimizer_D': torch.optim.Adam(
+        config.discriminator.parameters(),
+        lr=config.lr_D,
+        betas=(0.5, 0.999)
+    ),
+    # 'optimizer_D': torch.optim.SGD(
+    #     config.discriminator.parameters(),
+    #     lr=config.lr_D
+    # )
 })
 
 config.update({
-    'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
-    'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
+    # 'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
+    # 'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
+    'mean': [0.5, 0.5, 0.5],
+    'std': [0.5, 0.5, 0.5],
 })

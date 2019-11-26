@@ -5,35 +5,31 @@ import models.model_utils as mu
 
 
 class PatchDiscriminator(nn.Module):
-    def __init__(self, gray, n_classes_cond):
+    def __init__(self, gray, n_classes_cond, n_features=8):
         super(PatchDiscriminator, self).__init__()
 
         channels = 1 if gray else 3
         self.n_classes_cond = n_classes_cond
 
-        # self.d1 = nn.Sequential(
-        #     *mu.discriminator_block(2 * channels, 8, normalization=False),
-        #     *mu.discriminator_block(8, 8),
-        #     *mu.discriminator_block(8, 16),
-        #     nn.ZeroPad2d((1, 0, 1, 0)),
-        # )
-
         self.d1 = nn.Sequential(
-            *mu.discriminator_block(2 * channels, 32, normalization=False),
-            *mu.discriminator_block(32, 32),
-            *mu.discriminator_block(32, 64),
-            nn.ZeroPad2d((1, 0, 1, 0)),
+            # input is (nc) x 64 x 64
+            *mu.discriminator_block(2 * channels, n_features, normalization=False),
+            # state size. (n_features) x 32 x 32
+            *mu.discriminator_block(n_features, n_features * 2),
+            # state size. (2 * n_features) x 16 x 16
+            *mu.discriminator_block(n_features * 2, n_features * 4),
+            # state size. (4 * n_features) x 8 x 8
         )
 
         # Conditioning
         if self.n_classes_cond:
             self.c_embedding = 4
             self.embedding = nn.Embedding(self.n_classes_cond,
-                                          self.c_embedding * 9 * 9)
+                                          self.c_embedding * 8 * 8)
         else:
             self.c_embedding = 0
 
-        self.d2 = nn.Conv2d(self.c_embedding + 64, 1, 4, padding=1, bias=False)
+        self.d2 = nn.Conv2d(self.c_embedding + n_features * 4, 1, 4, padding=1, bias=False)
 
     def forward(self, inputs):
         """
@@ -85,14 +81,14 @@ class SequencePatchDiscriminator(nn.Module):
 
         out = []
         for i_seq in range(img_b.size(1)):
-            out.append(self.d({'img': imgs, 'cond': cond}))
+            out.append(self.d({'img': imgs[:, i_seq], 'cond': cond}))
         out = torch.stack(out, 1)
 
         return out
 
 
 class SequenceDiscriminator(nn.Module):
-    def __init__(self, gray, n_classes_cond, n_features=16):
+    def __init__(self, gray, n_classes_cond, n_features=64):
         super(SequenceDiscriminator, self).__init__()
 
         self.model = SimpleDiscriminator(gray, n_classes_cond, n_features)

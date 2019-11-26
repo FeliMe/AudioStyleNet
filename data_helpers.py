@@ -28,6 +28,9 @@ LANDMARKS_POINT_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksPointImage12
 LANDMARKS_LINE_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksLineImage128'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
+CELEBA_PATH = HOME + '/Datasets/CELEBA/Imgs'
+CELEBA_LANDMARKS_PATH = HOME + '/Datasets/CELEBA/Landmarks'
+
 
 def ravdess_get_mean_std_image(root_path, gray=False):
     root_dir = pathlib.Path(root_path)
@@ -210,7 +213,7 @@ def ravdess_convert_to_frames(root_path):
                 cv2.imwrite(save_str_img, frame)
 
 
-def ravdess_extract_landmarks(root_path):
+def ravdess_extract_landmarks(root_path, target_path):
     # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # initialize dlib's face detector (HOG-based) and then create
     # the facial landmark predictor
@@ -218,7 +221,6 @@ def ravdess_extract_landmarks(root_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    target_path = LANDMARKS_PATH
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
@@ -392,10 +394,44 @@ def _draw_lines(img, points, thickness):
         cv2.line(img, tuple(item), tuple(points[index + 1]), 255, thickness)
 
 
+def celeba_extract_landmarks(root_path, target_path):
+    os.makedirs(target_path, exist_ok=True)
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    root_dir = pathlib.Path(root_path)
+
+    all_files = [str(p) for p in list(root_dir.glob('*'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+    for i_file, file in enumerate(tqdm(all_files)):
+        img = cv2.imread(file)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        save_path = os.path.join(
+            target_path, file.split('/')[-1][:-4] + '.npy')
+
+        # Detect faces
+        rects = detector(img, 1)
+        for (i, rect) in enumerate(rects):
+            # Detect landmarks in faces
+            landmarks = predictor(gray, rect)
+            landmarks = shape_to_np(landmarks)
+
+            # for (x, y) in landmarks:
+            #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+            # cv2.imshow("Output", img)
+            # cv2.waitKey(0)
+
+            # Save
+            np.save(save_path, landmarks)
+
+
 # ravdess_get_mean_std_image(IMAGE_224_PATH, True)
 # ravdess_extract_landmarks(IMAGE_224_PATH)
 # ravdess_group_by_utterance(IMAGE_224_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)
 # ravdess_convert_to_frames(VIDEO_PATH)
 # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
-ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
+# ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
+celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH)

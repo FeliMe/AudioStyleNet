@@ -1,5 +1,4 @@
 import datetime
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
@@ -263,8 +262,13 @@ class GANSolver(object):
             {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
         self.loss_G_GAN = self.criterionGAN(pred_fake, True)
 
+        # Pixelwise loss
+        self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
+        self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+
         # Combine losses
-        self.loss_G_total = self.loss_G_GAN
+        self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
+                            + self.loss_G_pixel * self.config.lambda_pixel
 
         # Metrics
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
@@ -337,7 +341,7 @@ class GANSolver(object):
         batch = next(iter(data_loaders['val']))
         self.set_inputs(batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_B, self.cond)
+            fake_B = self.generator(self.real_A, self.cond)
 
         real_B = self.real_B[:, 0]
         fake_B = fake_B[:, 0]

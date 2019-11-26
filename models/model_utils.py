@@ -156,12 +156,44 @@ class UNetUp(nn.Module):
         return x
 
 
+class Up(nn.Module):
+    """
+    Up-convolutional block
+    """
+    def __init__(self, in_channels, out_channels, dropout=0.0):
+        super(Up, self).__init__()
+        layers = [
+            nn.ConvTranspose2d(in_channels, out_channels, 4, 2, 1, bias=False),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        ]
+        if dropout:
+            layers.append(nn.Dropout(dropout))
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class Upconv(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
+        super(Upconv, self).__init__()
+        self.upsample = nn.Upsample(scale_factor=stride, mode='nearest')
+        self.conv2d = nn.Conv2d(in_channels, out_channels, kernel_size, 1, padding)
+
+    def forward(self, x):
+        x = self.upsample(x)
+        x = self.conv2d(x)
+        return x
+
+
 def discriminator_block(in_filters, out_filters, normalization=True):
     """
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
     Returns downsampling layers of each discriminator block
     """
-    layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
+    layers = [nn.Conv2d(in_filters, out_filters, 4, 2, 1)]
     if normalization:
         layers.append(nn.InstanceNorm2d(out_filters))
     layers.append(nn.LeakyReLU(0.2, inplace=True))
