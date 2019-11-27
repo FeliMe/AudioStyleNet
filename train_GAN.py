@@ -28,6 +28,15 @@ config = importlib.import_module('configs.' + args.config).config
 
 """ Load dataset """
 
+# ds = dataloader.CELEBADataset(
+#     root_path=HOME + '/Datasets/CELEBA/LandmarksLineImage',
+#     target_path=HOME + '/Datasets/CELEBA/Imgs',
+#     normalize=config.normalize,
+#     mean=config.mean,
+#     std=config.std,
+#     img_size=config.image_size
+# )
+
 ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  config.target_data_path,
                                  config.data_format,

@@ -40,13 +40,17 @@ config = Config({
     'mean': [0.755, 0.673, 0.652],  # [0.694]
     'std': [0.300, 0.348, 0.361],  # [0.332]
 
+    # Model parameters
+    'n_features_g': 64,
+    'n_features_d': 64,
+
     # Hyper parameters
-    'num_epochs': 100,
+    'num_epochs': 30,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,
     'lambda_G_GAN': 1.,
-    'lambda_pixel': 0.,
+    'lambda_pixel': 100.,
     'lambda_emotion': 0.,
 
     # Loss functions
@@ -70,12 +74,14 @@ config.update({
     'generator': generators.SequenceGenerator(
         config.use_gray,
         config.n_classes_cond,
+        n_features=config.n_features_g
     ),
 
     # Discriminator
     'discriminator': discriminators.SequenceDiscriminator(
         config.use_gray,
-        config.n_classes_cond
+        config.n_classes_cond,
+        n_features=config.n_features_g
     ),
     # 'discriminator': discriminators.SequencePatchDiscriminator(
     #     config.use_gray,

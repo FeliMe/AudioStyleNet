@@ -5,12 +5,12 @@ import models.model_utils as mu
 
 
 class SequenceGenerator(nn.Module):
-    def __init__(self, gray, n_classes_cond):
+    def __init__(self, gray, n_classes_cond, n_features=64):
         super(SequenceGenerator, self).__init__()
 
-        # self.g = GeneratorUNet(gray, n_classes_cond)
-        self.g = NoiseGenerator(gray, n_classes_cond)
-        # self.g = GeneratorAE(gray, n_classes_cond)
+        self.g = GeneratorUNet(gray, n_classes_cond, n_features)
+        # self.g = NoiseGenerator(gray, n_classes_cond, n_features)
+        # self.g = GeneratorAE(gray, n_classes_cond, n_features)
 
     def forward(self, x, cond):
         """

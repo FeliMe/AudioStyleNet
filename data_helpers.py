@@ -30,6 +30,7 @@ VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
 
 CELEBA_PATH = HOME + '/Datasets/CELEBA/Imgs'
 CELEBA_LANDMARKS_PATH = HOME + '/Datasets/CELEBA/Landmarks'
+CELEBA_LANDMARKS_LINE_IMAGE_PATH = HOME + '/Datasets/CELEBA/LandmarksLineImage'
 
 
 def ravdess_get_mean_std_image(root_path, gray=False):
@@ -367,16 +368,7 @@ def ravdess_landmark_to_line_image(data_path):
         img = np.zeros((image_size, image_size, 1), np.uint8)
 
         # Draw face
-        thickness = 1
-        _draw_lines(img, landmarks[:17], thickness)  # Jaw line
-        _draw_lines(img, landmarks[17:22], thickness)  # Right eyebrow
-        _draw_lines(img, landmarks[22:27], thickness)  # Left eyebrow
-        _draw_lines(img, landmarks[27:31], thickness)  # Nose vertical
-        _draw_lines(img, landmarks[31:36], thickness)  # Nose horizontal
-        cv2.drawContours(img, [landmarks[36:42]], 0, 255, thickness)  # Right eye
-        cv2.drawContours(img, [landmarks[42:48]], 0, 255, thickness)  # Left eye
-        cv2.drawContours(img, [landmarks[48:59]], 0, 255, thickness)  # Outer lips
-        cv2.drawContours(img, [landmarks[60:]], 0, 255, thickness)  # Inner lips
+        img = _draw_face(img, landmarks, 1)
 
         # Visualize
         cv2.imshow("Output", img)
@@ -394,8 +386,22 @@ def _draw_lines(img, points, thickness):
         cv2.line(img, tuple(item), tuple(points[index + 1]), 255, thickness)
 
 
-def celeba_extract_landmarks(root_path, target_path):
+def _draw_face(img, landmarks, thickness):
+    _draw_lines(img, landmarks[:17], thickness)  # Jaw line
+    _draw_lines(img, landmarks[17:22], thickness)  # Right eyebrow
+    _draw_lines(img, landmarks[22:27], thickness)  # Left eyebrow
+    _draw_lines(img, landmarks[27:31], thickness)  # Nose vertical
+    _draw_lines(img, landmarks[31:36], thickness)  # Nose horizontal
+    cv2.drawContours(img, [landmarks[36:42]], 0, 255, thickness)  # Right eye
+    cv2.drawContours(img, [landmarks[42:48]], 0, 255, thickness)  # Left eye
+    cv2.drawContours(img, [landmarks[48:59]], 0, 255, thickness)  # Outer lips
+    cv2.drawContours(img, [landmarks[60:]], 0, 255, thickness)  # Inner lips
+    return img
+
+
+def celeba_extract_landmarks(root_path, target_path, line_img_path):
     os.makedirs(target_path, exist_ok=True)
+    os.makedirs(line_img_path, exist_ok=True)
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
@@ -410,6 +416,8 @@ def celeba_extract_landmarks(root_path, target_path):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         save_path = os.path.join(
             target_path, file.split('/')[-1][:-4] + '.npy')
+        save_line_img_path = os.path.join(
+            line_img_path, file.split('/')[-1][:-4] + '.jpg')
 
         # Detect faces
         rects = detector(img, 1)
@@ -417,14 +425,25 @@ def celeba_extract_landmarks(root_path, target_path):
             # Detect landmarks in faces
             landmarks = predictor(gray, rect)
             landmarks = shape_to_np(landmarks)
+            # Save
+            np.save(save_path, landmarks)
 
+            # Visualize
             # for (x, y) in landmarks:
             #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
             # cv2.imshow("Output", img)
             # cv2.waitKey(0)
 
-            # Save
-            np.save(save_path, landmarks)
+            # Create line img
+            line_img = np.zeros_like(gray)
+            # Draw face
+            line_img = _draw_face(line_img, landmarks, 1)
+            # Save image
+            cv2.imwrite(save_line_img_path, line_img)
+
+            # Visualize
+            # cv2.imshow("Output", line_img)
+            # cv2.waitKey(0)
 
 
 # ravdess_get_mean_std_image(IMAGE_224_PATH, True)
@@ -434,4 +453,4 @@ def celeba_extract_landmarks(root_path, target_path):
 # ravdess_convert_to_frames(VIDEO_PATH)
 # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
 # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
-celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH)
+celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)

@@ -50,18 +50,26 @@ normalize = False
 
 #%%
 
-ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
-                                 HOME + '/Datasets/RAVDESS/Image128',
-                                 'image',
-                                 use_same_sentence=True,
-                                 normalize=normalize,
-                                 mean=mean,
-                                 std=std,
-                                 max_samples=None,
-                                 seed=manualSeed,
-                                 sequence_length=sequence_length,
-                                 step_size=1,
-                                 image_size=64)
+ds = dataloader.CELEBADataset(
+    root_path=HOME + '/Datasets/CELEBA/LandmarksLineImage',
+    target_path=HOME + '/Datasets/CELEBA/Imgs',
+    normalize=normalize,
+    mean=mean,
+    std=std
+)
+
+# ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
+#                                  HOME + '/Datasets/RAVDESS/Image128',
+#                                  'image',
+#                                  use_same_sentence=True,
+#                                  normalize=normalize,
+#                                  mean=mean,
+#                                  std=std,
+#                                  max_samples=None,
+#                                  seed=manualSeed,
+#                                  sequence_length=sequence_length,
+#                                  step_size=1,
+#                                  image_size=64)
 
 print("Found {} samples in total".format(len(ds)))
 
@@ -82,13 +90,23 @@ print("Training on {}".format(device))
 
 # Plot some training images
 batch = next(iter(data_loaders['train']))
+print(batch['A'].shape, batch['B'].shape)
+
+real_A = batch['A'][:, 0]
+if normalize:
+    transform = utils.denormalize(mean, std)
+    real_A = torch.stack([transform(a) for a in real_A], 0).detach()
+real_img = make_grid(real_A, padding=5, normalize=False)
+os.makedirs('test_images', exist_ok=True)
+save_image(real_img, 'test_images/Training_imagesA.png')
+
 real_B = batch['B'][:, 0]
 if normalize:
     transform = utils.denormalize(mean, std)
     real_B = torch.stack([transform(a) for a in real_B], 0).detach()
 real_img = make_grid(real_B, padding=5, normalize=False)
 os.makedirs('test_images', exist_ok=True)
-save_image(real_img, 'test_images/Training_images.png')
+save_image(real_img, 'test_images/Training_imagesB.png')
 
 #%%
 
@@ -96,7 +114,7 @@ save_image(real_img, 'test_images/Training_images.png')
 generator = g.SequenceGenerator(False, 0).to(device)
 generator.apply(mutils.weights_init)
 
-discriminator = d.SimpleDiscriminator(False).to(device)
+discriminator = d.SequenceDiscriminator(False, 0).to(device)
 discriminator.apply(mutils.weights_init)
 
 #%%
@@ -131,7 +149,7 @@ for i_epoch in range(num_epochs):
         real_B = data['B'].to(device)
 
         # Forward
-        fake_B = generator(real_A)
+        fake_B = generator(real_A, 0.)
 
         ############################
         # (1) Train discriminator
@@ -140,11 +158,11 @@ for i_epoch in range(num_epochs):
         optimizerD.zero_grad()
 
         # Train with all-real batch
-        pred_real = discriminator(real_B)
+        pred_real = discriminator({'img_a': real_A, 'img_b': real_B, 'cond': 0.})
         loss_D_real = criterionGAN(pred_real, True, discriminator=True)
 
         # Train with all-fake batch
-        pred_fake = discriminator(fake_B.detach())
+        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B.detach(), 'cond': 0.})
         loss_D_fake = criterionGAN(pred_fake, False, discriminator=True)
 
         loss_D_total = loss_D_real + loss_D_fake
@@ -159,7 +177,7 @@ for i_epoch in range(num_epochs):
         # (2) Train Generator
         ###########################
         optimizerG.zero_grad()
-        pred_fake = discriminator(fake_B)
+        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B, 'cond': 0.})
         loss_G = criterionGAN(pred_fake, True)
         loss_G.backward()
 

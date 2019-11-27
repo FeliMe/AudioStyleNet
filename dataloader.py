@@ -13,6 +13,7 @@ from PIL import Image
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
+from torchvision.datasets import ImageFolder
 from torchvision.utils import make_grid
 
 import utils
@@ -317,3 +318,61 @@ def get_data_loaders(dataset, validation_split, batch_size, use_cuda):
     }
 
     return data_loaders, dataset_sizes
+
+
+class CELEBADataset(Dataset):
+    def __init__(self,
+                 root_path,
+                 target_path,
+                 normalize=True,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 img_size=64,
+                 seed=999):
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.show_fn = show_pix2pix
+        self.target_path = target_path
+
+        root_dir = pathlib.Path(root_path)
+
+        # Get paths to all sentences
+        self.files = [str(p) for p in list(root_dir.glob('*'))
+                      if str(p).split('/')[-1] != '.DS_Store']
+
+        # Random seeds
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        # Shuffle sentences
+        random.shuffle(self.files)
+
+        trans = [
+            transforms.Resize(img_size),
+            transforms.CenterCrop(img_size),
+            transforms.ToTensor()
+        ]
+        if self.normalize:
+            trans.append(transforms.Normalize(self.mean, self.std))
+
+        self.trans = transforms.Compose(trans)
+        self.load_fn = load_image
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, item):
+        path_a = self.files[item]
+        path_b = os.path.join(self.target_path, *path_a.split('/')[-1:])
+        a = self.load_fn(path_a, self.trans).unsqueeze(0)
+        b = self.load_fn(path_b, self.trans).unsqueeze(0)
+        return {'A': a, 'B': b, 'y': 0.}
+
+    def show_sample(self):
+        """
+        Plot a random sample
+        """
+        sample = self.__getitem__(np.random.randint(0, self.__len__() - 1))
+        self.show_fn(sample, self.mean, self.std, self.normalize)
