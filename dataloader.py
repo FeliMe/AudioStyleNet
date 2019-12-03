@@ -52,7 +52,9 @@ class RAVDESSDataset(Dataset):
                  seed=123,
                  sequence_length=1,
                  step_size=1,
-                 image_size=64):
+                 image_size=64,
+                 num_classes=8,
+                 label_one_hot=False):
 
         assert (sequence_length * step_size) - 1 <= 94, \
             "Sequence is too long, step size too big or window size too" + \
@@ -61,6 +63,8 @@ class RAVDESSDataset(Dataset):
         self.normalize = normalize
         self.mean = mean
         self.std = std
+        self.num_classes = num_classes
+        self.label_one_hot = label_one_hot
 
         root_dir = pathlib.Path(root_path)
 
@@ -120,6 +124,11 @@ class RAVDESSDataset(Dataset):
 
         return indices
 
+    def _int_to_one_hot(self, label):
+        one_hot = torch.zeros(self.num_classes)
+        one_hot[label] = 1
+        return one_hot
+
     def show_sample(self):
         """
         Plot a random sample
@@ -139,6 +148,8 @@ class RAVDESSDataset(Dataset):
 
         # Get emotion
         emotion = int(sentence.split('/')[-1].split('-')[2]) - 1
+        if self.label_one_hot:
+            emotion = self._int_to_one_hot(emotion)
 
         return {'x': x, 'y': emotion}
 
@@ -156,12 +167,15 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  seed=123,
                  sequence_length=1,
                  step_size=1,
-                 image_size=64):
+                 image_size=64,
+                 num_classes=8,
+                 label_one_hot=False):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
                                                normalize, mean, std,
                                                max_samples, seed,
                                                sequence_length, step_size,
-                                               image_size)
+                                               image_size, num_classes,
+                                               label_one_hot)
 
         self.target_root_path = target_root_path
         self.use_same_sentence = use_same_sentence
@@ -195,6 +209,8 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
 
         # Get emotion from target sentence
         emotion = int(target_sentence.split('/')[-1].split('-')[2]) - 1
+        if self.label_one_hot:
+            emotion = self._int_to_one_hot(emotion)
 
         return {'A': a, 'B': b, 'y': emotion}
 

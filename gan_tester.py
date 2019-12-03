@@ -1,7 +1,6 @@
 #%%
 
 from __future__ import print_function
-#%matplotlib inline
 import os
 import random
 import torch
@@ -42,34 +41,35 @@ beta1 = 0.5
 nc = 3  # Number of channels
 nz = 100  # Size of z latent vector
 ngf = 64  # Size of feature maps in generator
-ndf = 16  # # Size of feature maps in discriminator
+ndf = 64  # # Size of feature maps in discriminator
 sequence_length = 1
-mean = [0.755, 0.673, 0.652]
-std = [0.300, 0.348, 0.361]
-normalize = False
+mean = [0.5, 0.5, 0.5]
+std = [0.5, 0.5, 0.5]
+normalize = True
 
 #%%
 
-ds = dataloader.CELEBADataset(
-    root_path=HOME + '/Datasets/CELEBA/LandmarksLineImage',
-    target_path=HOME + '/Datasets/CELEBA/Imgs',
-    normalize=normalize,
-    mean=mean,
-    std=std
-)
+# ds = dataloader.CELEBADataset(
+#     root_path=HOME + '/Datasets/CELEBA/LandmarksLineImage',
+#     target_path=HOME + '/Datasets/CELEBA/Imgs',
+#     normalize=normalize,
+#     mean=mean,
+#     std=std
+# )
 
-# ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
-#                                  HOME + '/Datasets/RAVDESS/Image128',
-#                                  'image',
-#                                  use_same_sentence=True,
-#                                  normalize=normalize,
-#                                  mean=mean,
-#                                  std=std,
-#                                  max_samples=None,
-#                                  seed=manualSeed,
-#                                  sequence_length=sequence_length,
-#                                  step_size=1,
-#                                  image_size=64)
+ds = dataloader.RAVDESSDSPix2Pix(HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
+                                 HOME + '/Datasets/RAVDESS/Image128',
+                                 'image',
+                                 use_same_sentence=True,
+                                 normalize=normalize,
+                                 mean=mean,
+                                 std=std,
+                                 max_samples=None,
+                                 seed=manualSeed,
+                                 sequence_length=sequence_length,
+                                 step_size=1,
+                                 image_size=64,
+                                 label_one_hot=True)
 
 print("Found {} samples in total".format(len(ds)))
 
@@ -111,10 +111,12 @@ save_image(real_img, 'test_images/Training_imagesB.png')
 #%%
 
 # Init generator and discriminator
-generator = g.SequenceGenerator(False, 0).to(device)
+gen = g.NoiseGenerator(False, 0, 64, 128)
+generator = g.SequenceGenerator(gen).to(device)
 generator.apply(mutils.weights_init)
 
-discriminator = d.SequenceDiscriminator(False, 0).to(device)
+dis = d.SimpleDiscriminator(False, 0, False, 64)
+discriminator = d.SequenceDiscriminator(dis).to(device)
 discriminator.apply(mutils.weights_init)
 
 #%%
@@ -147,9 +149,10 @@ for i_epoch in range(num_epochs):
     for i, data in enumerate(data_loaders['train'], 0):
         real_A = data['A'].to(device)
         real_B = data['B'].to(device)
+        cond = data['y'].to(device)
 
         # Forward
-        fake_B = generator(real_A, 0.)
+        fake_B = generator(real_A, cond)
 
         ############################
         # (1) Train discriminator
@@ -158,12 +161,12 @@ for i_epoch in range(num_epochs):
         optimizerD.zero_grad()
 
         # Train with all-real batch
-        pred_real = discriminator({'img_a': real_A, 'img_b': real_B, 'cond': 0.})
-        loss_D_real = criterionGAN(pred_real, True, discriminator=True)
+        pred_real = discriminator({'img_a': real_A, 'img_b': real_B, 'cond': cond})
+        loss_D_real = criterionGAN(pred_real, True, for_discriminator=True)
 
         # Train with all-fake batch
-        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B.detach(), 'cond': 0.})
-        loss_D_fake = criterionGAN(pred_fake, False, discriminator=True)
+        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B.detach(), 'cond': cond})
+        loss_D_fake = criterionGAN(pred_fake, False, for_discriminator=True)
 
         loss_D_total = loss_D_real + loss_D_fake
 
@@ -177,8 +180,8 @@ for i_epoch in range(num_epochs):
         # (2) Train Generator
         ###########################
         optimizerG.zero_grad()
-        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B, 'cond': 0.})
-        loss_G = criterionGAN(pred_fake, True)
+        pred_fake = discriminator({'img_a': real_A, 'img_b': fake_B, 'cond': cond})
+        loss_G = criterionGAN(pred_fake, True, for_discriminator=False)
         loss_G.backward()
 
         # Update G
@@ -199,9 +202,11 @@ for i_epoch in range(num_epochs):
     # Epoch finished
     if (i_epoch + 1) % 10 == 0:
         val_batch = next(iter(data_loaders['val']))
+        val_a = val_batch['A'].to(device)
+        cond_a = val_batch['y'].to(device)
         with torch.no_grad():
             # Generate fake
-            fake_B = generator(val_batch['A'].to(device))[:, 0].detach().cpu()
+            fake_B = generator(val_a, cond_a)[:, 0].detach().cpu()
 
             # Denormalize
             if normalize:
@@ -231,8 +236,10 @@ plt.savefig('test_images/losses.png')
 
 # Real images vs fake images
 batch = next(iter(data_loaders['val']))
+real_A = batch['A'].to(device)
 real_B = batch['B'].to(device)
-fake_B = generator(real_B)
+cond = batch['y'].to(device)
+fake_B = generator(real_A, cond)
 
 real_B = real_B[:, 0]
 fake_B = fake_B[:, 0]

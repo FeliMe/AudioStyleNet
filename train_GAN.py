@@ -48,7 +48,8 @@ ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  seed=config.random_seed,
                                  sequence_length=config.sequence_length,
                                  step_size=config.step_size,
-                                 image_size=config.image_size)
+                                 image_size=config.image_size,
+                                 label_one_hot=True)
 
 print("Found {} samples in total".format(len(ds)))
 

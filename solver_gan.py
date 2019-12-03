@@ -1,4 +1,5 @@
 import datetime
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import random
@@ -26,6 +27,7 @@ class GANSolver(object):
         self.device = 'cuda' if (torch.cuda.is_available() and config.use_cuda) else 'cpu'
         self.global_step = 0
         self.t_start = 0
+        self.mapping_list = np.array(['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprise'])
 
         print("Training on {}".format(self.device))
 
@@ -64,6 +66,7 @@ class GANSolver(object):
                                           label_range_fake=config.label_range_fake)
         self.criterionPix = config.criterion_pix
         self.criterionEmotion = config.criterion_emotion
+        self.criterionVGG = utils.VGGLoss(self.device)
 
         # Set directories
         self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -83,6 +86,7 @@ class GANSolver(object):
         self.loss_G_GAN = torch.tensor(0.)
         self.loss_G_pixel = torch.tensor(0.)
         self.loss_G_emotion = torch.tensor(0.)
+        self.loss_G_VGG = torch.tensor(0.)
         self.loss_G_total = torch.tensor(0.)
         self.loss_D_real = torch.tensor(0.)
         self.loss_D_fake = torch.tensor(0.)
@@ -91,6 +95,7 @@ class GANSolver(object):
         self.epoch_loss_G_GAN = torch.tensor(0.)
         self.epoch_loss_G_pixel = torch.tensor(0.)
         self.epoch_loss_G_emotion = torch.tensor(0.)
+        self.epoch_loss_G_VGG = torch.tensor(0.)
         self.epoch_loss_G_total = torch.tensor(0.)
         self.epoch_loss_D_real = torch.tensor(0.)
         self.epoch_loss_D_fake = torch.tensor(0.)
@@ -102,6 +107,7 @@ class GANSolver(object):
             'epoch_loss_D_real',
             'epoch_loss_G_emotion',
             'epoch_loss_G_pixel',
+            'epoch_loss_G_VGG',
             'epoch_loss_G_GAN',
         ]
 
@@ -154,21 +160,31 @@ class GANSolver(object):
         self.set_inputs(train_batch)
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
-        grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B)
+        grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
+        train_label = self._map_labels(self.cond[0])
 
         # Generate validation sample
         val_batch = next(iter(data_loaders['val']))
         self.set_inputs(val_batch)
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
-        grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B)
+        grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
+        val_label = self._map_labels(self.cond[0])
 
-        # Pad train grid
-        grid_image_train = torch.nn.functional.pad(grid_image_train, [0, 30, 0, 0], mode='constant')
+        # Create figure
+        f = plt.figure(figsize=(6, 6))
+        plt.subplot(1, 2, 1)
+        plt.axis("off")
+        plt.title("Train Images, {}".format(train_label))
+        plt.imshow(np.transpose(grid_image_train, (1, 2, 0)))
 
-        # Cat train and val together
-        img_sample = torch.cat((grid_image_train, grid_image_val), -1)
-        img_sample = make_grid(img_sample, nrow=1, normalize=False)
+        plt.subplot(1, 2, 2)
+        plt.axis("off")
+        plt.title("Val Images, {}".format(val_label))
+        plt.imshow(np.transpose(grid_image_val, (1, 2, 0)))
+
+        # Convert figure to array
+        img_sample = utils.fig2img(f)
 
         return img_sample
 
@@ -182,6 +198,16 @@ class GANSolver(object):
             if isinstance(name, str):
                 metric = getattr(self, name)
                 setattr(self, name, metric / len_loader)
+
+    def _map_labels(self, label):
+
+        # One-hot encoding
+        if len(label.shape) == 2:
+            label = torch.where(label == 1.)[1]
+        elif len(label.shape) == 1 and label.sum() == 1.:
+            label = torch.where(label == 1.)
+
+        return self.mapping_list[label]
 
     def log_tensorboard(self):
         """
@@ -234,12 +260,12 @@ class GANSolver(object):
         # All real batch
         pred_real = self.discriminator(
             {'img_a': self.real_A, 'img_b': self.real_B, 'cond': self.cond})
-        self.loss_D_real = self.criterionGAN(pred_real, True, discriminator=True)
+        self.loss_D_real = self.criterionGAN(pred_real, True, for_discriminator=True)
 
         # All fake batch
         pred_fake = self.discriminator(
             {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
-        self.loss_D_fake = self.criterionGAN(pred_fake, False, discriminator=True)
+        self.loss_D_fake = self.criterionGAN(pred_fake, False, for_discriminator=True)
 
         # Combine losses
         self.loss_D_total = self.loss_D_fake + self.loss_D_real
@@ -258,21 +284,45 @@ class GANSolver(object):
         Compute losses for the generator
         """
         # GAN loss
-        pred_fake = self.discriminator(
-            {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
-        self.loss_G_GAN = self.criterionGAN(pred_fake, True)
+        if self.config.lambda_G_GAN:
+            pred_fake = self.discriminator(
+                {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
+            self.loss_G_GAN = self.criterionGAN(pred_fake, True, for_discriminator=False)
+        else:
+            self.loss_G_GAN = torch.tensor(0.)
 
         # Pixelwise loss
-        self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
-        self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+        if self.config.lambda_pixel:
+            self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
+        else:
+            self.loss_G_pixel = torch.tensor(0.)
+
+        # Emotion loss
+        if self.config.lambda_emotion:
+            embedding_fake = self.classifier(self.fake_B)
+            embedding_real = self.classifier(self.real_B)
+            self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
+        else:
+            self.loss_G_emotion = torch.tensor(0.)
+
+        # VGG loss
+        if self.config.lambda_vgg:
+            self.loss_G_VGG = self.criterionVGG(self.fake_B, self.real_B)
+        else:
+            self.loss_G_VGG = torch.tensor(0.)
 
         # Combine losses
         self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
-                            + self.loss_G_pixel * self.config.lambda_pixel
+                            + self.loss_G_pixel * self.config.lambda_pixel \
+                            + self.loss_G_VGG * self.config.lambda_vgg \
+                            + self.loss_G_emotion * self.config.lambda_emotion
 
         # Metrics
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
         self.epoch_loss_G_total += self.loss_G_total.item()
+        self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+        self.epoch_loss_G_VGG += self.loss_G_VGG.item()
+        self.epoch_loss_G_emotion += self.loss_G_emotion.item()
 
         # Backward
         self.loss_G_total.backward()

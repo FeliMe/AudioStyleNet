@@ -6,7 +6,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import time
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 import torchvision.transforms as transforms
+
+from PIL import Image
+from torchvision.models.vgg import vgg19
 
 
 class Config(dict):
@@ -102,16 +107,6 @@ def time_left(t_start, n_iters, i_iter):
     return time_to_str(time_remaining)
 
 
-def ada_loss(curr_loss, prev_v, beta=0.99):
-    curr_loss = curr_loss.view((curr_loss.size(0), -1)).mean(1)
-    curr_v = beta * prev_v + (1 - beta) * curr_loss.pow(2).mean()
-    curr_v_ = curr_v / (1 - beta)
-
-    loss = curr_loss.mean() / (curr_v_.sqrt() + 1e-10)
-
-    return loss, curr_v
-
-
 def count_params(model):
     return sum(p.numel() for p in model.parameters())
 
@@ -120,8 +115,26 @@ def count_trainable_params(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 
-class GANLoss(torch.nn.Module):
-    # Source: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/models/networks.py
+def fig2img(fig):
+    """
+    Convert a matplotlib figure into a PIL Image
+
+    Arguments:
+        fig (matplotlib.figure.Figure): Input figure
+
+    Returns:
+        img (PIL.Image.Image): Output image
+    """
+    fig.canvas.draw()
+    w, h = fig.canvas.get_width_height()
+    buf = np.frombuffer(fig.canvas.tostring_argb(), dtype=np.uint8).reshape(w, h, 4)
+    buf = np.roll(buf, 3, axis=2).transpose((2, 0, 1))
+    img = torch.tensor(buf / 255.)
+    return img
+
+
+class GANLoss(nn.Module):
+    # Source: https://github.com/NVlabs/SPADE/blob/master/models/networks/loss.py
     """
     Define different GAN objectives.
     The GANLoss class abstracts away the need to create the target label tensor
@@ -164,15 +177,15 @@ class GANLoss(torch.nn.Module):
         # Gan mode
         self.gan_mode = gan_mode
         if gan_mode == 'lsgan':
-            self.loss = torch.nn.MSELoss()
+            pass
         elif gan_mode == 'vanilla':
-            self.loss = torch.nn.BCEWithLogitsLoss()
+            pass
         elif gan_mode in ['wgangp']:
-            self.loss = None
+            pass
         else:
             raise NotImplementedError('gan mode %s not implemented' % gan_mode)
 
-    def get_target_tensor(self, prediction, target_is_real, discriminator):
+    def get_target_tensor(self, prediction, target_is_real, for_discriminator):
         """Create label tensors with the same size as the input.
         Parameters:
             prediction (tensor): tpyically the prediction from a discriminator
@@ -183,7 +196,7 @@ class GANLoss(torch.nn.Module):
 
         if target_is_real:
             target_tensor = self.real_label.expand_as(prediction)
-            if discriminator:
+            if for_discriminator:
                 if self.noisy_labels:
                     mini, maxi = self.label_range_real
                     noise = torch.rand(prediction.size()) * (maxi - mini) - (1. - abs(mini))
@@ -191,7 +204,7 @@ class GANLoss(torch.nn.Module):
                 target_tensor = self.flip_labels(target_tensor)
         else:
             target_tensor = self.fake_label.expand_as(prediction)
-            if discriminator:
+            if for_discriminator:
                 if self.noisy_labels:
                     mini, maxi = self.label_range_fake
                     noise = torch.rand(prediction.size()) * (maxi - mini) - (0. - abs(mini))
@@ -212,23 +225,97 @@ class GANLoss(torch.nn.Module):
         target_tensor[flip_idx] = 1 - target_tensor[flip_idx]
         return target_tensor
 
-    def __call__(self, prediction, target_is_real, discriminator=False):
+    def loss(self, prediction, target_is_real, for_discriminator=True):
+        if self.gan_mode == 'vanilla':  # cross entropy loss
+            target_tensor = self.get_target_tensor(prediction, target_is_real, for_discriminator)
+            loss = F.binary_cross_entropy_with_logits(prediction, target_tensor)
+            return loss
+        elif self.gan_mode == 'lsgan':
+            target_tensor = self.get_target_tensor(prediction, target_is_real, for_discriminator)
+            return F.mse_loss(prediction, target_tensor)
+        else:
+            # wgan
+            if target_is_real:
+                return -prediction.mean()
+            else:
+                return prediction.mean()
+
+    def __call__(self, prediction, target_is_real, for_discriminator=True):
         """
         Calculate loss given Discriminator's output and grount truth labels.
 
         Parameters:
             prediction (tensor): tpyically the prediction output from a discriminator
             target_is_real (bool): if the ground truth label is for real images or fake images
-            discriminator (bool): Indicates discriminator. Noisy labels are only for D
+            for_discriminator (bool): Indicates discriminator. Noisy labels are only for D
         Returns:
             the calculated loss.
         """
-        if self.gan_mode in ['lsgan', 'vanilla']:
-            target_tensor = self.get_target_tensor(prediction, target_is_real, discriminator)
-            loss = self.loss(prediction, target_tensor)
-        elif self.gan_mode == 'wgangp':
-            if target_is_real:
-                loss = -prediction.mean()
-            else:
-                loss = prediction.mean()
+        # computing loss is a bit complicated because |input| may not be
+        # a tensor, but list of tensors in case of multiscale discriminator
+        if isinstance(prediction, list):
+            loss = 0
+            for pred_i in prediction:
+                if isinstance(pred_i, list):
+                    pred_i = pred_i[-1]
+                loss_tensor = self.loss(pred_i, target_is_real, for_discriminator)
+                bs = 1 if len(loss_tensor.size()) == 0 else loss_tensor.size(0)
+                new_loss = torch.mean(loss_tensor.view(bs, -1), dim=1)
+                loss += new_loss
+            return loss / len(prediction)
+        else:
+            return self.loss(prediction, target_is_real, for_discriminator)
+
+
+class VGGLoss(nn.Module):
+    """
+    Source: https://github.com/NVlabs/SPADE/blob/master/models/networks/loss.py
+    Perceptual loss that uses a pretrained VGG network
+    """
+    def __init__(self, device):
+        super(VGGLoss, self).__init__()
+        self.vgg = VGG19().to(device)
+        self.criterion = nn.L1Loss()
+        self.weights = [1.0 / 32, 1.0 / 16, 1.0 / 8, 1.0 / 4, 1.0]
+
+    def forward(self, x, y):
+        s = x.size(1)
+        loss = 0.
+        for i_seq in range(s):
+            x_vgg, y_vgg = self.vgg(x[:, i_seq]), self.vgg(y[:, i_seq])
+            for i in range(len(x_vgg)):
+                loss += self.weights[i] * self.criterion(x_vgg[i], y_vgg[i].detach())
         return loss
+
+
+class VGG19(nn.Module):
+    def __init__(self, requires_grad=False):
+        super().__init__()
+        vgg_pretrained_features = vgg19(pretrained=True).features
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        self.slice5 = torch.nn.Sequential()
+        for x in range(2):
+            self.slice1.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(2, 7):
+            self.slice2.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(7, 12):
+            self.slice3.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(12, 21):
+            self.slice4.add_module(str(x), vgg_pretrained_features[x])
+        for x in range(21, 30):
+            self.slice5.add_module(str(x), vgg_pretrained_features[x])
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
+
+    def forward(self, x):
+        h_relu1 = self.slice1(x)
+        h_relu2 = self.slice2(h_relu1)
+        h_relu3 = self.slice3(h_relu2)
+        h_relu4 = self.slice4(h_relu3)
+        h_relu5 = self.slice5(h_relu4)
+        out = [h_relu1, h_relu2, h_relu3, h_relu4, h_relu5]
+        return out

@@ -24,7 +24,7 @@ config = Config({
     'use_cuda': True,
     'log_run': True,
     'random_seed': 999,
-    'save_interval': 10,
+    'save_interval': 5,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
@@ -33,64 +33,71 @@ config = Config({
     'use_gray': False,
     'normalize': True,
     'use_same_sentence': True,
-    'validation_split': .1,
+    'validation_split': .1,  # stable GAN: .1
     'sequence_length': 1,
     'step_size': 1,
-    'image_size': 64,
-    'mean': [0.755, 0.673, 0.652],  # [0.694]
-    'std': [0.300, 0.348, 0.361],  # [0.332]
+    'image_size': 64,  # stable GAN: 64
 
     # Model parameters
-    'n_features_g': 64,
-    'n_features_d': 64,
+    'n_features_g': 64,  # stable GAN: 64
+    'n_features_d': 64,  # stable GAN: 64
 
     # Hyper parameters
-    'num_epochs': 30,
+    'num_epochs': 100,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
-    'batch_size': 64,
-    'lambda_G_GAN': 1.,
-    'lambda_pixel': 100.,
-    'lambda_emotion': 0.,
+    'batch_size': 64,  # stable GAN: 64
+    'lambda_G_GAN': 1.,  # stable GAN: 1.
+    'lambda_pixel': 0.,  # stable GAN: 100.
+    'lambda_vgg': 0.,  # stable GAN: 0.
+    'lambda_emotion': 5.,  # stable GAN: 0.
 
     # Loss functions
-    'GAN_mode': 'vanilla',
+    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgangp'  stable GAN: vanilla
     'criterion_pix': nn.L1Loss(),
     'criterion_emotion': nn.MSELoss(),
 
     # GAN hacks
     'noisy_labels': True,  # Use noisy labels for discriminator
-    'label_range_real': (0.9, 1.0),
-    'label_range_fake': (0.0, 0.2),
+    'label_range_real': (0.9, 1.0),  # stable GAN: (0.9, 1.0)
+    'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
     'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
-    'flip_prob': 0.05,
+    'flip_prob': 0.0,  # stable GAN: 0.05
 
     # Conditioning
-    'n_classes_cond': 0,
+    'n_classes_cond': 8,
+})
+
+config.update({
+    'pair': False,  # True is better
 })
 
 config.update({
     # Generator
-    'generator': generators.SequenceGenerator(
+    'g': generators.NoiseGenerator(
         config.use_gray,
         config.n_classes_cond,
         n_features=config.n_features_g
     ),
 
     # Discriminator
-    'discriminator': discriminators.SequenceDiscriminator(
+    'd': discriminators.SimpleDiscriminator(
         config.use_gray,
         config.n_classes_cond,
-        n_features=config.n_features_g
+        n_features=config.n_features_g,
+        pair=config.pair
     ),
-    # 'discriminator': discriminators.SequencePatchDiscriminator(
-    #     config.use_gray,
-    #     config.n_classes_cond
-    # ),
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
     'classifier_path': 'saves/classifier_seq%d.pt' % int(config.sequence_length),
+})
+
+config.update({
+    # Sequence generator
+    'generator': generators.SequenceGenerator(config.g),
+    # Sequence discriminator
+    'discriminator': discriminators.SequenceDiscriminator(config.d),
 })
 
 config.update({

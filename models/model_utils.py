@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.nn.utils.spectral_norm as spectral_norm
 
 
 class MaxChannelPool(nn.Module):
@@ -186,6 +187,89 @@ class Upconv(nn.Module):
         x = self.upsample(x)
         x = self.conv2d(x)
         return x
+
+
+class SPADE(nn.Module):
+    def __init__(self, out_channels, kernel_size, segmap_nc=1):
+        super(SPADE, self).__init__()
+
+        self.param_free_norm = nn.InstanceNorm2d(out_channels, affine=False)
+
+        nhidden = 128
+
+        padding = kernel_size // 2
+
+        self.mlp_shared = nn.Sequential(
+            nn.Conv2d(segmap_nc, nhidden, kernel_size, 1, padding),
+            nn.ReLU(),
+        )
+        self.mlp_gamma = nn.Conv2d(nhidden, out_channels, kernel_size, 1, padding)
+        self.mlp_beta = nn.Conv2d(nhidden, out_channels, kernel_size, 1, padding)
+
+    def forward(self, x, segmap):
+        # Part 1. generate parameter-free normalized activations
+        normalized = self.param_free_norm(x)
+
+        # Part 2. produce scaling and bias conditioned on semantic map
+        segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
+        actv = self.mlp_shared(segmap)
+        gamma = self.mlp_gamma(actv)
+        beta = self.mlp_beta(actv)
+
+        # apply scale and bias
+        out = normalized * (1 + gamma) + beta
+
+        return out
+
+
+class SPADEResnetBlock(nn.Module):
+    """
+    Source: https://github.com/NVlabs/SPADE/blob/77197af832fac44ba319179096f38467bac91ec9/models/networks/architecture.py
+    """
+    def __init__(self, in_channels, out_channels, segmap_nc):
+        super().__init__()
+        # Attributes
+        self.learned_shortcut = (in_channels != out_channels)
+        fmiddle = min(in_channels, out_channels)
+
+        # create conv layers
+        self.conv_0 = nn.Conv2d(in_channels, fmiddle, kernel_size=3, padding=1)
+        self.conv_1 = nn.Conv2d(fmiddle, out_channels, kernel_size=3, padding=1)
+        if self.learned_shortcut:
+            self.conv_s = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
+
+        # apply spectral norm
+        self.conv_0 = spectral_norm(self.conv_0)
+        self.conv_1 = spectral_norm(self.conv_1)
+        if self.learned_shortcut:
+            self.conv_s = spectral_norm(self.conv_s)
+
+        # define normalization layers
+        self.norm_0 = SPADE(in_channels, 3, segmap_nc)
+        self.norm_1 = SPADE(fmiddle, 3, segmap_nc)
+        if self.learned_shortcut:
+            self.norm_s = SPADE(in_channels, 1, segmap_nc)
+
+    @staticmethod
+    def actvn(x):
+        return F.leaky_relu(x, 2e-1)
+
+    def shortcut(self, x, seg):
+        if self.learned_shortcut:
+            x_s = self.conv_s(self.norm_s(x, seg))
+        else:
+            x_s = x
+        return x_s
+
+    def forward(self, x, seg):
+        x_s = self.shortcut(x, seg)
+
+        dx = self.conv_0(self.actvn(self.norm_0(x, seg)))
+        dx = self.conv_1(self.actvn(self.norm_1(dx, seg)))
+
+        out = x_s + dx
+
+        return out
 
 
 def discriminator_block(in_filters, out_filters, normalization=True):
