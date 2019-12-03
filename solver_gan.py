@@ -257,6 +257,12 @@ class GANSolver(object):
         """
         Compute losses for the discriminator
         """
+
+        if self.config.GAN_mode == 'wgan':
+            # clamp parameters to a cube
+            for p in self.discriminator.parameters():
+                p.data.clamp_(-0.01, 0.01)
+
         # All real batch
         pred_real = self.discriminator(
             {'img_a': self.real_A, 'img_b': self.real_B, 'cond': self.cond})
@@ -268,7 +274,8 @@ class GANSolver(object):
         self.loss_D_fake = self.criterionGAN(pred_fake, False, for_discriminator=True)
 
         # Combine losses
-        self.loss_D_total = self.loss_D_fake + self.loss_D_real
+        self.loss_D_total = self.loss_D_real + self.loss_D_fake
+        # self.loss_D_total = self.loss_D_real - self.loss_D_fake
 
         # Metrics
         self.epoch_loss_D_real += self.loss_D_real.item()

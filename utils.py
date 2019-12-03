@@ -148,7 +148,7 @@ class GANLoss(nn.Module):
         Initialize the GANLoss class.
 
         Parameters:
-            gan_mode (str): the type of GAN objective. It currently supports vanilla, lsgan, and wgangp.
+            gan_mode (str): the type of GAN objective. It currently supports vanilla, lsgan, and wgan.
             target_real_label (bool): label for a real image
             target_fake_label (bool): label of a fake image
             flip_p (float): probability of flipping labels in discriminator
@@ -180,7 +180,7 @@ class GANLoss(nn.Module):
             pass
         elif gan_mode == 'vanilla':
             pass
-        elif gan_mode in ['wgangp']:
+        elif gan_mode == 'wgan':
             pass
         else:
             raise NotImplementedError('gan mode %s not implemented' % gan_mode)

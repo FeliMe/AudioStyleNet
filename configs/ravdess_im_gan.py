@@ -50,10 +50,10 @@ config = Config({
     'lambda_G_GAN': 1.,  # stable GAN: 1.
     'lambda_pixel': 0.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
-    'lambda_emotion': 5.,  # stable GAN: 0.
+    'lambda_emotion': 0.,  # stable GAN: 0.
 
     # Loss functions
-    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgangp'  stable GAN: vanilla
+    'GAN_mode': 'wgan',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
     'criterion_pix': nn.L1Loss(),
     'criterion_emotion': nn.MSELoss(),
 
@@ -65,7 +65,7 @@ config = Config({
     'flip_prob': 0.0,  # stable GAN: 0.05
 
     # Conditioning
-    'n_classes_cond': 8,
+    'n_classes_cond': 0,
 })
 
 config.update({
@@ -112,10 +112,6 @@ config.update({
         lr=config.lr_D,
         betas=(0.5, 0.999)
     ),
-    # 'optimizer_D': torch.optim.SGD(
-    #     config.discriminator.parameters(),
-    #     lr=config.lr_D
-    # )
 })
 
 config.update({

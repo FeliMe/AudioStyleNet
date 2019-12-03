@@ -40,7 +40,9 @@ class NoiseGenerator(nn.Module):
         self.n_classes_cond = n_classes_cond
 
         if self.n_classes_cond:
-            in_channels = self.n_latent + self.n_classes_cond
+            # in_channels = self.n_latent + self.n_classes_cond
+            in_channels = self.n_latent * 2
+            self.cond_in = nn.Linear(self.n_classes_cond, self.n_latent)
 
         self.main = nn.Sequential(
             nn.ConvTranspose2d(in_channels, n_features * 8, 4, 1, 0, bias=False),
@@ -64,7 +66,8 @@ class NoiseGenerator(nn.Module):
 
         # Conditioning
         if self.n_classes_cond:
-            cond = cond.view(x.size(0), self.n_classes_cond, 1, 1)
+            # cond = cond.view(x.size(0), self.n_classes_cond, 1, 1)
+            cond = self.cond_in(cond).view(noise.size())
             noise = torch.cat((cond, noise), 1)
 
         return self.main(noise)
