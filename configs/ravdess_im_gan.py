@@ -5,8 +5,6 @@ import torch.nn as nn
 from models import models, generators, discriminators
 from utils import Config
 
-# Added some comment
-
 HOME = os.path.expanduser('~')
 
 # ImageNet mean / std

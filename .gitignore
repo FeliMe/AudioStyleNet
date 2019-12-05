@@ -1,6 +1,9 @@
 /saves/
-/runs/
 /wandb/
+/.vscode/
 /__pycache__/
 \.idea/
 **/__pycache__/
+.DS_Store
+.gitignore
+tester.py
