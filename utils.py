@@ -23,7 +23,7 @@ class Config(dict):
 def denormalize(mean, std):
     """ Denormalizes image to save or display it """
     return transforms.Compose([
-        transforms.Normalize([0., 0., 0.], 1/np.array(std)),
+        transforms.Normalize([0., 0., 0.], 1 / np.array(std)),
         transforms.Normalize(-np.array(mean), [1., 1., 1.])]
     )
 
@@ -31,8 +31,8 @@ def denormalize(mean, std):
 class GradPlotter:
     """
     Source: https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10
-    Plots the gradients flowing through different layers in the net during training.
-    Can be used for checking for possible gradient vanishing / exploding problems.
+    Plots gradients flowing through different layers in the net during training.
+    Can be used for checking possible gradient vanishing / exploding problems.
 
     Usage: Plug this function in Trainer class after loss.backwards() as
     'if grad_plotter is None:
@@ -142,7 +142,7 @@ class GANLoss(nn.Module):
     """
 
     def __init__(self, gan_mode, device, target_real_label=1.0,
-                 target_fake_label=0.0, flip_p=0.,  noisy_labels=False,
+                 target_fake_label=0.0, flip_p=0., noisy_labels=False,
                  label_range_real=(1.0, 1.0), label_range_fake=(0.0, 0.0)):
         """
         Initialize the GANLoss class.

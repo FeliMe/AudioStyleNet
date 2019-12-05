@@ -34,7 +34,8 @@ config = importlib.import_module('configs.' + args.config).config
 
 if config.log_run:
     writer = SummaryWriter(
-        'tensorboard_runs/img_classification/' + datetime.now().strftime("%Y%m%d-%H%M%S"))
+        'tensorboard_runs/img_classification/' + 
+        datetime.now().strftime("%Y%m%d-%H%M%S"))
     wandb.init(project="emotion-classification", config=config)
 else:
     writer = None

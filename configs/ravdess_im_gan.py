@@ -43,7 +43,7 @@ config = Config({
     'n_features_d': 64,  # stable GAN: 64
 
     # Hyper parameters
-    'num_epochs': 5,
+    'num_epochs': 30,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
@@ -61,8 +61,8 @@ config = Config({
     'noisy_labels': True,  # Use noisy labels for discriminator
     'label_range_real': (0.9, 1.0),  # stable GAN: (0.9, 1.0)
     'label_range_fake': (0.0, 0.2),  # stable GAN: (0.0, 0.2)
-    'grad_clip_val': 0.0,  # Max gradient norm for discriminator, use 0 to disable grad clipping
-    'flip_prob': 0.0,  # stable GAN: 0.05
+    'grad_clip_val': 0.0,  # Max gradient norm for discriminator, (0: disabled)
+    'flip_prob': 0.05,  # stable GAN: 0.05
 
     # Conditioning
     'n_classes_cond': 0,
@@ -90,7 +90,9 @@ config.update({
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
-    'classifier_path': 'saves/classifier_seq%d.pt' % int(config.sequence_length),
+    'classifier_path': 'saves/classifier_seq{}.pt'.format(
+        config.sequence_length
+    ),
 })
 
 config.update({

@@ -324,9 +324,9 @@ class GANSolver(object):
 
         # Combine losses
         self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
-                            + self.loss_G_pixel * self.config.lambda_pixel \
-                            + self.loss_G_VGG * self.config.lambda_vgg \
-                            + self.loss_G_emotion * self.config.lambda_emotion
+            + self.loss_G_pixel * self.config.lambda_pixel \
+            + self.loss_G_VGG * self.config.lambda_vgg \
+            + self.loss_G_emotion * self.config.lambda_emotion
 
         # Metrics
         self.epoch_loss_G_GAN += self.loss_G_GAN.item()
