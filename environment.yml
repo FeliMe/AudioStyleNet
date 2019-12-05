@@ -1,0 +1,22 @@
+name: emotion-aware-facial-animation
+channels:
+  - pytorch
+  - anaconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.7.5=h359304d_0
+  - pip=19.3.1=py37_0
+  - scikit-learn
+  - argcomplete
+  - pip:
+    - torch
+    - torchvision
+    - tensorboard
+    - numpy
+    - pandas
+    - matplotlib
+    - wandb
+    - dlib
+    - seaborn
+prefix: /Users/felix/miniconda3/envs/emotion-aware-facial-animation
