@@ -18,9 +18,13 @@ from models.model_utils import weights_init
 class GANSolver(object):
     def __init__(self, config):
 
+        # Random seeds
         random.seed(config.random_seed)
         np.random.seed(config.random_seed)
         torch.manual_seed(config.random_seed)
+        # torch.cuda.manual_seed(config.random_seed)
+
+        # torch.backends.cudnn.deterministic = True
 
         # General
         self.config = config

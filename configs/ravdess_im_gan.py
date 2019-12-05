@@ -43,17 +43,17 @@ config = Config({
     'n_features_d': 64,  # stable GAN: 64
 
     # Hyper parameters
-    'num_epochs': 100,
+    'num_epochs': 5,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
     'lambda_G_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 0.,  # stable GAN: 100.
+    'lambda_pixel': 100.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
     # Loss functions
-    'GAN_mode': 'wgan',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
+    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
     'criterion_pix': nn.L1Loss(),
     'criterion_emotion': nn.MSELoss(),
 
@@ -69,12 +69,12 @@ config = Config({
 })
 
 config.update({
-    'pair': False,  # True is better
+    'pair': True,  # True is better
 })
 
 config.update({
     # Generator
-    'g': generators.NoiseGenerator(
+    'g': generators.GeneratorUNet(
         config.use_gray,
         config.n_classes_cond,
         n_features=config.n_features_g

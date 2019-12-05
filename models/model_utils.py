@@ -272,6 +272,41 @@ class SPADEResnetBlock(nn.Module):
         return out
 
 
+class GeneratorConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        """
+        constructor for the class
+        :param in_channels: number of input channels to the block
+        :param out_channels: number of output channels required
+        """
+        from torch.nn import LeakyReLU
+
+        super().__init__()
+
+        self.conv_1 = nn.Conv2d(in_channels, out_channels, (3, 3), padding=1, bias=False)
+        self.conv_2 = nn.Conv2d(out_channels, out_channels, (3, 3), padding=1, bias=False)
+
+    @staticmethod
+    def actvn(x):
+        return F.leaky_relu(x, 2e-1)
+
+    def forward(self, x):
+        """
+        forward pass of the block
+        :param x: input
+        :return: y => output
+        """
+        from torch.nn.functional import interpolate
+
+        y = F.interpolate(x, scale_factor=2)
+        y = self.actvn(self.conv_1(y))
+        y = self.actvn(self.conv_2(y))
+
+
+
+        return y
+
+
 def discriminator_block(in_filters, out_filters, normalization=True):
     """
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
