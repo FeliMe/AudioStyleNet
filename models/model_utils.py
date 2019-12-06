@@ -13,7 +13,7 @@ class MaxChannelPool(nn.Module):
 
     def forward(self, x):
         b, s, c, w, h = x.size()
-        x = x.view(b, s, c*w*h).permute(0, 2, 1)
+        x = x.view(b, s, c * w * h).permute(0, 2, 1)
         y = F.max_pool1d(x, kernel_size=s)
         y = y.permute(0, 2, 1)
         y = y.view(b, c, w, h)
@@ -272,37 +272,50 @@ class SPADEResnetBlock(nn.Module):
         return out
 
 
-class GeneratorConvBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        """
-        constructor for the class
-        :param in_channels: number of input channels to the block
-        :param out_channels: number of output channels required
-        """
-        from torch.nn import LeakyReLU
-
+class GeneratorBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, use_spectral_norm=True):
         super().__init__()
 
         self.conv_1 = nn.Conv2d(in_channels, out_channels, (3, 3), padding=1, bias=False)
         self.conv_2 = nn.Conv2d(out_channels, out_channels, (3, 3), padding=1, bias=False)
+
+        if use_spectral_norm:
+            self.conv1 = spectral_norm(self.conv_1)
+            self.conv2 = spectral_norm(self.conv_2)
 
     @staticmethod
     def actvn(x):
         return F.leaky_relu(x, 2e-1)
 
     def forward(self, x):
-        """
-        forward pass of the block
-        :param x: input
-        :return: y => output
-        """
-        from torch.nn.functional import interpolate
 
         y = F.interpolate(x, scale_factor=2)
         y = self.actvn(self.conv_1(y))
         y = self.actvn(self.conv_2(y))
 
+        return y
 
+
+class DiscriminatorBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, use_spectral_norm=True):
+        super().__init__()
+
+        self.conv_1 = nn.Conv2d(in_channels, in_channels, (3, 3), padding=1, bias=False)
+        self.conv_2 = nn.Conv2d(in_channels, out_channels, (3, 3), padding=1, bias=False)
+        self.downSampler = nn.AvgPool2d(2)  # downsampler
+
+        if use_spectral_norm:
+            self.conv1 = spectral_norm(self.conv_1)
+            self.conv2 = spectral_norm(self.conv_2)
+
+    @staticmethod
+    def actvn(x):
+        return F.leaky_relu(x, 2e-1)
+
+    def forward(self, x):
+        y = self.actvn(self.conv_1(x))
+        y = self.actvn(self.conv_2(y))
+        y = self.downSampler(y)
 
         return y
 

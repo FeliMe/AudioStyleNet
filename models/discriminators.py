@@ -23,13 +23,13 @@ class SequenceDiscriminator(nn.Module):
         img_b = inputs['img_b']
         cond = inputs['cond']
 
+        n_seq = img_a.size(1)
+
         out = []
-        for i_seq in range(img_b.size(1)):
-            out.append(self.d({
-                'img_a': img_a[:, i_seq],
-                'img_b': img_b[:, i_seq],
-                'cond': cond
-            }))
+        for i_seq in range(n_seq):
+            a = img_a[:, i_seq]
+            b = img_b[i_seq] if type(img_b) is list else img_b[:, i_seq]
+            out.append(self.d({'img_a': a, 'img_b': b, 'cond': cond}))
         out = torch.stack(out, 1)
 
         return out
@@ -186,7 +186,6 @@ class SPADEDiscriminator(nn.Module):
     def forward(self, inputs):
         img_a = inputs['img_a']
         img_b = inputs['img_b']
-        cond = inputs['cond']
 
         if self.pair:
             x = torch.cat((img_a, img_b), dim=1)
@@ -199,3 +198,58 @@ class SPADEDiscriminator(nn.Module):
         x = F.leaky_relu(self.inst_norm(x))
         x = self.conv(x)
         return x
+
+
+class MultiScaleDiscriminator(nn.Module):
+    def __init__(self, gray, n_classes_cond, pair, n_features=128, depth=6):
+        super().__init__()
+
+        self.n_classes_cond = n_classes_cond
+        self.pair = pair
+        self.depth = depth
+        self.n_features = n_features
+
+        nc = 1 if gray else 3
+
+        def from_rgb(out_channels):
+            return nn.Conv2d(nc, out_channels, (1, 1), bias=False)
+
+        self.rgb_to_features = nn.ModuleList([from_rgb(self.n_features // 2)])
+        self.layers = nn.ModuleList(
+            [mu.DiscriminatorBlock(self.n_features, self.n_features)])
+
+        for i in range(self.depth - 1):
+            if i > 2:
+                layer = mu.DiscriminatorBlock(
+                    int(self.n_features // (2**(i - 2))),
+                    int(self.n_features // (2**(i - 2))),
+                    use_spectral_norm=True
+                )
+                rgb = from_rgb(int(self.n_features // (2**(i - 1))))
+            else:
+                layer = mu.DiscriminatorBlock(self.n_features,
+                                              self.n_features // 2,
+                                              use_spectral_norm=True)
+                rgb = from_rgb(self.n_features // 2)
+
+            self.layers.append(layer)
+            self.rgb_to_features.append(rgb)
+
+        # just replace the last converter
+        self.rgb_to_features[self.depth - 1] = \
+            from_rgb(self.n_features // (2**(i - 2)))
+
+    def forward(self, inputs):
+        inp = inputs['img_b']
+
+        y = self.rgb_to_features[self.depth - 1](inp[self.depth - 1])
+        y = self.layers[self.depth - 1](y)
+        for x, block, converter in \
+                zip(reversed(inp[:-1]),
+                    reversed(self.layers[:-1]),
+                    reversed(self.rgb_to_features[:-1])):
+            input_part = converter(x)  # convert the input:
+            y = torch.cat((input_part, y), dim=1)  # concatenate the inputs:
+            y = block(y)  # apply the block
+
+        return y

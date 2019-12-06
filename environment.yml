@@ -7,6 +7,9 @@ channels:
 dependencies:
   - python=3.7
   - pip=19.3.1
+  - autopep8
+  - pylint
+  - flake8
   - pip:
     - torch
     - torchvision

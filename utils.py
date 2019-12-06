@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 
-from PIL import Image
 from torchvision.models.vgg import vgg19
 
 
@@ -97,7 +96,7 @@ class GradPlotter:
 
 
 def time_to_str(t):
-    return "{:.0f}h {:.0f}m {:.0f}s".format(t // 3600, t // 60, t % 60)
+    return "{:.0f}h {:.0f}m {:.0f}s".format(t // 3600, (t // 60) % 60, t % 60)
 
 
 def time_left(t_start, n_iters, i_iter):

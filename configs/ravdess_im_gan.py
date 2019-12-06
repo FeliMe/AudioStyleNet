@@ -53,7 +53,7 @@ config = Config({
     'lambda_emotion': 0.,  # stable GAN: 0.
 
     # Loss functions
-    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
+    'GAN_mode': 'wgan',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
     'criterion_pix': nn.L1Loss(),
     'criterion_emotion': nn.MSELoss(),
 

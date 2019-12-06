@@ -164,6 +164,8 @@ class GANSolver(object):
         self.set_inputs(train_batch)
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
+            if type(fake_B) is list:
+                fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
         train_label = self._map_labels(self.cond[0])
 
@@ -172,6 +174,8 @@ class GANSolver(object):
         self.set_inputs(val_batch)
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
+            if type(fake_B) is list:
+                fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
         val_label = self._map_labels(self.cond[0])
 
@@ -273,13 +277,17 @@ class GANSolver(object):
         self.loss_D_real = self.criterionGAN(pred_real, True, for_discriminator=True)
 
         # All fake batch
+        # if type(self.fake_B) is list:
+        #     self.fake_B = list(map(lambda a: list(map(lambda b: b.detach(), a)), self.fake_B))
+        # else:
+        #     self.fake_B = self.fake_B.detach()
         pred_fake = self.discriminator(
             {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
         self.loss_D_fake = self.criterionGAN(pred_fake, False, for_discriminator=True)
 
         # Combine losses
         self.loss_D_total = self.loss_D_real + self.loss_D_fake
-        # self.loss_D_total = self.loss_D_real - self.loss_D_fake
+        self.loss_D_total = self.loss_D_real - self.loss_D_fake
 
         # Metrics
         self.epoch_loss_D_real += self.loss_D_real.item()
@@ -398,11 +406,15 @@ class GANSolver(object):
             self.eval_model(data_loaders)
 
     def eval_model(self, data_loaders):
+        print("Evaluating generator")
+
         # Real images vs fake images
         batch = next(iter(data_loaders['val']))
         self.set_inputs(batch)
         with torch.no_grad():
             fake_B = self.generator(self.real_A, self.cond)
+            if type(fake_B) is list:
+                fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
 
         real_B = self.real_B[:, 0]
         fake_B = fake_B[:, 0]

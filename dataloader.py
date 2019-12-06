@@ -13,7 +13,6 @@ from PIL import Image
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
-from torchvision.datasets import ImageFolder
 from torchvision.utils import make_grid
 
 import utils

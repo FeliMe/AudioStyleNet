@@ -23,7 +23,9 @@ class SequenceGenerator(nn.Module):
         y = []
         for idx in range(x.size(1)):
             y.append(self.g(x[:, idx], cond))
-        y = torch.stack(y, dim=1)
+
+        if not type(y[0]) is list:
+            y = torch.stack(y, dim=1)
         return y
 
 
@@ -234,3 +236,46 @@ class SPADEGenerator(nn.Module):
 
         return x
 
+
+class MultiScaleGenerator(nn.Module):
+    def __init__(self, gray, n_classes_cond, n_features=128, depth=6):
+        super().__init__()
+
+        self.depth = depth
+        self.n_features = n_features
+
+        nc = 1 if gray else 3
+
+        # To RGB for every sublayer
+        def to_rgb(in_channels):
+            return nn.Conv2d(in_channels, nc, (1, 1), bias=False)
+
+        self.layers = nn.ModuleList(
+            [mu.GeneratorBlock(self.n_features, self.n_features)])
+        self.rgb_converters = nn.ModuleList([to_rgb(self.n_features)])
+
+        for i in range(self.depth - 1):
+            if i <= 2:
+                layer = mu.GeneratorBlock(self.n_features, self.n_features,
+                                          use_spectral_norm=True)
+                rgb = to_rgb(self.n_features)
+            else:
+                layer = mu.GeneratorBlock(
+                    int(self.n_features // (2**(i - 3))),
+                    int(self.n_features // (2**(i - 2))),
+                    use_spectral_norm=True
+                )
+                rgb = to_rgb(int(self.n_features // (2**(i - 2))))
+            self.layers.append(layer)
+            self.rgb_converters.append(rgb)
+
+    def forward(self, x, cond):
+
+        y = torch.randn(x.size(0), self.n_features, 1, 1, device=x.device)
+
+        outputs = []
+        for block, converter in zip(self.layers, self.rgb_converters):
+            y = block(y)
+            outputs.append(torch.tanh(converter(y)))
+
+        return outputs
