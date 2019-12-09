@@ -236,7 +236,6 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
 
         # Get emotion from target sentence
         emotion = int(target_sentence.split('/')[-1].split('-')[2]) - 1
-        print(int(inp_emotion) - 1, emotion)
         if self.label_one_hot:
             emotion = self._int_to_one_hot(emotion)
 
