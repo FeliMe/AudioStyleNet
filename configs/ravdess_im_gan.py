@@ -32,11 +32,13 @@ config = Config({
     'data_format': 'image',
     'use_gray': False,
     'normalize': True,
-    'use_same_sentence': True,
+    'use_same_sentence': False,
     'validation_split': .1,  # stable GAN: .1
     'sequence_length': 1,
     'step_size': 1,
     'image_size': 64,  # stable GAN: 64
+    'emotions': ['neutral', 'calm', 'happy', 'sad', 'angry',
+                 'fearful', 'disgust', 'surprised'],  # ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
 
     # Model parameters
     'n_features_g': 64,  # stable GAN: 64

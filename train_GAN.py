@@ -37,10 +37,10 @@ config = importlib.import_module('configs.' + args.config).config
 #     img_size=config.image_size
 # )
 
-ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
-                                 config.target_data_path,
-                                 config.data_format,
-                                 config.use_same_sentence,
+ds = dataloader.RAVDESSDSPix2Pix(root_path=config.data_path,
+                                 target_root_path=config.target_data_path,
+                                 data_format=config.data_format,
+                                 use_same_sentence=config.use_same_sentence,
                                  normalize=config.normalize,
                                  mean=config.mean,
                                  std=config.std,
@@ -49,7 +49,8 @@ ds = dataloader.RAVDESSDSPix2Pix(config.data_path,
                                  sequence_length=config.sequence_length,
                                  step_size=config.step_size,
                                  image_size=config.image_size,
-                                 label_one_hot=True)
+                                 label_one_hot=True,
+                                 emotions=config.emotions)
 
 print("Found {} samples in total".format(len(ds)))
 

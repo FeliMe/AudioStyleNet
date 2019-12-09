@@ -53,7 +53,9 @@ class RAVDESSDataset(Dataset):
                  step_size=1,
                  image_size=64,
                  num_classes=8,
-                 label_one_hot=False):
+                 label_one_hot=False,
+                 emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                           'fearful', 'disgust', 'surprised']):
 
         assert (sequence_length * step_size) - 1 <= 94, \
             "Sequence is too long, step size too big or window size too" + \
@@ -71,8 +73,24 @@ class RAVDESSDataset(Dataset):
         sentences = [str(p) for p in list(root_dir.glob('*/*'))
                      if str(p).split('/')[-1] != '.DS_Store']
 
+        # Check if not empty
         if len(sentences) == 0:
             raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
+
+        # Filter senteces by emotions
+        self.mapping = {
+            'neutral': '01',
+            'calm': '02',
+            'happy': '03',
+            'sad': '04',
+            'angry': '05',
+            'fearful': '06',
+            'disgust': '07',
+            'surprised': '08'
+        }
+        self.emotions = [self.mapping[e] for e in emotions]
+        sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                                in self.emotions, sentences))
 
         # Random seeds
         random.seed(seed)
@@ -168,13 +186,15 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  step_size=1,
                  image_size=64,
                  num_classes=8,
-                 label_one_hot=False):
+                 label_one_hot=False,
+                 emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                           'fearful', 'disgust', 'surprised']):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
                                                normalize, mean, std,
                                                max_samples, seed,
                                                sequence_length, step_size,
                                                image_size, num_classes,
-                                               label_one_hot)
+                                               label_one_hot, emotions)
 
         self.target_root_path = target_root_path
         self.use_same_sentence = use_same_sentence
@@ -200,14 +220,23 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
         if self.use_same_sentence:
             target_sentence = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:])
         else:
+            # Use sentence from same actor
             actor = os.path.join(self.target_root_path, *input_sentence.split('/')[-2:-1])
+            # Get all sentences from actor
             all_sentences = [str(p) for p in list(pathlib.Path(actor).glob('*'))]
+            # Target sentences must have different emotion
+            inp_emotion = input_sentence.split('/')[-1].split('-')[2]
+            emotions = [e for e in self.emotions if e != inp_emotion]
+            all_sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                                        in emotions, all_sentences))
+            # Randomly select a sentence
             target_sentence = random.choice(all_sentences)
             indices = self._get_random_indices(target_sentence)
         b = self._get_sample(target_sentence, indices)
 
         # Get emotion from target sentence
         emotion = int(target_sentence.split('/')[-1].split('-')[2]) - 1
+        print(int(inp_emotion) - 1, emotion)
         if self.label_one_hot:
             emotion = self._int_to_one_hot(emotion)
 
