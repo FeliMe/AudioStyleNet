@@ -1,7 +1,6 @@
 import argparse
 import importlib
 import os
-import torch
 
 import dataloader
 

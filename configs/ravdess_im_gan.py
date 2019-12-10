@@ -22,7 +22,7 @@ RAVDESS_GRAY_STD = [0.332]
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': True,
+    'log_run': False,
     'random_seed': 999,
     'save_interval': 5,
 
@@ -32,7 +32,7 @@ config = Config({
     'data_format': 'image',
     'use_gray': False,
     'normalize': True,
-    'use_same_sentence': False,
+    'use_same_sentence': True,
     'validation_split': .1,  # stable GAN: .1
     'sequence_length': 1,
     'step_size': 1,
@@ -46,16 +46,16 @@ config = Config({
 
     # Hyper parameters
     'num_epochs': 30,
-    'lr_G': 0.0002,  # stable GAN: 0.0002
-    'lr_D': 0.0002,  # stable GAN: 0.0002
+    'lr_G': 0.0003,  # stable GAN: 0.0002
+    'lr_D': 0.0003,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
     'lambda_G_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 100.,  # stable GAN: 100.
+    'lambda_pixel': 0.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
     # Loss functions
-    'GAN_mode': 'wgan',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
+    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
     'criterion_pix': nn.L1Loss(),
     'criterion_emotion': nn.MSELoss(),
 
@@ -71,12 +71,12 @@ config = Config({
 })
 
 config.update({
-    'pair': True,  # True is better
+    'pair': False,  # Send img_a and img_b to the discriminator
 })
 
 config.update({
     # Generator
-    'g': generators.GeneratorUNet(
+    'g': generators.NoiseGenerator(
         config.use_gray,
         config.n_classes_cond,
         n_features=config.n_features_g

@@ -5,6 +5,11 @@ import torch.nn.utils.spectral_norm as spectral_norm
 
 import models.model_utils as mu
 
+"""
+Shape of real and fake images:
+(scales, batch, c, h, w)
+"""
+
 
 class SequenceDiscriminator(nn.Module):
     def __init__(self, d):
@@ -241,6 +246,10 @@ class MultiScaleDiscriminator(nn.Module):
 
     def forward(self, inputs):
         inp = inputs['img_b']
+
+        if isinstance(inp, torch.Tensor):
+            scale_factors = [(1 / 2**i) for i in range(self.depth)]
+            inp = [F.interpolate(inp, scale_factor=s) for s in reversed(scale_factors)]
 
         y = self.rgb_to_features[self.depth - 1](inp[self.depth - 1])
         y = self.layers[self.depth - 1](y)

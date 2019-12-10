@@ -419,3 +419,44 @@ class CELEBADataset(Dataset):
         """
         sample = self.__getitem__(np.random.randint(0, self.__len__() - 1))
         self.show_fn(sample, self.mean, self.std, self.normalize)
+
+
+class SimpleDataset(Dataset):
+    def __init__(self,
+                 root_path,
+                 normalize=True,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 img_size=64,
+                 seed=999):
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+
+        root_dir = pathlib.Path(root_path)
+
+        # Get paths to all sentences
+        self.files = [str(p) for p in list(root_dir.glob('*'))
+                      if str(p).split('/')[-1] != '.DS_Store']
+
+        # Random seeds
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        trans = [
+            transforms.Resize(img_size),
+            transforms.CenterCrop(img_size),
+            transforms.ToTensor()
+        ]
+        if self.normalize:
+            trans.append(transforms.Normalize(self.mean, self.std))
+
+        self.trans = transforms.Compose(trans)
+        self.load_fn = load_image
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, item):
+        return self.load_fn(self.files[item], self.trans)

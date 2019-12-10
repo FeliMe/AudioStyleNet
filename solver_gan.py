@@ -277,17 +277,29 @@ class GANSolver(object):
         self.loss_D_real = self.criterionGAN(pred_real, True, for_discriminator=True)
 
         # All fake batch
-        # if type(self.fake_B) is list:
-        #     self.fake_B = list(map(lambda a: list(map(lambda b: b.detach(), a)), self.fake_B))
-        # else:
-        #     self.fake_B = self.fake_B.detach()
-        pred_fake = self.discriminator(
-            {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
+        if type(self.fake_B) is list:
+            pred_fake = self.discriminator(
+                {
+                    'img_a': self.real_A,
+                    'img_b': list(map(lambda a: list(map(lambda b: b.detach(), a)), self.fake_B)),
+                    'cond': self.cond
+                })
+        else:
+            pred_fake = self.discriminator(
+                {
+                    'img_a': self.real_A,
+                    'img_b': self.fake_B.detach(),
+                    'cond': self.cond
+                })
+        # pred_fake = self.discriminator(
+        #     {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
         self.loss_D_fake = self.criterionGAN(pred_fake, False, for_discriminator=True)
 
         # Combine losses
-        self.loss_D_total = self.loss_D_real + self.loss_D_fake
-        self.loss_D_total = self.loss_D_real - self.loss_D_fake
+        if self.config.GAN_mode == 'wgan':
+            self.loss_D_total = self.loss_D_real - self.loss_D_fake
+        else:
+            self.loss_D_total = self.loss_D_real + self.loss_D_fake
 
         # Metrics
         self.epoch_loss_D_real += self.loss_D_real.item()
