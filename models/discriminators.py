@@ -11,35 +11,6 @@ Shape of real and fake images:
 """
 
 
-class SequenceDiscriminator(nn.Module):
-    def __init__(self, d):
-        super(SequenceDiscriminator, self).__init__()
-
-        self.d = d
-
-    def forward(self, inputs):
-        """
-        a.shape -> [b, sequence_length, c, h, w]
-        b.shape -> [b, sequence_length, c, h, w]
-        img_input.shape -> [b, 2 * sequence_length * c, h, w]
-        out.shape -> [b, sequence_length, 1]
-        """
-        img_a = inputs['img_a']
-        img_b = inputs['img_b']
-        cond = inputs['cond']
-
-        n_seq = img_a.size(1)
-
-        out = []
-        for i_seq in range(n_seq):
-            a = img_a[:, i_seq]
-            b = img_b[i_seq] if type(img_b) is list else img_b[:, i_seq]
-            out.append(self.d({'img_a': a, 'img_b': b, 'cond': cond}))
-        out = torch.stack(out, 1)
-
-        return out
-
-
 class SimpleDiscriminator(nn.Module):
     def __init__(self, gray, n_classes_cond, pair, n_features=64):
         super(SimpleDiscriminator, self).__init__()
@@ -262,3 +233,32 @@ class MultiScaleDiscriminator(nn.Module):
             y = block(y)  # apply the block
 
         return y
+
+
+# class SequenceDiscriminator(nn.Module):
+#     def __init__(self, d):
+#         super(SequenceDiscriminator, self).__init__()
+
+#         self.d = d
+
+#     def forward(self, inputs):
+#         """
+#         a.shape -> [b, sequence_length, c, h, w]
+#         b.shape -> [b, sequence_length, c, h, w]
+#         img_input.shape -> [b, 2 * sequence_length * c, h, w]
+#         out.shape -> [b, sequence_length, 1]
+#         """
+#         img_a = inputs['img_a']
+#         img_b = inputs['img_b']
+#         cond = inputs['cond']
+
+#         n_seq = img_a.size(1)
+
+#         out = []
+#         for i_seq in range(n_seq):
+#             a = img_a[:, i_seq]
+#             b = img_b[i_seq] if type(img_b) is list else img_b[:, i_seq]
+#             out.append(self.d({'img_a': a, 'img_b': b, 'cond': cond}))
+#         out = torch.stack(out, 1)
+
+#         return out

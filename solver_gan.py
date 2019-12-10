@@ -22,9 +22,6 @@ class GANSolver(object):
         random.seed(config.random_seed)
         np.random.seed(config.random_seed)
         torch.manual_seed(config.random_seed)
-        # torch.cuda.manual_seed(config.random_seed)
-
-        # torch.backends.cudnn.deterministic = True
 
         # General
         self.config = config
@@ -145,13 +142,13 @@ class GANSolver(object):
         # Denormalize one sequence
         if self.config.normalize:
             transform = utils.denormalize(self.config.mean, self.config.std)
-            real_A = torch.stack([transform(a) for a in real_A], 0).detach()
-            real_B = torch.stack([transform(a) for a in real_B], 0).detach()
-            fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+            real_A = transform(real_A).detach()
+            real_B = transform(real_B).detach()
+            fake_B = transform(fake_B).detach()
 
         # Make grid image
-        grid_image = torch.cat((real_A, fake_B, real_B), -2)
-        grid_image = make_grid(grid_image, nrow=real_A.size(0), normalize=False)
+        grid_image = torch.stack((real_A, fake_B, real_B))
+        grid_image = make_grid(grid_image, nrow=1, normalize=False)
 
         return grid_image
 
@@ -314,24 +311,34 @@ class GANSolver(object):
         """
         Compute losses for the generator
         """
+        G_losses = {}
+
         # GAN loss
         if self.config.lambda_G_GAN:
             pred_fake = self.discriminator(
                 {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
             self.loss_G_GAN = self.criterionGAN(pred_fake, True, for_discriminator=False)
+            # G_losses['G/loss/GAN'] = self.criterionGAN(
+            #     pred_fake, True, for_discriminator=False)
         else:
             self.loss_G_GAN = torch.tensor(0.)
 
         # Pixelwise loss
         if self.config.lambda_pixel:
             self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
+            # G_losses['G/loss/pixel'] = self.criterionPix(
+            #     self.fake_B, self.real_B)
         else:
             self.loss_G_pixel = torch.tensor(0.)
 
         # Emotion loss
         if self.config.lambda_emotion:
-            embedding_fake = self.classifier(self.fake_B)
-            embedding_real = self.classifier(self.real_B)
+            if self.fake_B.dim() == 4:
+                embedding_fake = self.classifier(self.fake_B.unsqueeze(1))
+                embedding_real = self.classifier(self.real_B.unsqueeze(1))
+            else:
+                embedding_fake = self.classifier(self.fake_B)
+                embedding_real = self.classifier(self.real_B)
             self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
         else:
             self.loss_G_emotion = torch.tensor(0.)
@@ -428,14 +435,14 @@ class GANSolver(object):
             if type(fake_B) is list:
                 fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
 
-        real_B = self.real_B[:, 0]
-        fake_B = fake_B[:, 0]
+        # real_B = self.real_B[:, 0]
+        # fake_B = fake_B[:, 0]
 
         # Denormalize
         if self.config.normalize:
             transform = utils.denormalize(self.config.mean, self.config.std)
-            real_B = torch.stack([transform(a) for a in real_B], 0).detach()
-            fake_B = torch.stack([transform(a) for a in fake_B], 0).detach()
+            real_B = torch.stack([transform(b) for b in self.real_B.detach()])
+            fake_B = torch.stack([transform(b) for b in fake_B.detach()])
 
         real_img = make_grid(real_B, padding=5, normalize=False)
         fake_img = make_grid(fake_B, padding=5, normalize=False)

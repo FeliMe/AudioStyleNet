@@ -49,17 +49,11 @@ class RAVDESSDataset(Dataset):
                  std=[1., 1., 1.],
                  max_samples=None,
                  seed=123,
-                 sequence_length=1,
-                 step_size=1,
                  image_size=64,
                  num_classes=8,
                  label_one_hot=False,
                  emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
                            'fearful', 'disgust', 'surprised']):
-
-        assert (sequence_length * step_size) - 1 <= 94, \
-            "Sequence is too long, step size too big or window size too" + \
-            " big. Shortest sentence in RAVDESS is only 94 frames long."
 
         self.normalize = normalize
         self.mean = mean
@@ -112,34 +106,28 @@ class RAVDESSDataset(Dataset):
         self.transforms = transforms.Compose(trans)
 
         self.sentences = sentences
-        self.sequence_length = sequence_length
-        self.step_size = step_size
 
         if data_format == 'image':
-            self.load_fn = load_images
+            self.load_fn = load_image
             self.show_fn = show_images
         elif data_format == 'landmarks':
-            self.load_fn = load_landmarks
+            self.load_fn = load_landmark
             self.show_fn = show_landmarks
         else:
             raise (RuntimeError('Unknown format {}'.format(data_format)))
 
-    def _get_sample(self, sentence, indices):
+    def _get_sample(self, sentence, idx):
         # Get paths to load
-        paths = [os.path.join(sentence, str(idx).zfill(3))
-                 for idx in indices]
-        x = self.load_fn(paths, self.transforms)
+        path = os.path.join(sentence, str(idx).zfill(3) + '.jpg')
+        x = self.load_fn(path, self.transforms)
 
         return x
 
-    def _get_random_indices(self, sentence):
+    def _get_random_idx(self, sentence):
         len_sentence = len(list(pathlib.Path(sentence).glob('*')))
-        rand_idx = torch.randint(1, len_sentence - self.sequence_length, (1,)).item()
-        indices = list(range(rand_idx,
-                             rand_idx + (self.sequence_length * self.step_size),
-                             self.step_size))
+        rand_idx = torch.randint(1, len_sentence + 1, (1,)).item()
 
-        return indices
+        return rand_idx
 
     def _int_to_one_hot(self, label):
         one_hot = torch.zeros(self.num_classes)
@@ -161,7 +149,7 @@ class RAVDESSDataset(Dataset):
         sentence = self.sentences[item]
 
         # Get sample
-        x = self._get_sample(sentence, self._get_random_indices(sentence))
+        x = self._get_sample(sentence, self._get_random_idx(sentence))
 
         # Get emotion
         emotion = int(sentence.split('/')[-1].split('-')[2]) - 1
@@ -181,9 +169,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  mean=[0., 0., 0.],
                  std=[1., 1., 1.],
                  max_samples=None,
-                 seed=123,
-                 sequence_length=1,
-                 step_size=1,
+                 seed=999,
                  image_size=64,
                  num_classes=8,
                  label_one_hot=False,
@@ -192,7 +178,6 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
                                                normalize, mean, std,
                                                max_samples, seed,
-                                               sequence_length, step_size,
                                                image_size, num_classes,
                                                label_one_hot, emotions)
 
@@ -213,7 +198,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
 
         # Input sentence
         input_sentence = self.sentences[item]
-        indices = self._get_random_indices(input_sentence)
+        indices = self._get_random_idx(input_sentence)
         a = self._get_sample(input_sentence, indices)
 
         # Target sentence
@@ -231,7 +216,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                                         in emotions, all_sentences))
             # Randomly select a sentence
             target_sentence = random.choice(all_sentences)
-            indices = self._get_random_indices(target_sentence)
+            indices = self._get_random_idx(target_sentence)
         b = self._get_sample(target_sentence, indices)
 
         # Get emotion from target sentence
@@ -252,7 +237,7 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
 def load_images(paths, transform):
     x = []
     for path in paths:
-        x.append(load_image(path + '.jpg', transform))
+        x.append(load_image(path, transform))
     return torch.stack(x, dim=0)
 
 
@@ -306,11 +291,13 @@ def show_pix2pix(sample, mean, std, normalize):
     # Denormalize
     if normalize:
         transform = utils.denormalize(mean, std)
-        img_a = torch.stack([transform(a) for a in img_a], 0)
-        img_b = torch.stack([transform(b) for b in img_b], 0)
+        img_a = transform(img_a)
+        img_b = transform(img_b)
+        # img_a = torch.stack([transform(a) for a in img_a], 0)
+        # img_b = torch.stack([transform(b) for b in img_b], 0)
 
     # Make image grid
-    imgs = torch.cat([img_a, img_b])
+    imgs = torch.stack([img_a, img_b])
     imgs = make_grid(imgs, nrow=img_a.size(0), normalize=True)
 
     # Plot image

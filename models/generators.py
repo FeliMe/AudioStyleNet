@@ -5,30 +5,6 @@ import torch.nn.functional as F
 import models.model_utils as mu
 
 
-class SequenceGenerator(nn.Module):
-    def __init__(self, g):
-        super(SequenceGenerator, self).__init__()
-
-        self.g = g
-
-    def forward(self, x, cond):
-        """
-        x.shape -> [b, sequence_length, c, h, w]
-        cond.shape -> [b, 1]
-
-        args:
-            x (torch.tensor): input sequence
-            cond(torch.tensor): conditioning label
-        """
-        y = []
-        for idx in range(x.size(1)):
-            y.append(self.g(x[:, idx], cond))
-
-        if not type(y[0]) is list:
-            y = torch.stack(y, dim=1)
-        return y
-
-
 class NoiseGenerator(nn.Module):
     """
     Source: https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
@@ -75,13 +51,13 @@ class NoiseGenerator(nn.Module):
         return self.main(noise)
 
 
-class GeneratorUNet(nn.Module):
+class UNetGenerator(nn.Module):
     """
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
     Pix2Pix U-Net generator
     """
     def __init__(self, gray, num_conditioning_classes, n_features=64):
-        super(GeneratorUNet, self).__init__()
+        super(UNetGenerator, self).__init__()
 
         nc = 1 if gray else 3
         latent_channels = n_features * 2
@@ -147,43 +123,6 @@ class GeneratorUNet(nn.Module):
         u5 = self.up5(u4, d1)
 
         return self.final(u5)
-
-
-class GeneratorAE(nn.Module):
-    def __init__(self, gray, num_conditioning_classes, n_features=64):
-        super(GeneratorAE, self).__init__()
-
-        nc = 1 if gray else 3
-        n_latent = n_features * 2
-
-        self.enc = nn.Sequential(
-            mu.UNetDown(nc, n_features, normalize=False),
-            mu.UNetDown(n_features, n_features * 2),
-            mu.UNetDown(n_features * 2, n_features * 4),
-            mu.UNetDown(n_features * 4, n_features * 4, dropout=0.5),
-            mu.UNetDown(n_features * 4, n_features * 4, dropout=0.5),
-            mu.UNetDown(n_features * 4, n_latent, normalize=False, dropout=0.5)
-        )
-
-        self.dec = nn.Sequential(
-            nn.ConvTranspose2d(n_latent, n_features * 8, 4, 1, 0, bias=False),
-            nn.InstanceNorm2d(n_features * 8),
-            nn.ReLU(True),
-            # state size. (n_features*8) x 4 x 4
-            mu.Up(n_features * 8, n_features * 4),
-            # state size. (n_features*4) x 8 x 8
-            mu.Up(n_features * 4, n_features * 2),
-            # state size. (n_features*2) x 16 x 16
-            mu.Up(n_features * 2, n_features),
-            # state size. (n_features) x 32 x 32
-            nn.ConvTranspose2d(n_features, nc, 4, 2, 1, bias=False),
-            nn.Tanh()
-        )
-
-    def forward(self, x, cond):
-        z = self.enc(x)
-        y = self.dec(z)
-        return y
 
 
 class SPADEGenerator(nn.Module):
@@ -279,3 +218,27 @@ class MultiScaleGenerator(nn.Module):
             outputs.append(torch.tanh(converter(y)))
 
         return outputs
+
+
+# class SequenceGenerator(nn.Module):
+#     def __init__(self, g):
+#         super(SequenceGenerator, self).__init__()
+
+#         self.g = g
+
+#     def forward(self, x, cond):
+#         """
+#         x.shape -> [b, sequence_length, c, h, w]
+#         cond.shape -> [b, 1]
+
+#         args:
+#             x (torch.tensor): input sequence
+#             cond(torch.tensor): conditioning label
+#         """
+#         y = []
+#         for idx in range(x.size(1)):
+#             y.append(self.g(x[:, idx], cond))
+
+#         if not type(y[0]) is list:
+#             y = torch.stack(y, dim=1)
+#         return y

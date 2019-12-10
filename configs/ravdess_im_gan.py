@@ -50,7 +50,7 @@ config = Config({
     'lr_D': 0.0003,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
     'lambda_G_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 0.,  # stable GAN: 100.
+    'lambda_pixel': 100.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
@@ -71,19 +71,19 @@ config = Config({
 })
 
 config.update({
-    'pair': False,  # Send img_a and img_b to the discriminator
+    'pair': True,  # Send img_a and img_b to the discriminator
 })
 
 config.update({
     # Generator
-    'g': generators.NoiseGenerator(
+    'generator': generators.UNetGenerator(
         config.use_gray,
         config.n_classes_cond,
         n_features=config.n_features_g
     ),
 
     # Discriminator
-    'd': discriminators.SimpleDiscriminator(
+    'discriminator': discriminators.SimpleDiscriminator(
         config.use_gray,
         config.n_classes_cond,
         n_features=config.n_features_g,
@@ -95,13 +95,6 @@ config.update({
     'classifier_path': 'saves/classifier_seq{}.pt'.format(
         config.sequence_length
     ),
-})
-
-config.update({
-    # Sequence generator
-    'generator': generators.SequenceGenerator(config.g),
-    # Sequence discriminator
-    'discriminator': discriminators.SequenceDiscriminator(config.d),
 })
 
 config.update({

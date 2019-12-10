@@ -45,8 +45,6 @@ ds = dataloader.RAVDESSDSPix2Pix(root_path=config.data_path,
                                  std=config.std,
                                  max_samples=None,
                                  seed=config.random_seed,
-                                 sequence_length=config.sequence_length,
-                                 step_size=config.step_size,
                                  image_size=config.image_size,
                                  label_one_hot=True,
                                  emotions=config.emotions)
