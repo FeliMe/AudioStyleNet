@@ -1,6 +1,5 @@
 import os
 import torch
-import torch.nn as nn
 
 from models import models, generators, discriminators
 from utils import Config
@@ -22,7 +21,7 @@ RAVDESS_GRAY_STD = [0.332]
 config = Config({
     # General configs
     'use_cuda': True,
-    'log_run': False,
+    'log_run': True,
     'random_seed': 999,
     'save_interval': 5,
 
@@ -49,15 +48,13 @@ config = Config({
     'lr_G': 0.0003,  # stable GAN: 0.0002
     'lr_D': 0.0003,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
-    'lambda_G_GAN': 1.,  # stable GAN: 1.
+    'lambda_GAN': 1.,  # stable GAN: 1.
     'lambda_pixel': 100.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
-    # Loss functions
+    # GAN loss function
     'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
-    'criterion_pix': nn.L1Loss(),
-    'criterion_emotion': nn.MSELoss(),
 
     # GAN hacks
     'noisy_labels': True,  # Use noisy labels for discriminator

@@ -33,27 +33,7 @@ class GANSolver(object):
         print("Training on {}".format(self.device))
 
         # Models
-        self.model_names = ['generator', 'discriminator', 'classifier']
-        self.generator = config.generator.to(self.device)
-        self.generator.apply(weights_init)
-
-        self.discriminator = config.discriminator.to(self.device)
-        self.discriminator.apply(weights_init)
-
-        self.classifier = config.classifier.train().to(self.device)
-        self.classifier.load_state_dict(torch.load(config.classifier_path, map_location=self.device))
-        for param in self.classifier.parameters():
-            param.requires_grad = False
-
-        # Print model info
-        for name in self.model_names:
-            if isinstance(name, str):
-                model = getattr(self, name)
-                print("{}: # params {} (trainable {})".format(
-                    name,
-                    utils.count_params(model),
-                    utils.count_trainable_params(model)
-                ))
+        self.init_models()
 
         # Optimizers
         self.optimizer_G = self.config.optimizer_G
@@ -65,8 +45,8 @@ class GANSolver(object):
                                           noisy_labels=config.noisy_labels,
                                           label_range_real=config.label_range_real,
                                           label_range_fake=config.label_range_fake)
-        self.criterionPix = config.criterion_pix
-        self.criterionEmotion = config.criterion_emotion
+        self.criterionPix = torch.nn.L1Loss()
+        self.criterionEmotion = torch.nn.MSELoss()
         self.criterionVGG = utils.VGGLoss(self.device)
 
         # Set directories
@@ -84,33 +64,41 @@ class GANSolver(object):
             self.writer = None
 
         # Init variables
-        self.loss_G_GAN = torch.tensor(0.)
-        self.loss_G_pixel = torch.tensor(0.)
-        self.loss_G_emotion = torch.tensor(0.)
-        self.loss_G_VGG = torch.tensor(0.)
-        self.loss_G_total = torch.tensor(0.)
-        self.loss_D_real = torch.tensor(0.)
-        self.loss_D_fake = torch.tensor(0.)
-        self.loss_D_total = torch.tensor(0.)
+        self.G_losses = {}
+        self.epoch_G_losses = {}
+        self.D_losses = {}
+        self.epoch_D_losses = {}
 
-        self.epoch_loss_G_GAN = torch.tensor(0.)
-        self.epoch_loss_G_pixel = torch.tensor(0.)
-        self.epoch_loss_G_emotion = torch.tensor(0.)
-        self.epoch_loss_G_VGG = torch.tensor(0.)
-        self.epoch_loss_G_total = torch.tensor(0.)
-        self.epoch_loss_D_real = torch.tensor(0.)
-        self.epoch_loss_D_fake = torch.tensor(0.)
-        self.epoch_loss_D_total = torch.tensor(0.)
+    def init_models(self):
+        self.model_names = []
 
-        self.epoch_metric_names = [
-            'epoch_loss_D_total',
-            'epoch_loss_D_fake',
-            'epoch_loss_D_real',
-            'epoch_loss_G_emotion',
-            'epoch_loss_G_pixel',
-            'epoch_loss_G_VGG',
-            'epoch_loss_G_GAN',
-        ]
+        # Init generator
+        self.generator = self.config.generator.to(self.device)
+        self.generator.apply(weights_init)
+        self.model_names.append('generator')
+
+        # Init discriminator
+        self.discriminator = self.config.discriminator.to(self.device)
+        self.discriminator.apply(weights_init)
+        self.model_names.append('discriminator')
+
+        if self.config.lambda_emotion:
+            self.classifier = self.config.classifier.train().to(self.device)
+            self.classifier.load_state_dict(torch.load(
+                self.config.classifier_path, map_location=self.device))
+            for param in self.classifier.parameters():
+                param.requires_grad = False
+            self.model_names.append('classifier')
+
+        # Print model info
+        for name in self.model_names:
+            if isinstance(name, str):
+                model = getattr(self, name)
+                print("{}: # params {} (trainable {})".format(
+                    name,
+                    utils.count_params(model),
+                    utils.count_trainable_params(model)
+                ))
 
     def save(self):
         """
@@ -194,15 +182,16 @@ class GANSolver(object):
         return img_sample
 
     def _zero_running_metrics(self):
-        for name in self.epoch_metric_names:
-            if isinstance(name, str):
-                setattr(self, name, torch.tensor(0.))
+        for key, item in self.epoch_G_losses.items():
+            self.epoch_G_losses[key] = torch.tensor(0.)
+        for key, item in self.epoch_D_losses.items():
+            self.epoch_D_losses[key] = torch.tensor(0.)
 
     def _mean_running_metrics(self, len_loader):
-        for name in self.epoch_metric_names:
-            if isinstance(name, str):
-                metric = getattr(self, name)
-                setattr(self, name, metric / len_loader)
+        for key, item in self.epoch_G_losses.items():
+            self.epoch_G_losses[key] = item / len_loader
+        for key, item in self.epoch_D_losses.items():
+            self.epoch_D_losses[key] = item / len_loader
 
     def _map_labels(self, label):
 
@@ -218,20 +207,27 @@ class GANSolver(object):
         """
         Log metrics to tensorboard
         """
-        self.writer.add_scalar('G/loss/GAN', self.loss_G_GAN, self.global_step)
-        self.writer.add_scalar('G/loss/pixel', self.loss_G_pixel, self.global_step)
-        self.writer.add_scalar('G/loss/emotion', self.loss_G_emotion, self.global_step)
-        self.writer.add_scalar('D/loss/real', self.loss_D_real, self.global_step)
-        self.writer.add_scalar('D/loss/fake', self.loss_D_fake, self.global_step)
-        self.writer.add_scalar('D/loss/total', self.loss_D_total, self.global_step)
+        for key, item in self.G_losses.items():
+            self.writer.add_scalar(key, item, self.global_step)
+        for key, item in self.D_losses.items():
+            self.writer.add_scalar(key, item, self.global_step)
 
     def log_console(self, i_epoch):
-        print("G loss GAN: {:.3f}\tG loss Pix: {:.3f}\tG loss Emo: {:.3f}".format(
-            self.epoch_loss_G_GAN, self.epoch_loss_G_pixel, self.epoch_loss_G_emotion
-        ))
-        print("D loss total: {:.3f}\tD loss real: {:.3f}\tD loss fake: {:.3f}".format(
-            self.epoch_loss_D_total, self.epoch_loss_D_real, self.epoch_loss_D_fake
-        ))
+        # Print generator losses
+        exclude_list_g = ['G/loss/total']
+        g_str = ""
+        for key, item in self.G_losses.items():
+            if key not in exclude_list_g:
+                g_str += "{}: {:.3f}\t".format(key, item)
+        print(g_str[:-1])
+
+        # Print discriminator losses
+        d_str = ""
+        for key, item in self.D_losses.items():
+            d_str += "{}: {:.3f}\t".format(key, item)
+        print(d_str[:-1])
+
+        # Print time update
         print('Time elapsed {} | Time left: {}\n'.format(
             utils.time_to_str(time.time() - self.t_start),
             utils.time_left(self.t_start, self.config.num_epochs, i_epoch)
@@ -262,6 +258,7 @@ class GANSolver(object):
         """
         Compute losses for the discriminator
         """
+        self.D_losses['D/loss/total'] = 0.
 
         if self.config.GAN_mode == 'wgan':
             # clamp parameters to a cube
@@ -271,7 +268,8 @@ class GANSolver(object):
         # All real batch
         pred_real = self.discriminator(
             {'img_a': self.real_A, 'img_b': self.real_B, 'cond': self.cond})
-        self.loss_D_real = self.criterionGAN(pred_real, True, for_discriminator=True)
+        self.D_losses['D/loss/real'] = self.criterionGAN(
+            pred_real, True, for_discriminator=True)
 
         # All fake batch
         if type(self.fake_B) is list:
@@ -290,46 +288,51 @@ class GANSolver(object):
                 })
         # pred_fake = self.discriminator(
         #     {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
-        self.loss_D_fake = self.criterionGAN(pred_fake, False, for_discriminator=True)
+        self.D_losses['D/loss/fake'] = self.criterionGAN(
+            pred_fake, False, for_discriminator=True)
 
         # Combine losses
         if self.config.GAN_mode == 'wgan':
-            self.loss_D_total = self.loss_D_real - self.loss_D_fake
+            self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] - \
+                self.D_losses['D/loss/fake']
         else:
-            self.loss_D_total = self.loss_D_real + self.loss_D_fake
+            self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] + \
+                self.D_losses['D/loss/fake']
 
         # Metrics
-        self.epoch_loss_D_real += self.loss_D_real.item()
-        self.epoch_loss_D_fake += self.loss_D_fake.item()
-        self.epoch_loss_D_total += self.loss_D_total.item()
+        for key in self.D_losses.keys():
+            if key in self.epoch_D_losses.keys():
+                self.epoch_D_losses[key] += self.D_losses[key].item()
+            else:
+                self.epoch_D_losses[key] = self.D_losses[key].item()
 
         # Backward
-        self.loss_D_real.backward()
-        self.loss_D_fake.backward()
+        self.D_losses['D/loss/real'].backward()
+        self.D_losses['D/loss/fake'].backward()
+        # self.loss_D_real.backward()
+        # self.loss_D_fake.backward()
 
     def backward_G(self):
         """
         Compute losses for the generator
         """
-        G_losses = {}
+        self.G_losses['G/loss/total'] = 0.
 
         # GAN loss
-        if self.config.lambda_G_GAN:
+        if self.config.lambda_GAN:
             pred_fake = self.discriminator(
                 {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
-            self.loss_G_GAN = self.criterionGAN(pred_fake, True, for_discriminator=False)
-            # G_losses['G/loss/GAN'] = self.criterionGAN(
-            #     pred_fake, True, for_discriminator=False)
-        else:
-            self.loss_G_GAN = torch.tensor(0.)
+            self.G_losses['G/loss/GAN'] = self.criterionGAN(
+                pred_fake, True, for_discriminator=False)
+            self.G_losses['G/loss/total'] += self.G_losses['G/loss/GAN'] * \
+                self.config.lambda_GAN
 
         # Pixelwise loss
         if self.config.lambda_pixel:
-            self.loss_G_pixel = self.criterionPix(self.fake_B, self.real_B)
-            # G_losses['G/loss/pixel'] = self.criterionPix(
-            #     self.fake_B, self.real_B)
-        else:
-            self.loss_G_pixel = torch.tensor(0.)
+            self.G_losses['G/loss/pixel'] = self.criterionPix(
+                self.fake_B, self.real_B)
+            self.G_losses['G/loss/total'] += self.G_losses['G/loss/pixel'] * \
+                self.config.lambda_pixel
 
         # Emotion loss
         if self.config.lambda_emotion:
@@ -339,31 +342,34 @@ class GANSolver(object):
             else:
                 embedding_fake = self.classifier(self.fake_B)
                 embedding_real = self.classifier(self.real_B)
-            self.loss_G_emotion = self.criterionEmotion(embedding_fake, embedding_real)
-        else:
-            self.loss_G_emotion = torch.tensor(0.)
+            self.G_losses['G/loss/emotion'] = self.criterionEmotion(
+                embedding_fake, embedding_real)
+            self.G_losses['G/loss/total'] += self.G_losses['G/loss/emotion'] * \
+                self.config.lambda_emotion
 
         # VGG loss
         if self.config.lambda_vgg:
-            self.loss_G_VGG = self.criterionVGG(self.fake_B, self.real_B)
-        else:
-            self.loss_G_VGG = torch.tensor(0.)
-
-        # Combine losses
-        self.loss_G_total = self.loss_G_GAN * self.config.lambda_G_GAN \
-            + self.loss_G_pixel * self.config.lambda_pixel \
-            + self.loss_G_VGG * self.config.lambda_vgg \
-            + self.loss_G_emotion * self.config.lambda_emotion
+            self.G_losses['G/loss/VGG'] = self.criterionVGG(
+                self.fake_B, self.real_B)
+            self.G_losses['G/loss/total'] += self.G_losses['G/loss/VGG'] * \
+                self.config.lambda_vgg
 
         # Metrics
-        self.epoch_loss_G_GAN += self.loss_G_GAN.item()
-        self.epoch_loss_G_total += self.loss_G_total.item()
-        self.epoch_loss_G_pixel += self.loss_G_pixel.item()
-        self.epoch_loss_G_VGG += self.loss_G_VGG.item()
-        self.epoch_loss_G_emotion += self.loss_G_emotion.item()
+        for key in self.G_losses.keys():
+            if key in self.epoch_G_losses.keys():
+                self.epoch_G_losses[key] += self.G_losses[key].item()
+            else:
+                self.epoch_G_losses[key] = self.G_losses[key].item()
+
+        # self.epoch_loss_G_GAN += self.loss_G_GAN.item()
+        # self.epoch_loss_G_total += self.loss_G_total.item()
+        # self.epoch_loss_G_pixel += self.loss_G_pixel.item()
+        # self.epoch_loss_G_VGG += self.loss_G_VGG.item()
+        # self.epoch_loss_G_emotion += self.loss_G_emotion.item()
 
         # Backward
-        self.loss_G_total.backward()
+        # self.loss_G_total.backward()
+        self.G_losses['G/loss/total'].backward()
 
     def train_model(self, data_loaders, plot_grads=False):
 
