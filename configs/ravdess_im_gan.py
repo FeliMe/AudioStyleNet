@@ -38,6 +38,7 @@ config = Config({
     'image_size': 64,  # stable GAN: 64
     'emotions': ['neutral', 'calm', 'happy', 'sad', 'angry',
                  'fearful', 'disgust', 'surprised'],  # ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+    'actors': [i + 1 for i in range(2)],  # List of actors included
 
     # Model parameters
     'n_features_g': 64,  # stable GAN: 64
@@ -45,8 +46,8 @@ config = Config({
 
     # Hyper parameters
     'num_epochs': 30,
-    'lr_G': 0.0003,  # stable GAN: 0.0002
-    'lr_D': 0.0003,  # stable GAN: 0.0002
+    'lr_G': 0.0002,  # stable GAN: 0.0002
+    'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
     'lambda_GAN': 1.,  # stable GAN: 1.
     'lambda_pixel': 100.,  # stable GAN: 100.
@@ -54,7 +55,7 @@ config = Config({
     'lambda_emotion': 0.,  # stable GAN: 0.
 
     # GAN loss function
-    'GAN_mode': 'vanilla',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
+    'GAN_mode': 'wgan',  # 'vanilla' | 'lsgan' | 'wgan'  stable GAN: vanilla
 
     # GAN hacks
     'noisy_labels': True,  # Use noisy labels for discriminator

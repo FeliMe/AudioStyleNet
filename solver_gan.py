@@ -150,7 +150,7 @@ class GANSolver(object):
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
             if type(fake_B) is list:
-                fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
+                fake_B = fake_B[-1]
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
         train_label = self._map_labels(self.cond[0])
 
@@ -160,7 +160,7 @@ class GANSolver(object):
         with torch.no_grad():
             fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
             if type(fake_B) is list:
-                fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
+                fake_B = fake_B[-1]
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
         val_label = self._map_labels(self.cond[0])
 
@@ -276,7 +276,7 @@ class GANSolver(object):
             pred_fake = self.discriminator(
                 {
                     'img_a': self.real_A,
-                    'img_b': list(map(lambda a: list(map(lambda b: b.detach(), a)), self.fake_B)),
+                    'img_b': list(map(lambda b: b.detach(), self.fake_B)),
                     'cond': self.cond
                 })
         else:
@@ -309,8 +309,6 @@ class GANSolver(object):
         # Backward
         self.D_losses['D/loss/real'].backward()
         self.D_losses['D/loss/fake'].backward()
-        # self.loss_D_real.backward()
-        # self.loss_D_fake.backward()
 
     def backward_G(self):
         """
@@ -361,14 +359,7 @@ class GANSolver(object):
             else:
                 self.epoch_G_losses[key] = self.G_losses[key].item()
 
-        # self.epoch_loss_G_GAN += self.loss_G_GAN.item()
-        # self.epoch_loss_G_total += self.loss_G_total.item()
-        # self.epoch_loss_G_pixel += self.loss_G_pixel.item()
-        # self.epoch_loss_G_VGG += self.loss_G_VGG.item()
-        # self.epoch_loss_G_emotion += self.loss_G_emotion.item()
-
         # Backward
-        # self.loss_G_total.backward()
         self.G_losses['G/loss/total'].backward()
 
     def train_model(self, data_loaders, plot_grads=False):

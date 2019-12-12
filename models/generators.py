@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 import models.model_utils as mu
+import models.style_gan_utils as sgu
 
 
 class NoiseGenerator(nn.Module):
@@ -218,6 +219,46 @@ class MultiScaleGenerator(nn.Module):
             outputs.append(torch.tanh(converter(y)))
 
         return outputs
+
+
+class StyeGanGenerator(nn.Module):
+    def __init__(self, gray, n_classes_cond, n_features=256, n_latent=256):
+        super().__init__()
+
+        nc = 1 if gray else 3
+        self.n_latent = n_latent
+
+        self.transform_latent = sgu.G_mapping(n_latent, 4)
+
+        self.const_in = nn.Parameter(torch.ones(1, n_features, 4, 4))
+        self.inp_layer = sgu.StyleGanInputLayer(n_features, n_latent)
+
+        # size: (n_features, 4, 4)
+        self.block1 = sgu.StyleGanBlock(n_features, n_features, n_latent)
+        # size: (n_features, 8, 8)
+        self.block2 = sgu.StyleGanBlock(n_features, n_features, n_latent)
+        # size: (n_features, 16, 16)
+        self.block3 = sgu.StyleGanBlock(n_features, n_features // 2, n_latent)
+        # size: (n_features, 32, 32)
+        self.block4 = sgu.StyleGanBlock(n_features // 2, n_features // 4, n_latent)
+        # size: (n_features, 64, 64)
+        self.to_rgb = nn.Conv2d(n_features // 4, nc, 3, padding=1)
+
+    def forward(self, x, cond):
+        # Transform latent noise vector
+        latent = torch.randn(x.size(0), self.n_latent, device=x.device)
+        latent = self.transform_latent(latent)
+
+        # Synthesize image
+        y = self.inp_layer(self.const_in, latent)
+        y = self.block1(y, latent)
+        y = self.block2(y, latent)
+        y = self.block3(y, latent)
+        y = self.block4(y, latent)
+        y = self.to_rgb(y)
+        y = torch.tanh(y)
+
+        return y
 
 
 # class SequenceGenerator(nn.Module):

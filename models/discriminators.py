@@ -32,15 +32,15 @@ class SimpleDiscriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (n_features) x 32 x 32
             nn.Conv2d(n_features, n_features * 2, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(n_features * 2),
+            nn.InstanceNorm2d(n_features * 2),
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (n_features*2) x 16 x 16
             nn.Conv2d(n_features * 2, n_features * 4, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(n_features * 4),
+            nn.InstanceNorm2d(n_features * 4),
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (n_features*4) x 8 x 8
             nn.Conv2d(n_features * 4, n_features * 8, 4, 2, 1, bias=False),
-            nn.BatchNorm2d(n_features * 8),
+            nn.InstanceNorm2d(n_features * 8),
             nn.LeakyReLU(0.2, inplace=True),
             # state size. (n_features*8) x 4 x 4
             nn.Conv2d(n_features * 8, 1, 4, 1, 0, bias=False),
@@ -180,8 +180,6 @@ class MultiScaleDiscriminator(nn.Module):
     def __init__(self, gray, n_classes_cond, pair, n_features=128, depth=6):
         super().__init__()
 
-        self.n_classes_cond = n_classes_cond
-        self.pair = pair
         self.depth = depth
         self.n_features = n_features
 
@@ -189,6 +187,11 @@ class MultiScaleDiscriminator(nn.Module):
 
         def from_rgb(out_channels):
             return nn.Conv2d(nc, out_channels, (1, 1), bias=False)
+
+        def d_block(in_channels, out_channels):
+            nn.Conv2d(in_channels, out_channels, 4, 2, 1, bias=False),
+            nn.InstanceNorm2d(out_channels),
+            nn.LeakyReLU(0.2, inplace=True),
 
         self.rgb_to_features = nn.ModuleList([from_rgb(self.n_features // 2)])
         self.layers = nn.ModuleList(

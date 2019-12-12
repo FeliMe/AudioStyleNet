@@ -49,6 +49,8 @@ ds = dataloader.RAVDESSDSPix2Pix(root_path=config.data_path,
                                  label_one_hot=True,
                                  emotions=config.emotions)
 
+1 / 0
+
 print("Found {} samples in total".format(len(ds)))
 
 data_loaders, dataset_sizes = dataloader.get_data_loaders(

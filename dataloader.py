@@ -53,7 +53,8 @@ class RAVDESSDataset(Dataset):
                  num_classes=8,
                  label_one_hot=False,
                  emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
-                           'fearful', 'disgust', 'surprised']):
+                           'fearful', 'disgust', 'surprised'],
+                 actors=[i + 1 for i in range(24)]):
 
         self.normalize = normalize
         self.mean = mean
@@ -71,6 +72,11 @@ class RAVDESSDataset(Dataset):
         if len(sentences) == 0:
             raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
 
+        # Filter included actors
+        sentences = list(
+            filter(lambda s: int(s.split('/')[-2].split('_')[-1]) in actors, sentences))
+        print("Actors included in data: {}".format(actors))
+
         # Filter senteces by emotions
         self.mapping = {
             'neutral': '01',
@@ -85,6 +91,8 @@ class RAVDESSDataset(Dataset):
         self.emotions = [self.mapping[e] for e in emotions]
         sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
                                 in self.emotions, sentences))
+        print("Emotions included in data: {}".format(
+            [list(self.mapping.keys())[list(self.mapping.values()).index(e)] for e in self.emotions]))
 
         # Random seeds
         random.seed(seed)
@@ -174,12 +182,13 @@ class RAVDESSDSPix2Pix(RAVDESSDataset):
                  num_classes=8,
                  label_one_hot=False,
                  emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
-                           'fearful', 'disgust', 'surprised']):
+                           'fearful', 'disgust', 'surprised'],
+                 actors=[i + 1 for i in range(24)]):
         super(RAVDESSDSPix2Pix, self).__init__(root_path, data_format,
                                                normalize, mean, std,
                                                max_samples, seed,
                                                image_size, num_classes,
-                                               label_one_hot, emotions)
+                                               label_one_hot, emotions, actors)
 
         self.target_root_path = target_root_path
         self.use_same_sentence = use_same_sentence
