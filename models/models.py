@@ -285,3 +285,12 @@ class LandmarksLSTM(nn.Module):
         out = self.classifier(out)
         # shape: [batch, 8]
         return out
+
+
+class EmotionDatabase(nn.Module):
+    def __init__(self, len_dataset, n_latent=16):
+        super(EmotionDatabase, self).__init__()
+        self.db = nn.Parameter(torch.randn((len_dataset, n_latent)))
+
+    def forward(self, idx):
+        return self.db[idx]

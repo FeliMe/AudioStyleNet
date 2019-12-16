@@ -11,17 +11,15 @@ class NoiseGenerator(nn.Module):
     Source: https://pytorch.org/tutorials/beginner/dcgan_faces_tutorial.html
     Generator which generates image from random noise
     """
-    def __init__(self, gray, n_classes_cond, n_features=64, n_latent=128):
+    def __init__(self, config):
         super(NoiseGenerator, self).__init__()
+
+        gray = config.use_gray
+        n_features = config.n_features_g
+        n_latent = config.n_latent_noise
 
         nc = 1 if gray else 3
         self.n_latent = in_channels = n_latent
-        self.n_classes_cond = n_classes_cond
-
-        if self.n_classes_cond:
-            # in_channels = self.n_latent + self.n_classes_cond
-            in_channels = self.n_latent * 2
-            self.cond_in = nn.Linear(self.n_classes_cond, self.n_latent)
 
         self.main = nn.Sequential(
             nn.ConvTranspose2d(in_channels, n_features * 8, 4, 1, 0, bias=False),
@@ -38,16 +36,12 @@ class NoiseGenerator(nn.Module):
             nn.Tanh()
         )
 
-    def forward(self, x, cond):
+    def forward(self, inputs):
+        # Unpack inputs
+        x = inputs['x']
 
         # Generate noise
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
-
-        # Conditioning
-        if self.n_classes_cond:
-            # cond = cond.view(x.size(0), self.n_classes_cond, 1, 1)
-            cond = self.cond_in(cond).view(noise.size())
-            noise = torch.cat((cond, noise), 1)
 
         return self.main(noise)
 
@@ -57,13 +51,15 @@ class UNetGenerator(nn.Module):
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
     Pix2Pix U-Net generator
     """
-    def __init__(self, gray, num_conditioning_classes, n_features=64):
+    def __init__(self, config):
         super(UNetGenerator, self).__init__()
+
+        gray = config.use_gray
+        n_features = config.n_features_g
+        self.n_classes_cond = config.n_classes_cond
 
         nc = 1 if gray else 3
         latent_channels = n_features * 2
-
-        self.num_conditioning_classes = num_conditioning_classes
 
         # Encoder
         self.down1 = mu.UNetDown(nc, n_features, normalize=False)
@@ -75,7 +71,7 @@ class UNetGenerator(nn.Module):
 
         # Conditioning
         if self.num_conditioning_classes:
-            self.embedding = nn.Embedding(num_conditioning_classes, latent_channels)
+            self.embedding = nn.Embedding(self.n_classes_cond, latent_channels)
             latent_channels *= 2
 
         # Decoder
@@ -92,7 +88,7 @@ class UNetGenerator(nn.Module):
             nn.Tanh(),
         )
 
-    def forward(self, x, cond):
+    def forward(self, inputs):
         """
         x.shape -> [b, c, h, w]
         cond.shape -> [b, 1]
@@ -101,7 +97,9 @@ class UNetGenerator(nn.Module):
             x (torch.tensor): input sequence
             cond (torch.tensor): conditioning label
         """
-        # U-Net generator with skip connections from encoder to decoder
+        # Unpack inputs
+        x = inputs['x']
+        cond = inputs['cond']
 
         # Encoder
         d1 = self.down1(x)
@@ -112,7 +110,7 @@ class UNetGenerator(nn.Module):
         d6 = self.down6(d5)
 
         # Conditioning
-        if self.num_conditioning_classes:
+        if self.self.n_classes_cond:
             emb = self.embedding(cond).view(*d6.size())
             d6 = torch.cat((emb, d6), 1)
 
@@ -127,10 +125,14 @@ class UNetGenerator(nn.Module):
 
 
 class SPADEGenerator(nn.Module):
-    def __init__(self, gray, n_classes_cond, n_features=64):
+    def __init__(self, config):
         super().__init__()
 
-        self.h = self.w = 64 // (2**5)
+        gray = config.use_gray
+        n_features = config.n_features_g
+        self.n_classes_cond = config.n_classes_cond
+
+        self.h = self.w = 64 // (2 ** 5)
 
         in_out_ch = 1 if gray else 3
 
@@ -152,7 +154,10 @@ class SPADEGenerator(nn.Module):
 
         self.up = nn.Upsample(scale_factor=2)
 
-    def forward(self, segmap, cond):
+    def forward(self, inputs):
+        # Unpack inputs
+        segmap = inputs['x']
+
         # downsample segmap and run convolution
         x = F.interpolate(segmap, size=(self.h, self.w))
         x = self.fc(x)
@@ -178,11 +183,12 @@ class SPADEGenerator(nn.Module):
 
 
 class MultiScaleGenerator(nn.Module):
-    def __init__(self, gray, n_classes_cond, n_features=128, depth=6):
+    def __init__(self, config):
         super().__init__()
 
-        self.depth = depth
-        self.n_features = n_features
+        gray = config.use_gray
+        self.n_features = config.n_features_g
+        self.depth = 6
 
         nc = 1 if gray else 3
 
@@ -209,7 +215,9 @@ class MultiScaleGenerator(nn.Module):
             self.layers.append(layer)
             self.rgb_converters.append(rgb)
 
-    def forward(self, x, cond):
+    def forward(self, inputs):
+        # Unpack inputs
+        x = inputs['x']
 
         y = torch.randn(x.size(0), self.n_features, 1, 1, device=x.device)
 
@@ -222,8 +230,12 @@ class MultiScaleGenerator(nn.Module):
 
 
 class StyeGanGenerator(nn.Module):
-    def __init__(self, gray, n_classes_cond, n_features=256, n_latent=256):
+    def __init__(self, config):
         super().__init__()
+
+        gray = config.use_gray
+        n_features = config.n_features_g
+        n_latent = config.n_latent_noise
 
         nc = 1 if gray else 3
         self.n_latent = n_latent
@@ -244,7 +256,10 @@ class StyeGanGenerator(nn.Module):
         # size: (n_features, 64, 64)
         self.to_rgb = nn.Conv2d(n_features // 4, nc, 3, padding=1)
 
-    def forward(self, x, cond):
+    def forward(self, inputs):
+        # Unpack inputs
+        x = inputs['x']
+
         # Transform latent noise vector
         latent = torch.randn(x.size(0), self.n_latent, device=x.device)
         latent = self.transform_latent(latent)

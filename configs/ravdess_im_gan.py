@@ -1,5 +1,4 @@
 import os
-import torch
 
 from models import models, generators, discriminators
 from utils import Config
@@ -23,7 +22,7 @@ config = Config({
     'use_cuda': True,
     'log_run': True,
     'random_seed': 999,
-    'save_interval': 5,
+    'save_interval': 2,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
@@ -36,21 +35,23 @@ config = Config({
     'sequence_length': 1,
     'step_size': 1,
     'image_size': 64,  # stable GAN: 64
-    'emotions': ['neutral', 'calm', 'happy', 'sad', 'angry',
-                 'fearful', 'disgust', 'surprised'],  # ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
-    'actors': [i + 1 for i in range(2)],  # List of actors included
+    # ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
+    'emotions': ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'],
+    'actors': [i + 1 for i in range(24)],  # List of actors included (max 24)
 
     # Model parameters
     'n_features_g': 64,  # stable GAN: 64
     'n_features_d': 64,  # stable GAN: 64
+    'n_emo_vec': 16,
+    'n_latent_noise': 128,
 
     # Hyper parameters
-    'num_epochs': 30,
+    'num_epochs': 10,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
     'batch_size': 64,  # stable GAN: 64
     'lambda_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 100.,  # stable GAN: 100.
+    'lambda_pixel': 0.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
@@ -74,38 +75,19 @@ config.update({
 
 config.update({
     # Generator
-    'generator': generators.UNetGenerator(
-        config.use_gray,
-        config.n_classes_cond,
-        n_features=config.n_features_g
+    'generator': generators.NoiseGenerator(
+        config
     ),
 
     # Discriminator
     'discriminator': discriminators.SimpleDiscriminator(
-        config.use_gray,
-        config.n_classes_cond,
-        n_features=config.n_features_g,
-        pair=config.pair
+        config
     ),
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
     'classifier_path': 'saves/classifier_seq{}.pt'.format(
         config.sequence_length
-    ),
-})
-
-config.update({
-    # Optimizers
-    'optimizer_G': torch.optim.Adam(
-        config.generator.parameters(),
-        lr=config.lr_G,
-        betas=(0.5, 0.999)
-    ),
-    'optimizer_D': torch.optim.Adam(
-        config.discriminator.parameters(),
-        lr=config.lr_D,
-        betas=(0.5, 0.999)
     ),
 })
 

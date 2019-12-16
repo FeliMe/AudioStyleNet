@@ -1,5 +1,6 @@
 /saves/
 /wandb/
+/test_images/
 /.vscode/
 /__pycache__/
 \.idea/

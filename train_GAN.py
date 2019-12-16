@@ -47,9 +47,8 @@ ds = dataloader.RAVDESSDSPix2Pix(root_path=config.data_path,
                                  seed=config.random_seed,
                                  image_size=config.image_size,
                                  label_one_hot=True,
-                                 emotions=config.emotions)
-
-1 / 0
+                                 emotions=config.emotions,
+                                 actors=config.actors)
 
 print("Found {} samples in total".format(len(ds)))
 
@@ -69,7 +68,7 @@ print('Input Shape: {}'.format(sample['A'].shape))
 
 """ Initialize solver """
 
-solver = GANSolver(config)
+solver = GANSolver(config, len(ds))
 
 
 """ Do training """

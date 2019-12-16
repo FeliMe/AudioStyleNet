@@ -177,6 +177,37 @@ class Up(nn.Module):
         return self.model(x)
 
 
+class UpCondCat(nn.Module):
+    """
+    Up-convolutional block
+    """
+    def __init__(self, in_channels, out_channels, feat_size, dropout=0.0,
+                 cond_dim=16):
+        super(UpCondCat, self).__init__()
+
+        self.in_cond = nn.Linear(cond_dim, feat_size)
+
+        layers = [
+            nn.ConvTranspose2d(in_channels + 1, out_channels, 4, 2, 1, bias=False),
+            nn.InstanceNorm2d(out_channels),
+            nn.ReLU(inplace=True),
+        ]
+        if dropout:
+            layers.append(nn.Dropout(dropout))
+
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x, cond):
+        # Prepare conditioning
+        b, c, w, h = x.size()
+        cond = self.in_cond(cond)
+        cond = cond.view(b, 1, w, h)
+        x = torch.cat((x, cond), dim=1)
+
+        # Forward
+        return self.main(x)
+
+
 class Upconv(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0, bias=True):
         super(Upconv, self).__init__()
@@ -209,6 +240,8 @@ class SPADE(nn.Module):
     def forward(self, x, segmap):
         # Part 1. generate parameter-free normalized activations
         normalized = self.param_free_norm(x)
+
+        # Resize segmap
 
         # Part 2. produce scaling and bias conditioned on semantic map
         segmap = F.interpolate(segmap, size=x.size()[2:], mode='nearest')
@@ -318,6 +351,31 @@ class DiscriminatorBlock(nn.Module):
         y = self.downSampler(y)
 
         return y
+
+
+class DiscriminatorCondCat(nn.Module):
+    def __init__(self, in_channels, out_channels, feat_size,
+                 normalization=True, cond_dim=16):
+        super(DiscriminatorCondCat, self).__init__()
+
+        self.in_cond = nn.Linear(cond_dim, feat_size)
+
+        layers = [nn.Conv2d(in_channels + 1, out_channels, 4, 2, 1)]
+        if normalization:
+            layers.append(nn.InstanceNorm2d(out_channels))
+        layers.append(nn.LeakyReLU(0.2, inplace=True))
+
+        self.main = nn.Sequential(*layers)
+
+    def forward(self, x, cond):
+        # Prepare conditioning
+        b, c, w, h = x.size()
+        cond = self.in_cond(cond)
+        cond = cond.view(b, 1, w, h)
+        x = torch.cat((x, cond), dim=1)
+
+        # Forward
+        return self.main(x)
 
 
 def discriminator_block(in_filters, out_filters, normalization=True):

@@ -13,10 +13,11 @@ from torchvision.utils import make_grid, save_image
 import utils
 
 from models.model_utils import weights_init
+from models.models import EmotionDatabase
 
 
 class GANSolver(object):
-    def __init__(self, config):
+    def __init__(self, config, len_dataset):
 
         # Random seeds
         random.seed(config.random_seed)
@@ -25,6 +26,7 @@ class GANSolver(object):
 
         # General
         self.config = config
+        self.len_dataset = len_dataset
         self.device = 'cuda' if (torch.cuda.is_available() and config.use_cuda) else 'cpu'
         self.global_step = 0
         self.t_start = 0
@@ -36,8 +38,7 @@ class GANSolver(object):
         self.init_models()
 
         # Optimizers
-        self.optimizer_G = self.config.optimizer_G
-        self.optimizer_D = self.config.optimizer_D
+        self.init_optimizers()
 
         # Loss Functions
         self.criterionGAN = utils.GANLoss(config.GAN_mode, self.device,
@@ -90,6 +91,9 @@ class GANSolver(object):
                 param.requires_grad = False
             self.model_names.append('classifier')
 
+        # self.emoDB = EmotionDatabase(self.len_dataset, n_latent=16).to(self.device)
+        self.emoDB = None
+
         # Print model info
         for name in self.model_names:
             if isinstance(name, str):
@@ -99,6 +103,28 @@ class GANSolver(object):
                     utils.count_params(model),
                     utils.count_trainable_params(model)
                 ))
+
+    def init_optimizers(self):
+        if self.emoDB is not None:
+            params_G = list(self.generator.parameters()) + \
+                list(self.emoDB.parameters())
+            params_D = list(self.discriminator.parameters()) + \
+                list(self.emoDB.parameters())
+        else:
+            params_G = list(self.generator.parameters())
+            params_D = list(self.discriminator.parameters())
+
+        # Optimizers
+        self.optimizer_G = torch.optim.Adam(
+            params_G,
+            lr=self.config.lr_G,
+            betas=(0.5, 0.999)
+        )
+        self.optimizer_D = torch.optim.Adam(
+            params_D,
+            lr=self.config.lr_D,
+            betas=(0.5, 0.999)
+        )
 
     def save(self):
         """
@@ -148,17 +174,26 @@ class GANSolver(object):
         train_batch = next(iter(data_loaders['train']))
         self.set_inputs(train_batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
+            fake_B = self.generator({
+                'x': self.real_A[0].unsqueeze(0),
+                'cond': self.cond[0].unsqueeze(0),
+                'emo_vec': self.emo_vec[0].unsqueeze(0)
+            })
             if type(fake_B) is list:
                 fake_B = fake_B[-1]
         grid_image_train = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
         train_label = self._map_labels(self.cond[0])
 
         # Generate validation sample
-        val_batch = next(iter(data_loaders['val']))
+        val_batch = next(iter(data_loaders['train']))
+        # val_batch = next(iter(data_loaders['val']))
         self.set_inputs(val_batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_A[0].unsqueeze(0), self.cond[0].unsqueeze(0))
+            fake_B = self.generator({
+                'x': self.real_A[0].unsqueeze(0),
+                'cond': self.cond[0].unsqueeze(0),
+                'emo_vec': self.emo_vec[0].unsqueeze(0)
+            })
             if type(fake_B) is list:
                 fake_B = fake_B[-1]
         grid_image_val = self._make_grid_image(self.real_A, self.real_B, fake_B).cpu()
@@ -243,6 +278,11 @@ class GANSolver(object):
         self.real_A = inputs['A'].to(self.device)
         self.real_B = inputs['B'].to(self.device)
 
+        if self.emoDB is not None and 'idx' in inputs.keys():
+            self.emo_vec = self.emoDB(inputs['idx'].to(self.device))
+        else:
+            self.emo_vec = torch.zeros((self.real_A.size(0), 1)).to(self.device)
+
         if 'y' in inputs.keys():
             self.cond = inputs['y'].to(self.device)
         else:
@@ -252,7 +292,11 @@ class GANSolver(object):
         """
         Run forward pass
         """
-        self.fake_B = self.generator(self.real_A, self.cond)
+        self.fake_B = self.generator({
+            'x': self.real_A,
+            'cond': self.cond,
+            'emo_vec': self.emo_vec
+        })
 
     def backward_D(self):
         """
@@ -266,8 +310,12 @@ class GANSolver(object):
                 p.data.clamp_(-0.01, 0.01)
 
         # All real batch
-        pred_real = self.discriminator(
-            {'img_a': self.real_A, 'img_b': self.real_B, 'cond': self.cond})
+        pred_real = self.discriminator({
+            'img_a': self.real_A,
+            'img_b': self.real_B,
+            'cond': self.cond,
+            'emo_vec': self.emo_vec
+        })
         self.D_losses['D/loss/real'] = self.criterionGAN(
             pred_real, True, for_discriminator=True)
 
@@ -277,17 +325,17 @@ class GANSolver(object):
                 {
                     'img_a': self.real_A,
                     'img_b': list(map(lambda b: b.detach(), self.fake_B)),
-                    'cond': self.cond
+                    'cond': self.cond,
+                    'emo_vec': self.emo_vec
                 })
         else:
             pred_fake = self.discriminator(
                 {
                     'img_a': self.real_A,
                     'img_b': self.fake_B.detach(),
-                    'cond': self.cond
+                    'cond': self.cond,
+                    'emo_vec': self.emo_vec
                 })
-        # pred_fake = self.discriminator(
-        #     {'img_a': self.real_A, 'img_b': self.fake_B.detach(), 'cond': self.cond})
         self.D_losses['D/loss/fake'] = self.criterionGAN(
             pred_fake, False, for_discriminator=True)
 
@@ -307,8 +355,8 @@ class GANSolver(object):
                 self.epoch_D_losses[key] = self.D_losses[key].item()
 
         # Backward
-        self.D_losses['D/loss/real'].backward()
-        self.D_losses['D/loss/fake'].backward()
+        self.D_losses['D/loss/real'].backward(retain_graph=True)
+        self.D_losses['D/loss/fake'].backward(retain_graph=True)
 
     def backward_G(self):
         """
@@ -318,8 +366,12 @@ class GANSolver(object):
 
         # GAN loss
         if self.config.lambda_GAN:
-            pred_fake = self.discriminator(
-                {'img_a': self.real_A, 'img_b': self.fake_B, 'cond': self.cond})
+            pred_fake = self.discriminator({
+                'img_a': self.real_A,
+                'img_b': self.fake_B,
+                'cond': self.cond,
+                'emo_vec': self.emo_vec
+            })
             self.G_losses['G/loss/GAN'] = self.criterionGAN(
                 pred_fake, True, for_discriminator=False)
             self.G_losses['G/loss/total'] += self.G_losses['G/loss/GAN'] * \
@@ -425,10 +477,15 @@ class GANSolver(object):
         print("Evaluating generator")
 
         # Real images vs fake images
-        batch = next(iter(data_loaders['val']))
+        batch = next(iter(data_loaders['train']))
+        # batch = next(iter(data_loaders['val']))
         self.set_inputs(batch)
         with torch.no_grad():
-            fake_B = self.generator(self.real_A, self.cond)
+            fake_B = self.generator({
+                'x': self.real_A,
+                'cond': self.cond,
+                'emo_vec': self.emo_vec
+            })
             if type(fake_B) is list:
                 fake_B = torch.stack([b[-1] for b in fake_B], dim=1)
 
