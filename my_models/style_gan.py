@@ -503,7 +503,7 @@ class StyledGeneratorOriginal(nn.Module):
         return style
 
 
-class Discriminator(nn.Module):
+class DiscriminatorOriginal(nn.Module):
     def __init__(self, fused=True, from_rgb_activate=False):
         super().__init__()
 

@@ -21,4 +21,6 @@ dependencies:
     - wandb
     - dlib
     - seaborn
+    - opencv-python
+    - tqdm
 prefix: /Users/felix/miniconda3/envs/emotion-aware-facial-animation

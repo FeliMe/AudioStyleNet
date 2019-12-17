@@ -20,10 +20,11 @@ from dataloader import RAVDESSDataset
 
 HOME = os.path.expanduser('~')
 
-IMAGE_224_PATH = HOME + '/Datasets/RAVDESS/Image224'
+IMAGE_256_PATH = HOME + '/Datasets/RAVDESS/Image256'
 IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/Image128'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
 LANDMARKS_128_PATH = HOME + '/Datasets/RAVDESS/Landmarks128'
+LANDMARKS_256_PATH = HOME + '/Datasets/RAVDESS/Landmarks256'
 LANDMARKS_POINT_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksPointImage128'
 LANDMARKS_LINE_IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/LandmarksLineImage128'
 VIDEO_PATH = HOME + '/Datasets/RAVDESS/Video'
@@ -82,9 +83,9 @@ def ravdess_convert_to_frames(root_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    image_path = IMAGE_128_PATH
-    landmarks_path = LANDMARKS_128_PATH
-    target_size = 128
+    image_path = IMAGE_256_PATH
+    landmarks_path = LANDMARKS_256_PATH
+    target_size = 256
     root_dir = pathlib.Path(root_path)
 
     all_folders = [p for p in list(root_dir.glob('*/'))
@@ -446,11 +447,11 @@ def celeba_extract_landmarks(root_path, target_path, line_img_path):
             # cv2.waitKey(0)
 
 
-# ravdess_get_mean_std_image(IMAGE_224_PATH, True)
-# ravdess_extract_landmarks(IMAGE_224_PATH)
-# ravdess_group_by_utterance(IMAGE_224_PATH)
+# ravdess_get_mean_std_image(IMAGE_256_PATH, True)
+# ravdess_extract_landmarks(IMAGE_256_PATH)
+# ravdess_group_by_utterance(IMAGE_256_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)
-# ravdess_convert_to_frames(VIDEO_PATH)
+ravdess_convert_to_frames(VIDEO_PATH)
 # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
 # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
-celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
+# celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)

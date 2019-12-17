@@ -1,9 +1,13 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.spectral_norm as spectral_norm
 
+from math import log
+
 import my_models.model_utils as mu
+import my_models.style_gan as sg
 
 """
 Shape of real and fake images:
@@ -234,6 +238,57 @@ class MultiScaleDiscriminator(nn.Module):
 
         return y
 
+
+class StyleGANDiscriminator(nn.Module):
+    def __init__(self, size=1024, pretrained=True):
+        super().__init__()
+
+        template = sg.DiscriminatorOriginal()
+
+        self.progression = template.progression
+        self.from_rgb = template.from_rgb
+        self.linear = template.linear
+        self.step = int(log(size, 2)) - 2
+
+        if pretrained:
+            self.load_weights(size)
+
+        self.progression = self.progression[8 - self.step:]
+        self.from_rgb = self.from_rgb[8 - self.step:]
+
+        self.n_layer = len(self.progression)
+
+    def load_weights(self, size):
+        w = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                         '../saves/stylegan-%dpx-new.model' % size)
+        self.load_state_dict(torch.load(w)['discriminator'])
+
+    def forward(self, y, alpha=-1):
+        for i in range(self.step, -1, -1):
+            index = self.n_layer - i - 1
+
+            if i == self.step:
+                out = self.from_rgb[index](y)
+
+            if i == 0:
+                out_std = torch.sqrt(out.var(0, unbiased=False) + 1e-8)
+                mean_std = out_std.mean()
+                mean_std = mean_std.expand(out.size(0), 1, 4, 4)
+                out = torch.cat([out, mean_std], 1)
+
+            out = self.progression[index](out)
+
+            if i > 0:
+                if i == self.step and 0 <= alpha < 1:
+                    skip_rgb = F.avg_pool2d(y, 2)
+                    skip_rgb = self.from_rgb[index + 1](skip_rgb)
+
+                    out = (1 - alpha) * skip_rgb + alpha * out
+
+        out = out.squeeze(2).squeeze(2)
+        out = self.linear(out)
+
+        return out
 
 # class SequenceDiscriminator(nn.Module):
 #     def __init__(self, d):

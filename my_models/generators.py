@@ -320,11 +320,11 @@ class StyeGANDecoder(nn.Module):
         self.generator = template.generator
         self.step = int(log(size, 2)) - 2
 
-        print(self.step)
-
         if pretrained:
             self.load_weights(size)
-        
+
+        # del self.style
+
         self.generator.progression = self.generator.progression[:self.step + 1]
         self.generator.to_rgb = self.generator.to_rgb[:self.step + 1]
 
@@ -333,17 +333,49 @@ class StyeGANDecoder(nn.Module):
                          '../saves/stylegan-%dpx-new.model' % size)
         self.load_state_dict(torch.load(w)['g_running'])
 
-    def forward(self, z):
-        w = [self.style(z)]
+    def mean_style(self, z):
+        return self.style(z).mean(0, keepdim=True)
+
+    def forward(self, w):
+        if type(w) not in (tuple, list):
+            w = [w]
 
         noise = []
         for i in range(self.step + 1):
             size = 4 * 2 ** i
-            noise.append(torch.randn(z.shape[0], 1, size,
-                                     size, device=z.device))
+            noise.append(torch.randn(w[0].shape[0], 1, size,
+                                     size, device=w[0].device))
 
         y = self.generator(w, noise, self.step)
         return y
+
+    @torch.no_grad()
+    def get_mean_w(self, device):
+        mean_w = None
+        for i in range(10):
+            w = self.mean_style(torch.randn(1024, 512).to(device))
+            if mean_w is None:
+                mean_w = w
+            else:
+                mean_w += w
+
+        mean_w /= 10
+        return mean_w
+
+
+class StyeGANAutoEncoder(nn.Module):
+    def __init__(self, config):
+        super(StyeGANAutoEncoder, self).__init__()
+
+        n_features = config.n_features_g
+
+        nc = 1 if config.use_gray else 3
+
+        # Encoder
+
+
+    def forward(self, inputs):
+        pass
 
 # class SequenceGenerator(nn.Module):
 #     def __init__(self, g):
