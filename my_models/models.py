@@ -3,7 +3,7 @@ import torch
 
 from torchvision import models as torch_models
 
-import models.model_utils as model_utils
+import my_models.model_utils as model_utils
 
 
 """ Image models """

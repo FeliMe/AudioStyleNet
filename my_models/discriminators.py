@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.utils.spectral_norm as spectral_norm
 
-import models.model_utils as mu
+import my_models.model_utils as mu
 
 """
 Shape of real and fake images:

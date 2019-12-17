@@ -1,9 +1,12 @@
+import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-import models.model_utils as mu
-import models.style_gan_utils as sgu
+from math import log
+
+import my_models.model_utils as mu
+import my_models.style_gan as sg
 
 
 class NoiseGenerator(nn.Module):
@@ -229,52 +232,118 @@ class MultiScaleGenerator(nn.Module):
         return outputs
 
 
-class StyeGanGenerator(nn.Module):
-    def __init__(self, config):
-        super().__init__()
+class ProGANDecoder(nn.Module):
+    def __init__(self, pretrained=True):
+        super(ProGANDecoder, self).__init__()
 
-        gray = config.use_gray
-        n_features = config.n_features_g
-        n_latent = config.n_latent_noise
+        main = torch.hub.load('facebookresearch/pytorch_GAN_zoo:hub',
+                              'PGAN', model_name='celebAHQ-512',
+                              pretrained=pretrained).netG
 
-        nc = 1 if gray else 3
-        self.n_latent = n_latent
+        self.normalizationLayer = main._modules['module'].normalizationLayer
+        self.leakyRelu = main._modules['module'].leakyRelu
+        self.groupScale0 = main._modules['module'].groupScale0
+        self.alpha = main._modules['module'].alpha
+        self.scaleLayers = main._modules['module'].scaleLayers
+        self.toRGBLayers = main._modules['module'].toRGBLayers
+        self.generationActivation = main._modules['module'].generationActivation
+        self.formatLayer = main._modules['module'].formatLayer
 
-        self.transform_latent = sgu.G_mapping(n_latent, 4)
+    @staticmethod
+    def num_flat_features(x):
+        size = x.size()[1:]  # all dimensions except the batch dimension
+        num_features = 1
+        for s in size:
+            num_features *= s
+        return num_features
 
-        self.const_in = nn.Parameter(torch.ones(1, n_features, 4, 4))
-        self.inp_layer = sgu.StyleGanInputLayer(n_features, n_latent)
+    def forward(self, x):
+        # Normalize the input ?
+        if self.normalizationLayer is not None:
+            x = self.normalizationLayer(x)
+        x = x.view(-1, self.num_flat_features(x))
+        # format layer
+        x = self.leakyRelu(self.formatLayer(x))
+        x = x.view(x.size()[0], -1, 4, 4)
 
-        # size: (n_features, 4, 4)
-        self.block1 = sgu.StyleGanBlock(n_features, n_features, n_latent)
-        # size: (n_features, 8, 8)
-        self.block2 = sgu.StyleGanBlock(n_features, n_features, n_latent)
-        # size: (n_features, 16, 16)
-        self.block3 = sgu.StyleGanBlock(n_features, n_features // 2, n_latent)
-        # size: (n_features, 32, 32)
-        self.block4 = sgu.StyleGanBlock(n_features // 2, n_features // 4, n_latent)
-        # size: (n_features, 64, 64)
-        self.to_rgb = nn.Conv2d(n_features // 4, nc, 3, padding=1)
+        x = self.normalizationLayer(x)
 
-    def forward(self, inputs):
-        # Unpack inputs
-        x = inputs['x']
+        # Scale 0 (no upsampling)
+        for convLayer in self.groupScale0:
+            x = self.leakyRelu(convLayer(x))
+            if self.normalizationLayer is not None:
+                x = self.normalizationLayer(x)
 
-        # Transform latent noise vector
-        latent = torch.randn(x.size(0), self.n_latent, device=x.device)
-        latent = self.transform_latent(latent)
+        # Dirty, find a better way
+        if self.alpha > 0 and len(self.scaleLayers) == 1:
+            y = self.toRGBLayers[-2](x)
+            # y = sgu.upscale2d(y)
+            y = F.interpolate(y, scale_factor=2, mode='nearest')
 
-        # Synthesize image
-        y = self.inp_layer(self.const_in, latent)
-        y = self.block1(y, latent)
-        y = self.block2(y, latent)
-        y = self.block3(y, latent)
-        y = self.block4(y, latent)
-        y = self.to_rgb(y)
-        y = torch.tanh(y)
+        # Upper scales
+        for scale, layerGroup in enumerate(self.scaleLayers, 0):
 
+            # x = sgu.upscale2d(x)
+            x = F.interpolate(x, scale_factor=2, mode='nearest')
+            for convLayer in layerGroup:
+                x = self.leakyRelu(convLayer(x))
+                if self.normalizationLayer is not None:
+                    x = self.normalizationLayer(x)
+
+            if self.alpha > 0 and scale == (len(self.scaleLayers) - 2):
+                y = self.toRGBLayers[-2](x)
+                # y = sgu.upscale2d(y)
+                y = F.interpolate(y, scale_factor=2, mode='nearest')
+
+        # To RGB (no alpha parameter for now)
+        x = self.toRGBLayers[-1](x)
+
+        # Blending with the lower resolution output when alpha > 0
+        if self.alpha > 0:
+            x = self.alpha * y + (1.0 - self.alpha) * x
+
+        if self.generationActivation is not None:
+            x = self.generationActivation(x)
+
+        print(x.shape)
+
+        return x
+
+
+class StyeGANDecoder(nn.Module):
+    def __init__(self, size=1024, pretrained=True):
+        super(StyeGANDecoder, self).__init__()
+
+        template = sg.StyledGeneratorOriginal(512)
+
+        self.style = template.style
+        self.generator = template.generator
+        self.step = int(log(size, 2)) - 2
+
+        print(self.step)
+
+        if pretrained:
+            self.load_weights(size)
+        
+        self.generator.progression = self.generator.progression[:self.step + 1]
+        self.generator.to_rgb = self.generator.to_rgb[:self.step + 1]
+
+    def load_weights(self, size):
+        w = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                         '../saves/stylegan-%dpx-new.model' % size)
+        self.load_state_dict(torch.load(w)['g_running'])
+
+    def forward(self, z):
+        w = [self.style(z)]
+
+        noise = []
+        for i in range(self.step + 1):
+            size = 4 * 2 ** i
+            noise.append(torch.randn(z.shape[0], 1, size,
+                                     size, device=z.device))
+
+        y = self.generator(w, noise, self.step)
         return y
-
 
 # class SequenceGenerator(nn.Module):
 #     def __init__(self, g):

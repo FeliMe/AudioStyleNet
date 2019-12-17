@@ -1,6 +1,6 @@
 import os
 
-from models import models, generators, discriminators
+from my_models import models, generators, discriminators
 from utils import Config
 
 HOME = os.path.expanduser('~')
