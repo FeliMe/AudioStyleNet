@@ -5,7 +5,6 @@ only used once.
 
 import cv2
 import dlib
-import math
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -21,6 +20,7 @@ from dataloader import RAVDESSDataset
 HOME = os.path.expanduser('~')
 
 IMAGE_256_PATH = HOME + '/Datasets/RAVDESS/Image256'
+IMAGE_256_CROP_PATH = HOME + '/Datasets/RAVDESS/Image256Crop'
 IMAGE_128_PATH = HOME + '/Datasets/RAVDESS/Image128'
 LANDMARKS_PATH = HOME + '/Datasets/RAVDESS/Landmarks'
 LANDMARKS_128_PATH = HOME + '/Datasets/RAVDESS/Landmarks128'
@@ -73,6 +73,62 @@ def ravdess_get_mean_std_image(root_path, gray=False):
     print(all_frames.shape)
     print('Mean: {}'.format(all_frames.mean(axis=(0, 2, 3))))
     print('Std: {}'.format(all_frames.std(axis=(0, 2, 3))))
+
+
+def ravdess_to_frames_center_crop(root_path):
+    image_path = IMAGE_256_CROP_PATH
+    target_size = 256
+
+    root_dir = pathlib.Path(root_path)
+
+    all_folders = [p for p in list(root_dir.glob('*/'))
+                   if str(p).split('/')[-1] != '.DS_Store']
+
+    for i_folder, folder in enumerate(all_folders):
+        paths = [str(p) for p in list(folder.glob('*/'))]
+        actor = paths[0].split('/')[-2]
+
+        for i_path, path in enumerate(tqdm(paths)):
+            utterance = path.split('/')[-1][:-4]
+            path_to_utt_img = os.path.join(image_path, actor, utterance)
+            print("Utterance {} of {}, actor {} of {}, {}".format(
+                i_path + 1, len(paths), i_folder + 1, len(all_folders),
+                path_to_utt_img))
+            os.makedirs(path_to_utt_img, exist_ok=True)
+
+            # Restart frame counter
+            i_frame = 0
+
+            cap = cv2.VideoCapture(path)
+            while cap.isOpened():
+                # Frame shape: (720, 1280, 3)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                i_frame += 1
+
+                save_str_img = os.path.join(
+                    path_to_utt_img, str(i_frame).zfill(3) + '.jpg')
+
+                h, w, c = frame.shape
+                new_w = int((w / h) * target_size)
+                frame = cv2.resize(frame, (new_w, target_size))
+
+                # print(frame.shape)
+
+                # # Center crop
+                # left = (new_w - target_size) // 2
+                # right = left + target_size
+                # frame = frame[:, left:right]
+
+                # print(frame.shape)
+
+                # Visualize
+                cv2.imshow("Output", frame)
+                cv2.waitKey(0)
+
+                # Save
+                # cv2.imwrite(save_str_img, frame)
 
 
 def ravdess_convert_to_frames(root_path):
@@ -131,7 +187,8 @@ def ravdess_convert_to_frames(root_path):
 
                 # Pre-resize to save computation (3 * target_size)
                 shape = frame.shape
-                w_ = 3 * target_size
+                # w_ = 3 * target_size  # old ds
+                w_ = int(1.65 * target_size)  # new ds
                 h_ = int((shape[1] / shape[0]) * w_)
                 frame = cv2.resize(frame, (h_, w_))
 
@@ -157,8 +214,12 @@ def ravdess_convert_to_frames(root_path):
                         # Top and bottom
                         h = bottom_ - top_
                         # Add margin
-                        margin = int(.35 * h)
+                        # margin = int(.35 * h)  # Old ds
+                        margin = int(.85 * h)  # new ds
                         h = h + margin
+
+                    # shift cy
+                    cy -= int(.15 * h)  # new ds
 
                 # Compute left right
                 if cx - (h // 2) < 0:
@@ -452,6 +513,7 @@ def celeba_extract_landmarks(root_path, target_path, line_img_path):
 # ravdess_group_by_utterance(IMAGE_256_PATH)
 # ravdess_plot_label_distribution(IMAGE_PATH)
 ravdess_convert_to_frames(VIDEO_PATH)
+# ravdess_to_frames_center_crop(VIDEO_PATH)
 # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
 # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
 # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
