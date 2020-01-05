@@ -1,7 +1,7 @@
 import os
 
-from models import models
-from utils import Config
+from my_models import models
+from utils.utils import Config
 
 HOME = os.path.expanduser('~')
 

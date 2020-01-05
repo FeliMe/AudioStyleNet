@@ -1,7 +1,3 @@
-"""
-Source of this package (perceptual_loss):
-https://github.com/richzhang/PerceptualSimilarity
-"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -12,7 +8,7 @@ from skimage.measure import compare_ssim
 import torch
 from torch.autograd import Variable
 
-from perceptual_loss import dist_model
+from lpips import dist_model
 
 class PerceptualLoss(torch.nn.Module):
     def __init__(self, model='net-lin', net='alex', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0]): # VGG using our perceptually-learned weights (LPIPS metric)
@@ -38,14 +34,14 @@ class PerceptualLoss(torch.nn.Module):
         """
 
         if normalize:
-            target = 2 * target - 1
-            pred = 2 * pred - 1
+            target = 2 * target  - 1
+            pred = 2 * pred  - 1
 
         return self.model.forward(target, pred)
 
-def normalize_tensor(in_feat, eps=1e-10):
-    norm_factor = torch.sqrt(torch.sum(in_feat**2, dim=1, keepdim=True))
-    return in_feat / (norm_factor + eps)
+def normalize_tensor(in_feat,eps=1e-10):
+    norm_factor = torch.sqrt(torch.sum(in_feat**2,dim=1,keepdim=True))
+    return in_feat/(norm_factor+eps)
 
 def l2(p0, p1, range=255.):
     return .5*np.mean((p0 / range - p1 / range)**2)

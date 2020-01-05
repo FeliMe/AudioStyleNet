@@ -1,7 +1,7 @@
 import os
 
 from my_models import models, generators, discriminators
-from utils import Config
+from utils.utils import Config
 
 HOME = os.path.expanduser('~')
 
@@ -22,11 +22,11 @@ config = Config({
     'use_cuda': True,
     'log_run': True,
     'random_seed': 999,
-    'save_interval': 2,
+    'save_interval': 1,
 
     # Dataset configs
     'data_path': HOME + '/Datasets/RAVDESS/LandmarksLineImage128',
-    'target_data_path': HOME + '/Datasets/RAVDESS/Image128',
+    'target_data_path': HOME + '/Datasets/RAVDESS/Image256',
     'data_format': 'image',
     'use_gray': False,
     'normalize': True,
@@ -34,10 +34,10 @@ config = Config({
     'validation_split': .1,  # stable GAN: .1
     'sequence_length': 1,
     'step_size': 1,
-    'image_size': 64,  # stable GAN: 64
+    'image_size': 256,  # stable GAN: 64
     # ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised']
-    'emotions': ['neutral', 'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'],
-    'actors': [i + 1 for i in range(24)],  # List of actors included (max 24)
+    'emotions': ['happy', 'angry'],
+    'actors': [i + 1 for i in range(1)],  # List of actors included (max 24)
 
     # Model parameters
     'n_features_g': 64,  # stable GAN: 64
@@ -49,9 +49,9 @@ config = Config({
     'num_epochs': 10,
     'lr_G': 0.0002,  # stable GAN: 0.0002
     'lr_D': 0.0002,  # stable GAN: 0.0002
-    'batch_size': 64,  # stable GAN: 64
-    'lambda_GAN': 1.,  # stable GAN: 1.
-    'lambda_pixel': 0.,  # stable GAN: 100.
+    'batch_size': 16,  # stable GAN: 64
+    'lambda_GAN': 0.,  # stable GAN: 1.
+    'lambda_pixel': 100.,  # stable GAN: 100.
     'lambda_vgg': 0.,  # stable GAN: 0.
     'lambda_emotion': 0.,  # stable GAN: 0.
 
@@ -70,12 +70,12 @@ config = Config({
 })
 
 config.update({
-    'pair': True,  # Send img_a and img_b to the discriminator
+    'pair': False,  # Send img_a and img_b to the discriminator
 })
 
 config.update({
     # Generator
-    'generator': generators.NoiseGenerator(
+    'generator': generators.StyleGANAutoEncoder(
         config
     ),
 
@@ -86,7 +86,7 @@ config.update({
 
     # Classification model
     'classifier': models.ConvAndConvLSTM(config.use_gray),
-    'classifier_path': 'saves/classifier_seq{}.pt'.format(
+    'classifier_path': 'saves/pre-trained/classifier_seq{}.pt'.format(
         config.sequence_length
     ),
 })

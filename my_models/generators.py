@@ -7,6 +7,7 @@ from math import log
 
 import my_models.model_utils as mu
 import my_models.style_gan as sg
+import my_models.style_gan_2 as sg2
 
 
 class NoiseGenerator(nn.Module):
@@ -41,7 +42,7 @@ class NoiseGenerator(nn.Module):
 
     def forward(self, inputs):
         # Unpack inputs
-        x = inputs['x']
+        x = inputs['img_a']
 
         # Generate noise
         noise = torch.randn(x.size(0), self.n_latent, 1, 1, device=x.device)
@@ -101,7 +102,7 @@ class UNetGenerator(nn.Module):
             cond (torch.tensor): conditioning label
         """
         # Unpack inputs
-        x = inputs['x']
+        x = inputs['img_a']
         cond = inputs['cond']
 
         # Encoder
@@ -159,7 +160,7 @@ class SPADEGenerator(nn.Module):
 
     def forward(self, inputs):
         # Unpack inputs
-        segmap = inputs['x']
+        segmap = inputs['img_a']
 
         # downsample segmap and run convolution
         x = F.interpolate(segmap, size=(self.h, self.w))
@@ -220,7 +221,7 @@ class MultiScaleGenerator(nn.Module):
 
     def forward(self, inputs):
         # Unpack inputs
-        x = inputs['x']
+        x = inputs['img_a']
 
         y = torch.randn(x.size(0), self.n_features, 1, 1, device=x.device)
 
@@ -310,9 +311,9 @@ class ProGANDecoder(nn.Module):
         return x
 
 
-class StyeGANDecoder(nn.Module):
+class StyleGANDecoder(nn.Module):
     def __init__(self, size=1024, pretrained=True):
-        super(StyeGANDecoder, self).__init__()
+        super(StyleGANDecoder, self).__init__()
 
         template = sg.StyledGeneratorOriginal(512)
 
@@ -330,11 +331,14 @@ class StyeGANDecoder(nn.Module):
 
     def load_weights(self, size):
         w = os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                         '../saves/stylegan-%dpx-new.model' % size)
+                         '../saves/pre-trained/stylegan-%dpx-new.model' % size)
         self.load_state_dict(torch.load(w)['g_running'])
 
     def mean_style(self, z):
         return self.style(z).mean(0, keepdim=True)
+
+    def std_style(self, z):
+        return self.style(z).std()
 
     def forward(self, w):
         if type(w) not in (tuple, list):
@@ -350,7 +354,7 @@ class StyeGANDecoder(nn.Module):
         return y
 
     @torch.no_grad()
-    def get_mean_w(self, device):
+    def get_mean_std_w(self, device):
         mean_w = None
         for i in range(10):
             w = self.mean_style(torch.randn(1024, 512).to(device))
@@ -358,44 +362,30 @@ class StyeGANDecoder(nn.Module):
                 mean_w = w
             else:
                 mean_w += w
+        std_w = self.std_style(torch.randn(1024, 512).to(device))
 
         mean_w /= 10
-        return mean_w
+        return mean_w, std_w
 
 
-class StyeGANAutoEncoder(nn.Module):
-    def __init__(self, config):
-        super(StyeGANAutoEncoder, self).__init__()
+class StyeGAN2Decoder(nn.Module):
+    def __init__(self, pretrained=True):
+        super(StyeGAN2Decoder, self).__init__()
 
-        n_features = config.n_features_g
+        self.g = sg2.Generator(1024, 512, 8)
+        self.latent_avg = torch.randn(512)
 
-        nc = 1 if config.use_gray else 3
+        if pretrained:
+            self.load_weights()
 
-        # Encoder
+    def load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                       '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        self.g.load_state_dict(w['g_ema'])
+        self.latent_avg = w['latent_avg']
 
-
-    def forward(self, inputs):
-        pass
-
-# class SequenceGenerator(nn.Module):
-#     def __init__(self, g):
-#         super(SequenceGenerator, self).__init__()
-
-#         self.g = g
-
-#     def forward(self, x, cond):
-#         """
-#         x.shape -> [b, sequence_length, c, h, w]
-#         cond.shape -> [b, 1]
-
-#         args:
-#             x (torch.tensor): input sequence
-#             cond(torch.tensor): conditioning label
-#         """
-#         y = []
-#         for idx in range(x.size(1)):
-#             y.append(self.g(x[:, idx], cond))
-
-#         if not type(y[0]) is list:
-#             y = torch.stack(y, dim=1)
-#         return y
+    def forward(self, x):
+        if type(x) != list:
+            x = [x]
+        y, _ = self.g(x, truncation=0.5, truncation_latent=self.latent_avg.to(x[0].device))
+        return y

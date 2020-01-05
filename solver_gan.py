@@ -10,10 +10,10 @@ import wandb
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid, save_image
 
-import utils
-
-from models.model_utils import weights_init
-from models.models import EmotionDatabase
+from utils import utils
+from perceptual_loss import PerceptualLoss
+from my_models.model_utils import weights_init
+from my_models.models import EmotionDatabase
 
 
 class GANSolver(object):
@@ -48,7 +48,7 @@ class GANSolver(object):
                                           label_range_fake=config.label_range_fake)
         self.criterionPix = torch.nn.L1Loss()
         self.criterionEmotion = torch.nn.MSELoss()
-        self.criterionVGG = utils.VGGLoss(self.device)
+        self.criterionVGG = PerceptualLoss(net='vgg').to(self.device)
 
         # Set directories
         self.save_dir = 'saves/pix2pix/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -75,7 +75,8 @@ class GANSolver(object):
 
         # Init generator
         self.generator = self.config.generator.to(self.device)
-        self.generator.apply(weights_init)
+        self.generator.encoder.apply(weights_init)
+        # self.generator.apply(weights_init)
         self.model_names.append('generator')
 
         # Init discriminator
@@ -175,7 +176,8 @@ class GANSolver(object):
         self.set_inputs(train_batch)
         with torch.no_grad():
             fake_B = self.generator({
-                'x': self.real_A[0].unsqueeze(0),
+                'img_a': self.real_A[0].unsqueeze(0),
+                'img_b': self.real_B[0].unsqueeze(0),
                 'cond': self.cond[0].unsqueeze(0),
                 'emo_vec': self.emo_vec[0].unsqueeze(0)
             })
@@ -190,7 +192,8 @@ class GANSolver(object):
         self.set_inputs(val_batch)
         with torch.no_grad():
             fake_B = self.generator({
-                'x': self.real_A[0].unsqueeze(0),
+                'img_a': self.real_A[0].unsqueeze(0),
+                'img_b': self.real_B[0].unsqueeze(0),
                 'cond': self.cond[0].unsqueeze(0),
                 'emo_vec': self.emo_vec[0].unsqueeze(0)
             })
@@ -293,7 +296,8 @@ class GANSolver(object):
         Run forward pass
         """
         self.fake_B = self.generator({
-            'x': self.real_A,
+            'img_a': self.real_A,
+            'img_b': self.real_B,
             'cond': self.cond,
             'emo_vec': self.emo_vec
         })
@@ -302,61 +306,62 @@ class GANSolver(object):
         """
         Compute losses for the discriminator
         """
-        self.D_losses['D/loss/total'] = 0.
+        if self.config.lambda_GAN:
+            self.D_losses['D/loss/total'] = 0.
 
-        if self.config.GAN_mode == 'wgan':
-            # clamp parameters to a cube
-            for p in self.discriminator.parameters():
-                p.data.clamp_(-0.01, 0.01)
+            if self.config.GAN_mode == 'wgan':
+                # clamp parameters to a cube
+                for p in self.discriminator.parameters():
+                    p.data.clamp_(-0.01, 0.01)
 
-        # All real batch
-        pred_real = self.discriminator({
-            'img_a': self.real_A,
-            'img_b': self.real_B,
-            'cond': self.cond,
-            'emo_vec': self.emo_vec
-        })
-        self.D_losses['D/loss/real'] = self.criterionGAN(
-            pred_real, True, for_discriminator=True)
+            # All real batch
+            pred_real = self.discriminator({
+                'img_a': self.real_A,
+                'img_b': self.real_B,
+                'cond': self.cond,
+                'emo_vec': self.emo_vec
+            })
+            self.D_losses['D/loss/real'] = self.criterionGAN(
+                pred_real, True, for_discriminator=True)
 
-        # All fake batch
-        if type(self.fake_B) is list:
-            pred_fake = self.discriminator(
-                {
-                    'img_a': self.real_A,
-                    'img_b': list(map(lambda b: b.detach(), self.fake_B)),
-                    'cond': self.cond,
-                    'emo_vec': self.emo_vec
-                })
-        else:
-            pred_fake = self.discriminator(
-                {
-                    'img_a': self.real_A,
-                    'img_b': self.fake_B.detach(),
-                    'cond': self.cond,
-                    'emo_vec': self.emo_vec
-                })
-        self.D_losses['D/loss/fake'] = self.criterionGAN(
-            pred_fake, False, for_discriminator=True)
-
-        # Combine losses
-        if self.config.GAN_mode == 'wgan':
-            self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] - \
-                self.D_losses['D/loss/fake']
-        else:
-            self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] + \
-                self.D_losses['D/loss/fake']
-
-        # Metrics
-        for key in self.D_losses.keys():
-            if key in self.epoch_D_losses.keys():
-                self.epoch_D_losses[key] += self.D_losses[key].item()
+            # All fake batch
+            if type(self.fake_B) is list:
+                pred_fake = self.discriminator(
+                    {
+                        'img_a': self.real_A,
+                        'img_b': list(map(lambda b: b.detach(), self.fake_B)),
+                        'cond': self.cond,
+                        'emo_vec': self.emo_vec
+                    })
             else:
-                self.epoch_D_losses[key] = self.D_losses[key].item()
+                pred_fake = self.discriminator(
+                    {
+                        'img_a': self.real_A,
+                        'img_b': self.fake_B.detach(),
+                        'cond': self.cond,
+                        'emo_vec': self.emo_vec
+                    })
+            self.D_losses['D/loss/fake'] = self.criterionGAN(
+                pred_fake, False, for_discriminator=True)
 
-        # Backward
-        self.D_losses['D/loss/real'].backward(retain_graph=True)
-        self.D_losses['D/loss/fake'].backward(retain_graph=True)
+            # Combine losses
+            if self.config.GAN_mode == 'wgan':
+                self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] - \
+                    self.D_losses['D/loss/fake']
+            else:
+                self.D_losses['D/loss/total'] = self.D_losses['D/loss/real'] + \
+                    self.D_losses['D/loss/fake']
+
+            # Metrics
+            for key in self.D_losses.keys():
+                if key in self.epoch_D_losses.keys():
+                    self.epoch_D_losses[key] += self.D_losses[key].item()
+                else:
+                    self.epoch_D_losses[key] = self.D_losses[key].item()
+
+            # Backward
+            self.D_losses['D/loss/real'].backward(retain_graph=True)
+            self.D_losses['D/loss/fake'].backward(retain_graph=True)
 
     def backward_G(self):
         """
@@ -482,7 +487,8 @@ class GANSolver(object):
         self.set_inputs(batch)
         with torch.no_grad():
             fake_B = self.generator({
-                'x': self.real_A,
+                'img_a': self.real_A,
+                'img_b': self.real_B,
                 'cond': self.cond,
                 'emo_vec': self.emo_vec
             })

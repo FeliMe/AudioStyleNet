@@ -58,6 +58,7 @@ data_loaders, dataset_sizes = dataloader.get_data_loaders(
 print("Using {} samples for training and {} for validation".format(
     dataset_sizes['train'], dataset_sizes['val']))
 
+print("{} batches per epoch".format(len(ds) // config.batch_size))
 
 """ Show data example """
 
