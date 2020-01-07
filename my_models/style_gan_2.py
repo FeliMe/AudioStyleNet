@@ -615,13 +615,10 @@ class Generator(nn.Module):
 
         if truncation < 1:
             style_t = []
-
             for style in styles:
                 style_t.append(
-                    truncation_latent + truncation *
-                    (style - truncation_latent)
+                    truncation_latent + truncation * (style - truncation_latent)
                 )
-
             styles = style_t
 
         if len(styles) < 2:
