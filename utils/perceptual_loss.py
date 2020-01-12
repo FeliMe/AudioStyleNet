@@ -119,6 +119,12 @@ class VGG16Loss(nn.Module):
         w = torch.load(
             os.path.dirname(os.path.abspath(__file__)) + '/perceptual_weights/vgg.pth')
         self.zhang_w = [w[key].to(device) for key in w.keys()]
+        self.zhang_w = [self.build_zhang_conv(weight) for weight in self.zhang_w]
+
+    def build_zhang_conv(self, feats):
+        conv = nn.Conv2d(feats.shape[1], 1, kernel_size=(1, 1), stride=(1, 1), bias=False)
+        conv.weight = torch.nn.Parameter(feats.expand(conv.weight.size()))
+        return conv
 
     def forward(self, x, y):
         x_vgg, y_vgg = self.vgg(x), self.vgg(y)
@@ -134,8 +140,9 @@ class VGG16Loss(nn.Module):
             y_vgg_normalized.append(f / (n + 1e-10))
 
         diff = [(x_ - y_) ** 2 for x_, y_ in zip(x_vgg_normalized, y_vgg_normalized)]
-        reduced = [diff[i] * self.zhang_w[i] for i in range(len(diff))]
+        reduced = [self.zhang_w[i](diff[i]) for i in range(len(diff))]
 
-        result = sum(red.mean() for red in reduced)
+        result = sum(red.mean(dim=(2, 3)) for red in reduced)
+        result = result.view(-1)
 
         return result

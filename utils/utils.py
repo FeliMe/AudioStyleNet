@@ -17,12 +17,18 @@ class Config(dict):
         self.__dict__ = self
 
 
-def denormalize(mean, std):
+class Denormalize(object):
     """ Denormalizes image to save or display it """
-    return transforms.Compose([
-        transforms.Normalize([0., 0., 0.], 1 / np.array(std)),
-        transforms.Normalize(-np.array(mean), [1., 1., 1.])]
-    )
+    def __init__(self, mean, std):
+        assert len(mean) == 3
+        assert len(std) == 3
+        self.transform = transforms.Compose([
+            transforms.Normalize([0., 0., 0.], 1 / np.array(std)),
+            transforms.Normalize(-np.array(mean), [1., 1., 1.])]
+        )
+
+    def __call__(self, sample):
+        return self.transform(sample)
 
 
 class GradPlotter:

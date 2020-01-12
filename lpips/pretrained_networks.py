@@ -115,11 +115,27 @@ class vgg16(torch.nn.Module):
             self.slice4.add_module(str(x), vgg_pretrained_features[x])
         for x in range(23, 30):
             self.slice5.add_module(str(x), vgg_pretrained_features[x])
+
+        # TODO: edited myself
+        # self.mean = torch.nn.Parameter(torch.tensor(
+        #     [0.485, 0.456, 0.406]).view(1, -1, 1, 1))
+        # self.std = torch.nn.Parameter(torch.tensor(
+        #     [0.229, 0.224, 0.225]).view(1, -1, 1, 1))
+        # self.mean = torch.nn.Parameter(torch.tensor(
+        #     [0.5, 0.5, 0.5]).view(1, -1, 1, 1))
+        # self.std = torch.nn.Parameter(torch.tensor(
+        #     [0.5, 0.5, 0.5]).view(1, -1, 1, 1))
+        # -------------------
+
         if not requires_grad:
             for param in self.parameters():
                 param.requires_grad = False
 
     def forward(self, X):
+        # TODO: edited myself
+        # X = (X - self.mean) / self.std
+        # -------------------
+
         h = self.slice1(X)
         h_relu1_2 = h
         h = self.slice2(h)
