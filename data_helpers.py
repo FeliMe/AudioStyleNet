@@ -10,14 +10,22 @@ import numpy as np
 import os
 import pathlib
 import random
+import sys
+import bz2
 
 from PIL import Image
 from torchvision import transforms
+from torchvision.utils import save_image
 from tqdm import tqdm
+# from keras.utils import get_file
+# from utils.ffhq_dataset.face_alignment import image_align
+# from utils.ffhq_dataset.landmarks_detector import LandmarksDetector
 
 from dataloader import RAVDESSDataset
 
 HOME = os.path.expanduser('~')
+
+LANDMARKS_MODEL_URL = 'http://dlib.net/files/shape_predictor_68_face_landmarks.dat.bz2'
 
 IMAGE_256_PATH = HOME + '/Datasets/RAVDESS/Image256'
 IMAGE_256_CROP_PATH = HOME + '/Datasets/RAVDESS/Image256Crop'
@@ -131,6 +139,99 @@ def ravdess_to_frames_center_crop(root_path):
                 # cv2.imwrite(save_str_img, frame)
 
 
+def unpack_bz2(src_path):
+    data = bz2.BZ2File(src_path).read()
+    dst_path = src_path[:-4]
+    with open(dst_path, 'wb') as fp:
+        fp.write(data)
+    return dst_path
+
+
+def ravdess_align_videos(root_path, actor):
+    print("Aligning {}".format(actor))
+    # Load landmarks model
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    target_path = HOME + '/Datasets/RAVDESS/Aligned'
+    root_dir = pathlib.Path(os.path.join(root_path, actor))
+    sentences = [str(p) for p in list(root_dir.glob('*/'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+    assert len(sentences) > 0
+
+    for i_path, path in enumerate(tqdm(sentences)):
+        utterance = path.split('/')[-1][:-4]
+        path_to_utt = os.path.join(target_path, actor, utterance)
+        print("Utterance {} of {}, {}".format(
+            i_path + 1, len(sentences), path_to_utt))
+        os.makedirs(path_to_utt, exist_ok=True)
+
+        # Restart frame counter
+        i_frame = 0
+
+        cap = cv2.VideoCapture(path)
+        while cap.isOpened():
+            # Frame shape: (720, 1280, 3)
+            ret, frame = cap.read()
+            if not ret:
+                break
+            i_frame += 1
+            save_str = os.path.join(path_to_utt, str(i_frame).zfill(3) + '.png')
+            if os.path.exists(save_str):
+                continue
+
+            # Convert from BGR to RGB
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Pre-resize to save computation
+            h_old, w_old, _ = frame.shape
+            h_new = 256
+            factor = h_new / h_old
+            w_new = int(w_old * factor)
+            frame_small = cv2.resize(frame, (w_new, h_new))
+
+            # Grayscale image
+            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+
+            # Detect faces
+            for rect in detector(frame_small, 1):
+                landmarks = [(int(item.x / factor), int(item.y / factor))
+                                for item in predictor(gray_small, rect).parts()]
+                image_align(frame, save_str, landmarks)
+
+
+def ravdess_resize_frames(path_to_actor):
+    def downsample_img(img):
+        c, h, w = img.shape
+        factor = h // 256
+        img = img.reshape(c, h // factor, factor, w // factor, factor)
+        img = img.mean([2, 4])
+        return img
+
+    transform = transforms.ToTensor()
+    if path_to_actor[-1] == '/':
+        path_to_actor = path_to_actor[:-1]
+    new_base_dir = os.path.join('/', *path_to_actor.split('/')[:-2], 'Aligned_256')
+    os.makedirs(new_base_dir, exist_ok=True)
+    new_dir = os.path.join(new_base_dir, path_to_actor.split('/')[-1])
+    os.makedirs(new_dir, exist_ok=True)
+    print('Saving to: {}'.format(new_dir))
+
+    all_folders = [str(f) for f in list(pathlib.Path(path_to_actor).glob('*'))]
+    all_folders = sorted(all_folders)
+
+    for folder in tqdm(all_folders):
+        save_dir = os.path.join(new_dir, folder.split('/')[-1])
+        os.makedirs(save_dir, exist_ok=True)
+        all_frames = [str(f) for f in pathlib.Path(folder).glob('*')]
+        for frame in all_frames:
+            save_path = os.path.join(save_dir, frame.split('/')[-1])
+            image = transform(Image.open(frame))
+            image = downsample_img(image)
+            save_image(image, save_path)
+
+
 def ravdess_convert_to_frames(root_path):
     # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # initialize dlib's face detector (HOG-based) and then create
@@ -185,9 +286,8 @@ def ravdess_convert_to_frames(root_path):
                     print("Already exists. Skipping...")
                     continue
 
-                # Pre-resize to save computation (3 * target_size)
+                # Pre-resize to save computation (1.65 * target_size)
                 shape = frame.shape
-                # w_ = 3 * target_size  # old ds
                 w_ = int(1.65 * target_size)  # new ds
                 h_ = int((shape[1] / shape[0]) * w_)
                 frame = cv2.resize(frame, (h_, w_))
@@ -508,12 +608,18 @@ def celeba_extract_landmarks(root_path, target_path, line_img_path):
             # cv2.waitKey(0)
 
 
-# ravdess_get_mean_std_image(IMAGE_256_PATH, True)
-# ravdess_extract_landmarks(IMAGE_256_PATH)
-# ravdess_group_by_utterance(IMAGE_256_PATH)
-# ravdess_plot_label_distribution(IMAGE_PATH)
-ravdess_convert_to_frames(VIDEO_PATH)
-# ravdess_to_frames_center_crop(VIDEO_PATH)
-# ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
-# ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
-# celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
+if __name__ == "__main__":
+
+    actor = sys.argv[1]
+
+    # ravdess_get_mean_std_image(IMAGE_256_PATH, True)
+    # ravdess_extract_landmarks(IMAGE_256_PATH)
+    # ravdess_group_by_utterance(IMAGE_256_PATH)
+    # ravdess_plot_label_distribution(IMAGE_PATH)
+    ravdess_resize_frames(actor)
+    # ravdess_align_videos(VIDEO_PATH, actor)
+    # ravdess_convert_to_frames(VIDEO_PATH)
+    # ravdess_to_frames_center_crop(VIDEO_PATH)
+    # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
+    # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
+    # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)

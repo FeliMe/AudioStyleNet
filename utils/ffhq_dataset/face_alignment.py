@@ -39,10 +39,10 @@ def image_align(src_file, dst_file, face_landmarks, output_size=1024, transform_
         qsize = np.hypot(*x) * 2
 
         # Load in-the-wild image.
-        if not os.path.isfile(src_file):
-            print('\nCannot find source image. Please run "--wilds" before "--align".')
-            return
-        img = PIL.Image.open(src_file)
+        if type(src_file) == str:
+            img = PIL.Image.open(src_file)
+        else:
+            img = PIL.Image.fromarray(src_file, mode='RGB')
 
         # Shrink.
         shrink = int(np.floor(qsize / output_size * 0.5))

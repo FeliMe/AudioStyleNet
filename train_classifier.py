@@ -55,8 +55,6 @@ ds = dataloader.RAVDESSDataset(config.data_path,
                                mean=config.mean,
                                std=config.std,
                                max_samples=None,
-                               sequence_length=config.sequence_length,
-                               step_size=config.step_size,
                                image_size=config.image_size)
 
 print("Found {} samples in total".format(len(ds)))

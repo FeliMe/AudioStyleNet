@@ -10,7 +10,7 @@ import wandb
 
 from sklearn.metrics import confusion_matrix
 
-import utils
+from utils import utils
 
 
 class ClassificationSolver:

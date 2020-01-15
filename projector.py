@@ -1,15 +1,13 @@
-import os
 import numpy as np
 import torch
-import torch.nn.functional as F
 
-from torchvision import transforms
 from lpips import PerceptualLoss
 from tqdm import tqdm
 
 
 class Projector:
     def __init__(self,
+                 g,
                  num_steps=1000,
                  initial_learning_rate=0.1,
                  initial_noise_factor=0.05,
@@ -26,20 +24,43 @@ class Projector:
         self.regularize_noise_weight = 1e5
         self.verbose = verbose
 
-        self.g_ema = None
-        self.device = None
-        self.latent_mean = None
-        self.latent_std = None
-        self.noises = None
-        self.latent_in = None
         self.latent_expr = None
         self.lpips = None
         self.target_images = None
         self.imag_gen = None
         self.loss = None
         self.lr = None
-        self.opt = None
         self.cur_step = None
+
+        self.g_ema = g.g
+        self.device = next(g.parameters()).device
+
+        # Find latent stats
+        self._info(('Finding W midpoint and stddev using %d samples...' % self.n_mean_latent))
+        torch.manual_seed(123)
+        with torch.no_grad():
+            noise_sample = torch.randn(
+                self.n_mean_latent, 512, device=self.device)
+            latent_out = self.g_ema.style(noise_sample)
+
+        self.latent_mean = latent_out.mean(0)
+        self.latent_std = ((latent_out - self.latent_mean).pow(2).sum() /
+                            self.n_mean_latent) ** 0.5
+        self._info('std = {}'.format(self.latent_std))
+
+        self.latent_in = self.latent_mean.detach().clone().unsqueeze(0)
+        self.latent_in = self.latent_in.repeat(self.g_ema.n_latent, 1)
+        self.latent_in.requires_grad = True
+
+        # Find noise inputs.
+        self.noises = [noise.to(self.device) for noise in g.noises]
+
+        # Init optimizer
+        self.opt = torch.optim.Adam(
+            [self.latent_in] + self.noises, lr=self.initial_lr)
+
+        # Init loss function
+        self.lpips = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
 
     def _info(self, *args):
         if self.verbose:
@@ -76,7 +97,10 @@ class Projector:
     def prepare_input(self, target_images):
         if len(target_images.shape) == 3:
             target_images = target_images.unsqueeze(0)
+        if target_images.shape[2] > 256:
+            target_images = self.downsample_img(target_images)
         self.target_images = target_images
+        print(self.target_images.shape)
 
     def downsample_img(self, img):
         b, c, h, w = img.shape
@@ -84,38 +108,6 @@ class Projector:
         img = img.reshape(b, c, h // factor, factor, w // factor, factor)
         img = img.mean([3, 5])
         return img
-
-    def set_network(self, g, minibatch_size=1):
-        self.g_ema = g.g
-        self.device = next(g.parameters()).device
-
-        # Find latent stats
-        self._info(('Finding W midpoint and stddev using %d samples...' % self.n_mean_latent))
-        torch.manual_seed(123)
-        with torch.no_grad():
-            noise_sample = torch.randn(self.n_mean_latent, 512, device=self.device)
-            latent_out = self.g_ema.style(noise_sample)
-
-            self.latent_mean = latent_out.mean(0)
-            self.latent_std = ((latent_out - self.latent_mean).pow(2).sum() /
-                               self.n_mean_latent) ** 0.5
-            self._info('std = {}'.format(self.latent_std))
-
-        self.latent_in = self.latent_mean.detach().clone().unsqueeze(0)
-        self.latent_in = self.latent_in.repeat(self.g_ema.n_latent, 1)
-        self.latent_in.requires_grad = True
-
-        # Find noise inputs.
-        self.noises = self.g_ema.make_noise()
-        for noise in self.noises:
-            noise.requires_grad = True
-
-        # Init optimizer
-        self.opt = torch.optim.Adam([self.latent_in] + self.noises, lr=self.initial_lr)
-        # self.opt = torch.optim.Adam([self.latent_in], lr=self.initial_lr)
-
-        # Init loss function
-        self.lpips = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
 
     def run(self, target_images):
         self.prepare_input(target_images)
@@ -126,9 +118,6 @@ class Projector:
             self.cur_step = i_step
             self.step()
             pbar.set_description((f'loss: {self.loss.item():.4f}; lr: {self.lr:.4f}'))
-
-        # Collect results
-        return self.get_images()
 
     def step(self):
         # Hyperparameters
@@ -164,6 +153,8 @@ class Projector:
         self.normalize_noise()
 
     def get_images(self):
-        imgs, _ = self.g_ema([self.latent_in], input_is_latent=True,
-                             noise=self.noises)
+        imgs, _ = self.g_ema([self.latent_in], input_is_latent=True, noise=self.noises)
         return imgs
+
+    def get_latents(self):
+        return self.latent_in

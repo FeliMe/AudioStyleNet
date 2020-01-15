@@ -409,5 +409,6 @@ class StyleGAN2Decoder(nn.Module):
     def forward(self, x):
         if type(x) != list:
             x = [x]
-        y, _ = self.g(x, truncation=0.5, truncation_latent=self.latent_avg.to(x[0].device))
+        y, _ = self.g(x, truncation=0.5,
+                      truncation_latent=self.latent_avg.to(x[0].device))
         return y

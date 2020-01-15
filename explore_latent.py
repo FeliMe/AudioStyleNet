@@ -19,13 +19,15 @@ if __name__ == "__main__":
     for param in g.parameters():
         param.requires_grad = False
 
-    proj = Projector()
-    proj.set_network(g)
+    proj = Projector(g)
 
     # Load target image
     path = sys.argv[1]
-    image_files = glob.glob(path + '*.png')
-    image_files += glob.glob(path + '*.jpg')
+    if os.path.isdir(path):
+        image_files = glob.glob(path + '*.png')
+        image_files += glob.glob(path + '*.jpg')
+    else:
+        image_files = [path]
 
     for i, file in tqdm(enumerate(sorted(image_files))):
         print('Projecting {}'.format(file))
@@ -33,18 +35,21 @@ if __name__ == "__main__":
         # Load image
         target_image = Image.open(file)
         transform = transforms.Compose([
-            transforms.Resize(256),
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
         ])
         target_image = transform(target_image).to(device)
 
         # Run projector
-        generated = proj.run(target_image)
+        proj.run(target_image)
+
+        # Collect results
+        generated = proj.get_images()
+        latents = proj.get_latents()
 
         # Save results
-        save_str = 'saves/explore_latent/' + file.split('/')[-1]
+        save_str = 'saves/explore_latent/' + file.split('/')[-1].split('.')[0]
         os.makedirs('saves/explore_latent/', exist_ok=True)
-        print('Saving {}'.format(save_str))
-        save_image(generated, save_str, normalize=True)
-        break
+        print('Saving {}'.format(save_str + '_p.png'))
+        save_image(generated, save_str + '_p.png', normalize=True)
+        torch.save(latents.detach().cpu(), save_str + '.pt')

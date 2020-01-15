@@ -99,6 +99,8 @@ class RAVDESSDataset(Dataset):
         # Get all frames from selected sentences
         frames = [str(f) for s in sentences for f in list(
             pathlib.Path(s).glob('*.jpg'))]
+        frames += [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.png'))]
 
         # Count number of frames for every emotion
         tmp = [f.split('/')[-2].split('-')[2] for f in frames]

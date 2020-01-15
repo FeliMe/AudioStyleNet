@@ -53,34 +53,43 @@ class SiameseConvNet(nn.Module):
         channels = 1 if gray else 3
 
         self.convolutions = nn.Sequential(
-            # shape: [batch_size, 1, 224, 224]
+            # shape: [batch_size, 1, 256, 256]
             nn.Conv2d(channels, 16, 5, padding=2),
-            # shape: [batch_size, 16, 224, 224]
+            # shape: [batch_size, 16, 256, 256]
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 16, 112, 112]
+            # shape: [batch_size, 16, 128, 128]
             nn.Conv2d(16, 32, 5, padding=2),
-            # shape: [batch_size, 32, 112, 112]
+            # shape: [batch_size, 32, 128, 128]
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 32, 56, 56]
+            # shape: [batch_size, 32, 64, 64]
             nn.Conv2d(32, 16, 5, padding=2),
-            # shape: [batch_size, 16, 56, 56]
+            # shape: [batch_size, 16, 64, 64]
             nn.ReLU(),
             nn.MaxPool2d(2, 2),
-            # shape: [batch_size, 16, 28, 28]
+            # shape: [batch_size, 16, 32, 32]
+            nn.Conv2d(16, 8, 5, padding=2),
+            # shape: [batch_size, 8, 32, 32]
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            # shape: [batch_size, 8, 16, 16]
         )
 
     def forward(self, x):
         """
-        input shape: [b, sequence_length, 1 | 3, 64, 64]
-        output shape: [b, sequence_length, 16, 8, 8]
+        # input shape: [b, sequence_length, 1 | 3, 64, 64]
+        # output shape: [b, sequence_length, 16, 8, 8]
+
+        input shape: [b, 1 | 3, 64, 64]
+        output shape: [b, 8, 16, 16]
         """
-        y = []
-        for idx in range(x.shape[1]):
-            y.append(self.convolutions(x[:, idx]))
-        y = torch.stack(y, dim=1)
-        return y
+        # y = []
+        # for idx in range(x.shape[1]):
+        #     y.append(self.convolutions(x[:, idx]))
+        # y = torch.stack(y, dim=1)
+        # return y
+        return self.convolutions(x)
 
 
 class ConvAndCat(nn.Module):
@@ -196,23 +205,23 @@ class ConvAndRNN(nn.Module):
 class ConvAndConvLSTM(nn.Module):
     def __init__(self, gray):
         super(ConvAndConvLSTM, self).__init__()
-        hidden_size = 32
+        hidden_size = 16
 
         self.convolutions = SiameseConvNet(gray)
 
         # 533.600 param version
-        self.temporal = model_utils.ConvLSTM(16, hidden_size)
+        self.temporal = model_utils.ConvLSTM(8, hidden_size)
         self.classifier = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(hidden_size * 8 * 8, 8)
+            nn.Linear(hidden_size * 16 * 16, 8)
         )
 
     def forward(self, x):
-        # shape: [b, sequence_length, c, h, w]
+        # shape: [b, c, h, w]
         y = self.convolutions(x)
-        # shape: [b, sequence_length, 16, 8, 8]
+        # shape: [b, 8, 16, 16]
         y, _ = self.temporal(y)
-        # shape: [b, hidden_size, 8, 8]
+        # shape: [b, 8, 8]
         y = self.classifier(y)
         # shape: [b, 8]
         return y

@@ -61,6 +61,15 @@ class ConvLSTM(nn.Module):
         Forward the whole sequence through the ConvLSTM
 
         args:
+            # x (torch.Tensor): input tensor of shape [batch_size,
+            #                   sequence_length, channel, height, width]
+            # h_0 (torch.Tensor or None): initial hidden state of shape
+            #                             [batch_size, hidden_size, channels,
+            #                             height, width]
+            # c_0 (torch.Tensor or None): initial cell state of shape
+            #                             [batch_size, hidden_size, channels,
+            #                             height, width]
+
             x (torch.Tensor): input tensor of shape [batch_size,
                               sequence_length, channel, height, width]
             h_0 (torch.Tensor or None): initial hidden state of shape
@@ -72,9 +81,12 @@ class ConvLSTM(nn.Module):
         """
 
         # get sizes
+        # batch_size = x.size(0)
+        # sequence_length = x.size(1)
+        # spatial_size = x.size()[3:]
+        # state_size = [batch_size, self.hidden_size] + list(spatial_size)
         batch_size = x.size(0)
-        sequence_length = x.size(1)
-        spatial_size = x.size()[3:]
+        spatial_size = x.size()[2:]
         state_size = [batch_size, self.hidden_size] + list(spatial_size)
 
         # generate empty h and c, if None is provided
@@ -85,8 +97,9 @@ class ConvLSTM(nn.Module):
             c = torch.zeros(state_size).to(x.device)
 
         # Forward every step in the sequence
-        for i in range(sequence_length):
-            h, c = self.forward_one(x[:, i], h, c)
+        # for i in range(sequence_length):
+        #     h, c = self.forward_one(x[:, i], h, c)
+        h, c = self.forward_one(x, h, c)
 
         return h, c
 
