@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 
 from torchvision.models.vgg import vgg16, vgg19
+from my_models.models import ConvAndConvLSTM
 
 
 VGG_MEAN = [0.485, 0.456, 0.406]
@@ -146,3 +147,16 @@ class VGG16Loss(nn.Module):
         result = result.view(-1)
 
         return result
+
+
+class EmotionLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.classifier = ConvAndConvLSTM(gray=False)
+        self.classifier.load_state_dict(torch.load('saves/pre-trained/classifier_aligned256.pt'))
+
+        for param in self.classifier.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        return nn.functional.softmax(self.classifier(x))

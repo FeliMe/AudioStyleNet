@@ -51,6 +51,8 @@ torch.manual_seed(seed)
 
 ds = dataloader.RAVDESSDataset(config.data_path,
                                data_format=config.data_format,
+                               use_mask=config.use_mask,
+                               mask_path=config.mask_path,
                                normalize=config.normalize,
                                mean=config.mean,
                                std=config.std,
@@ -72,6 +74,10 @@ sample = next(iter(data_loaders['train']))
 print('Input Shape: {}'.format(sample['x'].shape))
 # train_ds.plot_label_distribution()
 # ds.show_sample()
+
+"""
+Actor_09/02-01-05-02-02-01-09/077.png
+"""
 
 
 """ Initialize model, solver, optimizer and criterion """

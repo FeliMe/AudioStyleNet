@@ -46,6 +46,8 @@ class RAVDESSDataset(Dataset):
     def __init__(self,
                  root_path,
                  data_format='image',
+                 use_mask=False,
+                 mask_path=None,
                  normalize=True,
                  mean=[0., 0., 0.],
                  std=[1., 1., 1.],
@@ -58,6 +60,7 @@ class RAVDESSDataset(Dataset):
                            'fearful', 'disgust', 'surprised'],
                  actors=[i + 1 for i in range(24)]):
 
+        self.use_mask = use_mask
         self.normalize = normalize
         self.mean = mean
         self.std = std
@@ -97,16 +100,16 @@ class RAVDESSDataset(Dataset):
             [list(self.mapping.keys())[list(self.mapping.values()).index(e)] for e in self.emotions]))
 
         # Get all frames from selected sentences
-        frames = [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.jpg'))]
-        frames += [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.png'))]
+        # frames = [str(f) for s in sentences for f in list(
+        #     pathlib.Path(s).glob('*.jpg'))]
+        # frames += [str(f) for s in sentences for f in list(
+        #     pathlib.Path(s).glob('*.png'))]
 
         # Count number of frames for every emotion
-        tmp = [f.split('/')[-2].split('-')[2] for f in frames]
-        for emo in emotions:
-            print("# frames for '{}': {}".format(
-                emo, len(list(filter(lambda t: t == self.mapping[emo], tmp)))))
+        # tmp = [f.split('/')[-2].split('-')[2] for f in frames]
+        # for emo in emotions:
+        #     print("# frames for '{}': {}".format(
+        #         emo, len(list(filter(lambda t: t == self.mapping[emo], tmp)))))
 
         # Random seeds
         random.seed(seed)
@@ -114,12 +117,12 @@ class RAVDESSDataset(Dataset):
         torch.manual_seed(seed)
 
         # Shuffle frames
-        # random.shuffle(sentences)
-        random.shuffle(frames)
+        random.shuffle(sentences)
+        # random.shuffle(frames)
 
         if max_samples is not None:
-            # sentences = sentences[:min(len(sentences), max_samples)]
-            frames = frames[:min(len(frames), max_samples)]
+            sentences = sentences[:min(len(sentences), max_samples)]
+            # frames = frames[:min(len(frames), max_samples)]
 
         trans = [
             transforms.Resize(image_size),
@@ -130,7 +133,15 @@ class RAVDESSDataset(Dataset):
         self.transforms = transforms.Compose(trans)
 
         self.sentences = sentences
-        self.frames = frames
+        # self.frames = frames
+
+        if self.use_mask:
+            self.transform_mask = transforms.Compose([
+                transforms.Grayscale(),
+                transforms.Resize(image_size),
+                transforms.ToTensor(),
+            ])
+            self.mask_path = mask_path
 
         if data_format == 'image':
             self.load_fn = load_image
@@ -141,18 +152,21 @@ class RAVDESSDataset(Dataset):
         else:
             raise (RuntimeError('Unknown format {}'.format(data_format)))
 
-    # def _get_sample(self, sentence, idx):
-    #     # Get paths to load
-    #     path = os.path.join(sentence, str(idx).zfill(3) + '.jpg')
-    #     x = self.load_fn(path, self.transforms)
+    def _get_sample(self, sentence, idx):
+        path = os.path.join(sentence, str(idx).zfill(3) + '.png')
+        x = self.load_fn(path, self.transforms)
+        return x
 
-    #     return x
+    def _get_mask(self, sentence, idx):
+        path = os.path.join(self.mask_path, *sentence.split('/')
+                            [-2:], str(idx).zfill(3) + '.png')
+        mask = self.transform_mask(Image.open(path))
+        return mask
 
-    # def _get_random_idx(self, sentence):
-    #     len_sentence = len(list(pathlib.Path(sentence).glob('*')))
-    #     rand_idx = torch.randint(1, len_sentence + 1, (1,)).item()
-
-    #     return rand_idx
+    def _get_random_idx(self, sentence):
+        len_sentence = len(list(pathlib.Path(sentence).glob('*')))
+        rand_idx = torch.randint(1, len_sentence + 1, (1,)).item()
+        return rand_idx
 
     def _int_to_one_hot(self, label):
         one_hot = torch.zeros(self.num_classes)
@@ -167,27 +181,39 @@ class RAVDESSDataset(Dataset):
         self.show_fn(sample, self.mean, self.std, self.normalize)
 
     def __len__(self):
-        # return len(self.sentences)
-        return len(self.frames)
+        return len(self.sentences)
+        # return len(self.frames)
 
     def __getitem__(self, item):
+        result = {}
+
         # Select a sentence
-        # sentence = self.sentences[item]
+        sentence = self.sentences[item]
 
         # Get sample
-        # x = self._get_sample(sentence, self._get_random_idx(sentence))
+        rand_idx = self._get_random_idx(sentence)
+        x = self._get_sample(sentence, rand_idx)
+        result['x'] = x
 
         # Load Frame
-        frame = self.frames[item]
-        x = self.load_fn(frame, self.transforms)
+        # frame = self.frames[item]
+        # x = self.load_fn(frame, self.transforms)
+
+        # Load mask
+        if self.use_mask:
+            mask = self._get_mask(sentence, rand_idx)
+            result['mask'] = mask
+        else:
+            result['mask'] = 0
 
         # Get emotion
-        # emotion = int(sentence.split('/')[-1].split('-')[2]) - 1
-        emotion = int(frame.split('/')[-2].split('-')[2]) - 1
+        emotion = int(sentence.split('/')[-1].split('-')[2]) - 1
+        # emotion = int(frame.split('/')[-2].split('-')[2]) - 1
         if self.label_one_hot:
             emotion = self._int_to_one_hot(emotion)
+        result['y'] = emotion
 
-        return {'x': x, 'y': emotion}
+        return result
 
 
 class RAVDESSDSPix2Pix(RAVDESSDataset):

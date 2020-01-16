@@ -27,9 +27,11 @@ config = Config({
 
     # Dataset configs
     # 'data_path': HOME + '/Datasets/RAVDESS/Aligned_256',
-    'data_path': HOME + '/Datasets/RAVDESS/Image256',
+    'data_path': HOME + '/Datasets/RAVDESS/Aligned256',
+    'mask_path': HOME + '/Datasets/RAVDESS/Mask_Aligned256',
     'data_format': 'image',
     'use_gray': False,
+    'use_mask': False,
     'normalize': True,
     'validation_split': .2,
     'image_size': 256,
@@ -38,7 +40,7 @@ config = Config({
     'actors': [i + 1 for i in range(24)],
 
     # Hyper parameters
-    'num_epochs': 5,
+    'num_epochs': 100,
     'learning_rate': 0.001,
     'batch_size': 32,
 
@@ -60,6 +62,8 @@ config.update({
 })
 
 config.update({
-    'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
-    'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
+    # 'mean': RAVDESS_GRAY_MEAN if config.use_gray else RAVDESS_MEAN,
+    # 'std': RAVDESS_GRAY_STD if config.use_gray else RAVDESS_STD,
+    'mean': [0.5] if config.use_gray else [0.5, 0.5, 0.5],
+    'std': [0.5] if config.use_gray else [0.5, 0.5, 0.5],
 })

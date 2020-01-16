@@ -117,6 +117,10 @@ class ClassificationSolver:
         """
         self.x = inputs['x'].to(self.device)
         self.y = inputs['y'].to(self.device)
+        self.mask = inputs['mask'].to(self.device)
+
+        if self.config.use_mask:
+            self.x = self.mask * self.x
 
     def forward(self):
         """
@@ -233,14 +237,14 @@ class ClassificationSolver:
                    num_eval=10000):
         y_true = []
         y_pred = []
-        for i_stop, (x, y) in enumerate(data_loaders['val']):
-            x = x.to(self.device)
-            y = y.to(self.device)
+        for i_stop, batch in enumerate(data_loaders['val']):
+            
+            self.set_input(batch)
 
-            logits = self.model(x)
+            logits = self.model(self.x)
             _, y_ = torch.max(logits, 1)
 
-            y_true.append(y.cpu().numpy())
+            y_true.append(self.y.cpu().numpy())
             y_pred.append(y_.cpu().numpy())
 
             if (i_stop + 1) % num_eval == 0:

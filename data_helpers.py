@@ -18,7 +18,7 @@ from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
 # from keras.utils import get_file
-# from utils.ffhq_dataset.face_alignment import image_align
+from utils.ffhq_dataset.face_alignment import image_align
 # from utils.ffhq_dataset.landmarks_detector import LandmarksDetector
 
 from dataloader import RAVDESSDataset
@@ -197,8 +197,9 @@ def ravdess_align_videos(root_path, actor):
             # Detect faces
             for rect in detector(frame_small, 1):
                 landmarks = [(int(item.x / factor), int(item.y / factor))
-                                for item in predictor(gray_small, rect).parts()]
+                             for item in predictor(gray_small, rect).parts()]
                 image_align(frame, save_str, landmarks)
+                break
 
 
 def ravdess_resize_frames(path_to_actor):
@@ -376,7 +377,7 @@ def ravdess_convert_to_frames(root_path):
                 cv2.imwrite(save_str_img, frame)
 
 
-def ravdess_extract_landmarks(root_path, target_path):
+def ravdess_extract_landmarks(path_to_actor):
     # Source: https://www.pyimagesearch.com/2017/04/03/facial-landmarks-dlib-opencv-python/
     # initialize dlib's face detector (HOG-based) and then create
     # the facial landmark predictor
@@ -384,25 +385,32 @@ def ravdess_extract_landmarks(root_path, target_path):
     predictor = dlib.shape_predictor(
         HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
 
-    root_dir = pathlib.Path(root_path)
+    if path_to_actor[-1] == '/':
+        path_to_actor = path_to_actor[:-1]
+    new_dir_lm = os.path.join('/', *path_to_actor.split('/')[:-2],
+                              'Landmarks_Aligned256', path_to_actor.split('/')[-1])
+    new_dir_mask = os.path.join('/', *path_to_actor.split('/')[:-2],
+                                'Mask_Aligned256', path_to_actor.split('/')[-1])
+    os.makedirs(new_dir_lm, exist_ok=True)
+    os.makedirs(new_dir_mask, exist_ok=True)
+    print('Saving to {} and {}'.format(new_dir_lm, new_dir_mask))
 
-    all_folders = [p for p in list(root_dir.glob('*/'))
-                   if str(p).split('/')[-1] != '.DS_Store']
+    all_folders = [str(f) for f in list(pathlib.Path(path_to_actor).glob('*'))]
+    all_folders = sorted(all_folders)
 
-    for i_folder, folder in enumerate(all_folders):
-        actor = str(folder).split('/')[-1]
-        os.makedirs(os.path.join(target_path, actor), exist_ok=True)
-        paths = [str(p) for p in list(folder.glob('*/'))
-                 if str(p).split('/')[-1] != '.DS_Store']
-
-        for i_path, path in enumerate(paths):
-            print("Detecting from image {} of {}, folder {} of {}".format(
-                i_path, len(paths), i_folder, len(all_folders)))
+    for folder in tqdm(all_folders):
+        save_dir_lm = os.path.join(new_dir_lm, folder.split('/')[-1])
+        save_dir_mask = os.path.join(new_dir_mask, folder.split('/')[-1])
+        os.makedirs(save_dir_lm, exist_ok=True)
+        os.makedirs(save_dir_mask, exist_ok=True)
+        all_frames = [str(f) for f in pathlib.Path(folder).glob('*')
+                      if str(f).split('/')[-1] != '.DS_Store']
+        for frame in all_frames:
             # load the input image, resize it, and convert it to grayscale
-            img = cv2.imread(path)
+            img = cv2.imread(frame)
             gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-            save_path = os.path.join(
-                target_path, actor, path.split('/')[-1][:-4] + '.npy')
+            save_path_lm = os.path.join(save_dir_lm, frame.split('/')[-1][:-4] + '.npy')
+            save_path_mask = os.path.join(save_dir_mask, frame.split('/')[-1][:-4] + '.png')
 
             # Detect faces
             rects = detector(img, 1)
@@ -411,13 +419,31 @@ def ravdess_extract_landmarks(root_path, target_path):
                 landmarks = predictor(gray, rect)
                 landmarks = shape_to_np(landmarks)
 
-                # for (x, y) in landmarks:
-                #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
-                # cv2.imshow("Output", img)
-                # cv2.waitKey(0)
+                # Compute mask
+                mask = compute_face_mask(landmarks, img)
 
                 # Save
-                np.save(save_path, landmarks)
+                np.save(save_path_lm, landmarks)
+
+                # Save image
+                cv2.imwrite(save_path_mask, mask)
+
+
+def compute_face_mask(landmarks, image):
+    jaw = landmarks[0:17]
+    left_eyebrow = landmarks[17:20]
+    left_eyebrow[:, 1] = left_eyebrow[:, 1] - 10
+    right_eyebrow = landmarks[24:27]
+    right_eyebrow[:, 1] = right_eyebrow[:, 1] - 10
+    hull = np.concatenate(
+        (jaw, np.flip(right_eyebrow, 0), np.flip(left_eyebrow, 0)))
+    mask = np.zeros(image.shape, dtype='uint8')
+    mask = cv2.drawContours(mask, [hull], -1,
+                            (255, 255, 255), thickness=cv2.FILLED)
+    mask = cv2.bitwise_not(mask)
+    img2gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY_INV)
+    return mask
 
 
 def rect_to_bb(rect):
@@ -613,10 +639,10 @@ if __name__ == "__main__":
     actor = sys.argv[1]
 
     # ravdess_get_mean_std_image(IMAGE_256_PATH, True)
-    # ravdess_extract_landmarks(IMAGE_256_PATH)
+    ravdess_extract_landmarks(actor)
     # ravdess_group_by_utterance(IMAGE_256_PATH)
     # ravdess_plot_label_distribution(IMAGE_PATH)
-    ravdess_resize_frames(actor)
+    # ravdess_resize_frames(actor)
     # ravdess_align_videos(VIDEO_PATH, actor)
     # ravdess_convert_to_frames(VIDEO_PATH)
     # ravdess_to_frames_center_crop(VIDEO_PATH)
