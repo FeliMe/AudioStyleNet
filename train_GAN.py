@@ -2,9 +2,8 @@ import argparse
 import importlib
 import os
 
-import dataloader
-
-from solver_gan import GANSolver
+from utils import dataloader
+from solver.solver_gan import GANSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False

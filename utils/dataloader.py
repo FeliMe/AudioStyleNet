@@ -15,7 +15,7 @@ from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from torchvision.utils import make_grid
 
-import utils
+import .utils
 
 
 class RAVDESSDataset(Dataset):

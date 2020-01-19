@@ -7,9 +7,8 @@ import wandb
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
-import dataloader
-
-from solver_classifier import ClassificationSolver
+from utils import dataloader
+from solver.solver_classifier import ClassificationSolver
 
 HOME = os.path.expanduser('~')
 PLOT_GRADS = False
