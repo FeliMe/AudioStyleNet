@@ -149,14 +149,71 @@ class VGG16Loss(nn.Module):
         return result
 
 
-class EmotionLoss(nn.Module):
-    def __init__(self):
+class EmotionClassifier(nn.Module):
+    def __init__(self, use_mask):
         super().__init__()
         self.classifier = ConvAndConvLSTM(gray=False)
-        self.classifier.load_state_dict(torch.load('saves/pre-trained/classifier_aligned256.pt'))
+        if use_mask:
+            state_dict = torch.load('saves/pre-trained/classifier_aligned256_masked.pt')
+        else:
+            state_dict = torch.load('saves/pre-trained/classifier_aligned256.pt')
+        self.classifier.load_state_dict(state_dict)
 
         for param in self.classifier.parameters():
             param.requires_grad = False
 
-    def forward(self, x):
-        return nn.functional.softmax(self.classifier(x))
+        self.use_mask = use_mask
+
+    def forward(self, x, mask=None):
+        if self.use_mask:
+            x = x * mask
+        return nn.functional.softmax(self.classifier(x), dim=1)
+
+
+class EmotionLoss(nn.Module):
+    def __init__(self, use_mask):
+        super().__init__()
+        classifier = ConvAndConvLSTM(gray=False)
+        if use_mask:
+            state_dict = torch.load(
+                'saves/pre-trained/classifier_aligned256_masked.pt')
+        else:
+            state_dict = torch.load(
+                'saves/pre-trained/classifier_aligned256.pt')
+        classifier.load_state_dict(state_dict)
+
+        self.model = classifier.convolutions
+        self.model = nn.Sequential(
+            classifier.convolutions,
+            classifier.temporal
+        )
+
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        self.use_mask = use_mask
+
+    def forward(self, x, y, mask=None):
+        # Extract features
+        if self.use_mask:
+            x = x * mask
+            y = y * mask
+
+        x_feats, _ = self.model(x)
+        y_feats, _ = self.model(y)
+
+        # # Normalize features
+        # x_n = torch.sum(x_feats ** 2, dim=1, keepdim=True) ** 0.5
+        # x_feats_n = x_feats / (x_n + 1e-10)
+
+        # x_n = torch.sum(y_feats ** 2, dim=1, keepdim=True) ** 0.5
+        # y_feats_n = y_feats / (x_n + 1e-10)
+
+        # # Compute diff
+        # diff = (x_feats_n - y_feats_n) ** 2
+
+        # result = diff.mean()
+
+        result = ((x_feats - y_feats) ** 2).mean()
+
+        return result

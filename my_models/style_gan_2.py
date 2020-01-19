@@ -1,4 +1,5 @@
 import math
+import os
 import random
 
 import torch
@@ -505,6 +506,7 @@ class Generator(nn.Module):
         channel_multiplier=2,
         blur_kernel=[1, 3, 3, 1],
         lr_mlp=0.01,
+        pretrained=False,
     ):
         super().__init__()
 
@@ -575,6 +577,20 @@ class Generator(nn.Module):
 
         self.n_latent = self.log_size * 2 - 2
 
+        self.latent_avg = torch.randn(512)
+        self.noises = self.make_noise
+
+        if pretrained:
+            self.load_weights()
+
+    def load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        self.load_state_dict(w['g_ema'])
+        self.latent_avg = w['latent_avg']
+        self.latent_std = w['latent_std']
+        self.noises = w['noises']
+
     def make_noise(self):
         device = self.input.input.device
 
@@ -617,7 +633,8 @@ class Generator(nn.Module):
             style_t = []
             for style in styles:
                 style_t.append(
-                    truncation_latent + truncation * (style - truncation_latent)
+                    truncation_latent + truncation *
+                    (style - truncation_latent)
                 )
             styles = style_t
 

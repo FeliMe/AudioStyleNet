@@ -4,6 +4,15 @@ import torch.nn.functional as F
 import torch.nn.utils.spectral_norm as spectral_norm
 
 
+class EmotionDB(nn.Module):
+    def __init__(self, length, dimensions):
+        super(EmotionDB, self).__init__()
+        self.db = nn.Parameter(torch.randn((length, dimensions)))
+
+    def forward(self, idx):
+        return self.db[idx]
+
+
 class MaxChannelPool(nn.Module):
     """
     Max Pool batch of sequences of images along the sequence dimension

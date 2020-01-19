@@ -3,8 +3,10 @@ File for general usefull functions which are not specific to a certain module
 """
 
 import cv2
+import dlib
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import time
 import torch
 import torch.nn as nn
@@ -19,7 +21,7 @@ class Config(dict):
 
 
 class Denormalize(object):
-    """ Denormalizes image to save or display it """
+    """ Custom transform: Denormalizes image to save or display it """
     def __init__(self, mean, std):
         assert len(mean) == 3
         assert len(std) == 3
@@ -30,6 +32,21 @@ class Denormalize(object):
 
     def __call__(self, sample):
         return self.transform(sample)
+
+
+class Downsample(object):
+    """ Custom transform: Downsamples image in StyleGAN2 manner """
+    def __init__(self, size):
+        self.size = size
+
+    def __call__(self, sample):
+        c, h, w = sample.shape
+        if h > self.size:
+            factor = h // self.size
+            sample = sample.reshape(
+                c, h // factor, factor, w // factor, factor)
+            sample = sample.mean([2, 4])
+        return sample
 
 
 class GradPlotter:
@@ -269,3 +286,48 @@ class GANLoss(nn.Module):
             return loss / len(prediction)
         else:
             return self.loss(prediction, target_is_real, for_discriminator)
+
+
+class FaceMaskPredictor:
+    def __init__(self):
+        super().__init__()
+        self.detector = dlib.get_frontal_face_detector()
+        self.predictor = dlib.shape_predictor(
+            os.path.expanduser('~') + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    def _get_landmarks(self, img):
+        dets = self.detector(img, 1)
+        for detection in dets:
+            landmarks = [(item.x, item.y)
+                         for item in self.predictor(img, detection).parts()]
+            break
+        return landmarks
+
+    def _compute_face_mask(self, landmarks, image):
+        jaw = landmarks[0:17]
+        left_eyebrow = landmarks[17:20]
+        left_eyebrow[:, 1] = left_eyebrow[:, 1] - 10
+        right_eyebrow = landmarks[24:27]
+        right_eyebrow[:, 1] = right_eyebrow[:, 1] - 10
+        hull = np.concatenate(
+            (jaw, np.flip(right_eyebrow, 0), np.flip(left_eyebrow, 0)))
+        mask = np.zeros(image.shape, dtype='uint8')
+        mask = cv2.drawContours(mask, [hull], -1,
+                                (255, 255, 255), thickness=cv2.FILLED)
+        mask = cv2.bitwise_not(mask)
+        img2gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY_INV)
+        return mask
+
+    def get_mask(self, img):
+        """
+        args:
+            img: torch.tensor, shape: [1, c, h, w]
+        """
+        img = img.detach().cpu().numpy()[0]
+        img = (img * 255).astype('uint8').transpose(1, 2, 0)
+
+        landmarks = np.array(self._get_landmarks(img))
+        mask = self._compute_face_mask(landmarks, img)
+        mask = torch.tensor(mask[None, None, :] / 255., dtype=torch.float32)
+        return mask

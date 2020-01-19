@@ -5,17 +5,19 @@ import torch
 
 from tqdm import tqdm
 from projector import Projector
-from my_models.generators import StyleGAN2Decoder
+from my_models.style_gan_2 import Generator
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
 
+
 if __name__ == "__main__":
 
+    # Select device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load model
-    g = StyleGAN2Decoder().to(device).train()
+    g = Generator(1024, 512, 8, pretrained=True).to(device).train()
     for param in g.parameters():
         param.requires_grad = False
 
@@ -41,15 +43,15 @@ if __name__ == "__main__":
         target_image = transform(target_image).to(device)
 
         # Run projector
-        proj.run(target_image)
+        proj.run(target_image, 1000 if i == 0 else 50)
 
         # Collect results
         generated = proj.get_images()
         latents = proj.get_latents()
 
         # Save results
-        save_str = 'saves/explore_latent/' + file.split('/')[-1].split('.')[0]
-        os.makedirs('saves/explore_latent/', exist_ok=True)
+        save_str = '../saves/tester/' + file.split('/')[-1].split('.')[0]
+        os.makedirs('../saves/tester/', exist_ok=True)
         print('Saving {}'.format(save_str + '_p.png'))
         save_image(generated, save_str + '_p.png', normalize=True)
         torch.save(latents.detach().cpu(), save_str + '.pt')

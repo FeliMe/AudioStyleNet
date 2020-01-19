@@ -11,12 +11,14 @@ class Projector:
                  num_steps=1000,
                  initial_learning_rate=0.1,
                  initial_noise_factor=0.05,
-                 verbose=True
+                 verbose=True,
+                 initial_latent=None,
                  ):
 
         self.num_steps = num_steps
         self.n_mean_latent = 10000
         self.initial_lr = initial_learning_rate
+        self.lr = initial_learning_rate
         self.initial_noise_factor = initial_noise_factor
         self.lr_rampdown_length = 0.25
         self.lr_rampup_length = 0.05
@@ -29,10 +31,9 @@ class Projector:
         self.target_images = None
         self.imag_gen = None
         self.loss = None
-        self.lr = None
         self.cur_step = None
 
-        self.g_ema = g.g
+        self.g_ema = g
         self.device = next(g.parameters()).device
 
         # Find latent stats
@@ -44,20 +45,24 @@ class Projector:
             latent_out = self.g_ema.style(noise_sample)
 
         self.latent_mean = latent_out.mean(0)
-        self.latent_std = ((latent_out - self.latent_mean).pow(2).sum() /
-                            self.n_mean_latent) ** 0.5
+        self.latent_std = ((latent_out - self.latent_mean).pow(2).sum() / self.n_mean_latent) ** 0.5
         self._info('std = {}'.format(self.latent_std))
+        # self.latent_mean = (torch.randn(512, device=self.device) * 0.1539) + 0.097
 
-        self.latent_in = self.latent_mean.detach().clone().unsqueeze(0)
-        self.latent_in = self.latent_in.repeat(self.g_ema.n_latent, 1)
+        if initial_latent is None:
+            self.latent_in = self.latent_mean.detach().clone().unsqueeze(0)
+            self.latent_in = self.latent_in.repeat(self.g_ema.n_latent, 1)
+        else:
+            self.latent_in = initial_latent
         self.latent_in.requires_grad = True
 
         # Find noise inputs.
         self.noises = [noise.to(self.device) for noise in g.noises]
 
         # Init optimizer
-        self.opt = torch.optim.Adam(
-            [self.latent_in] + self.noises, lr=self.initial_lr)
+        # self.opt = torch.optim.Adam(
+        #     [self.latent_in] + self.noises, lr=self.initial_lr)
+        self.opt = torch.optim.Adam([self.latent_in], lr=self.initial_lr)
 
         # Init loss function
         self.lpips = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
@@ -109,7 +114,8 @@ class Projector:
         img = img.mean([3, 5])
         return img
 
-    def run(self, target_images):
+    def run(self, target_images, num_steps):
+        self.num_steps = num_steps
         self.prepare_input(target_images)
 
         self._info('Running...')
@@ -135,14 +141,15 @@ class Projector:
 
         # Train
         self.img_gen, _ = self.g_ema([self.latent_expr], input_is_latent=True, noise=self.noises)
-        if self.img_gen.shape[2] > 256:
-            self.imag_gen = self.downsample_img(self.img_gen)
+        # Downsample to 256 x 256
+        self.img_gen = self.downsample_img(self.img_gen)
 
-        self.loss = self.lpips(self.imag_gen, self.target_images).sum()
+        # Compute perceptual loss
+        self.loss = self.lpips(self.img_gen, self.target_images).sum()
 
         # Noise regularization
-        reg_loss = self.noise_regularization()
-        self.loss += reg_loss * self.regularize_noise_weight
+        # reg_loss = self.noise_regularization()
+        # self.loss += reg_loss * self.regularize_noise_weight
 
         # Update params
         self.opt.zero_grad()
@@ -150,11 +157,11 @@ class Projector:
         self.opt.step()
 
         # Normalize noise
-        self.normalize_noise()
+        # self.normalize_noise()
 
     def get_images(self):
         imgs, _ = self.g_ema([self.latent_in], input_is_latent=True, noise=self.noises)
         return imgs
 
     def get_latents(self):
-        return self.latent_in
+        return self.latent_in.detach()

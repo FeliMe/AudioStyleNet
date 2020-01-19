@@ -384,7 +384,7 @@ class StyleGAN2Decoder(nn.Module):
                        '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
         self.g.load_state_dict(w['g_ema'])
         self.latent_avg = w['latent_avg']
-        self.noises = [torch.tensor(n) for n in w['noises']]
+        self.noises = [n for n in w['noises']]
 
     def mean_style(self, z):
         return self.g.style(z).mean(0, keepdim=True)

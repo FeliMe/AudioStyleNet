@@ -12,6 +12,7 @@ import pathlib
 import random
 import sys
 import bz2
+import torch
 
 from PIL import Image
 from torchvision import transforms
@@ -634,12 +635,77 @@ def celeba_extract_landmarks(root_path, target_path, line_img_path):
             # cv2.waitKey(0)
 
 
+def ravdess_project_to_latent(path_to_actor):
+    from my_models.style_gan_2 import Generator
+    from projector import Projector
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Load model
+    g = Generator(1024, 512, 8, pretrained=True).to(device).train()
+    for param in g.parameters():
+        param.requires_grad = False
+
+    proj = Projector(g)
+
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+
+    if path_to_actor[-1] == '/':
+        path_to_actor = path_to_actor[:-1]
+    new_dir = os.path.join('/', *path_to_actor.split('/')[:-2],
+                           'Projected', path_to_actor.split('/')[-1])
+    os.makedirs(new_dir, exist_ok=True)
+    print('Saving to {}'.format(new_dir))
+
+    sentences = [str(f) for f in list(pathlib.Path(path_to_actor).glob('*'))]
+    sentences = sorted(sentences)
+
+    mapping = {
+        'neutral': '01',
+        'calm': '02',
+        'happy': '03',
+        'sad': '04',
+        'angry': '05',
+        'fearful': '06',
+        'disgust': '07',
+        'surprised': '08'
+    }
+    emotions = [mapping[e] for e in ['happy', 'angry', 'sad']]
+    sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                            in emotions, sentences))
+    print(sentences)
+
+    for folder in tqdm(sentences):
+        save_dir = os.path.join(new_dir, folder.split('/')[-1])
+        os.makedirs(save_dir, exist_ok=True)
+        all_frames = [str(f) for f in pathlib.Path(folder).glob('*')
+                      if str(f).split('/')[-1] != '.DS_Store']
+        for i, frame in enumerate(sorted(all_frames)):
+            print('Projecting {}'.format(frame))
+
+            save_path = os.path.join(save_dir, frame.split('/')[-1][:-4] + '.pt')
+
+            target_image = Image.open(frame)
+            target_image = transform(target_image).to(device)
+
+            # Run projector
+            proj.run(target_image, 1000 if i == 0 else 50)
+
+            # Collect results
+            latents = proj.get_latents().cpu()
+            torch.save(latents, save_path)
+
+
 if __name__ == "__main__":
 
     actor = sys.argv[1]
 
     # ravdess_get_mean_std_image(IMAGE_256_PATH, True)
-    ravdess_extract_landmarks(actor)
+    # ravdess_extract_landmarks(actor)
+    ravdess_project_to_latent(actor)
     # ravdess_group_by_utterance(IMAGE_256_PATH)
     # ravdess_plot_label_distribution(IMAGE_PATH)
     # ravdess_resize_frames(actor)
