@@ -15,7 +15,7 @@ from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from torchvision.utils import make_grid
 
-import .utils
+import utils
 
 
 class RAVDESSDataset(Dataset):
@@ -535,3 +535,109 @@ class SimpleDataset(Dataset):
 
     def __getitem__(self, item):
         return self.load_fn(self.files[item], self.trans)
+
+
+class RAVDESSFlatDataset(Dataset):
+    def __init__(self,
+                 root_path,
+                 normalize=True,
+                 mean=[0., 0., 0.],
+                 std=[1., 1., 1.],
+                 max_samples=None,
+                 seed=123,
+                 image_size=64,
+                 label_one_hot=False,
+                 emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                           'fearful', 'disgust', 'surprised'],
+                 actors=[i + 1 for i in range(24)]):
+
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.label_one_hot = label_one_hot
+
+        root_dir = pathlib.Path(root_path)
+
+        # Get paths to all sentences
+        sentences = [str(p) for p in list(root_dir.glob('*/*'))
+                     if str(p).split('/')[-1] != '.DS_Store']
+
+        # Check if not empty
+        if len(sentences) == 0:
+            raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
+
+        # Filter included actors
+        sentences = list(
+            filter(lambda s: int(s.split('/')[-2].split('_')[-1]) in actors, sentences))
+        print("Actors included in data: {}".format(actors))
+
+        # Filter senteces by emotions
+        mapping = {
+            'neutral': '01',
+            'calm': '02',
+            'happy': '03',
+            'sad': '04',
+            'angry': '05',
+            'fearful': '06',
+            'disgust': '07',
+            'surprised': '08'
+        }
+        mapped_emotions = [mapping[e] for e in emotions]
+        sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                                in mapped_emotions, sentences))
+        print("Emotions included in data: {}".format(
+            [list(mapping.keys())[list(mapping.values()).index(e)] for e in mapped_emotions]))
+
+        # Get all frames from selected sentences
+        frames = [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.jpg'))]
+        frames += [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.png'))]
+
+        # Count number of frames for every emotion
+        tmp = [f.split('/')[-2].split('-')[2] for f in frames]
+        for emo in emotions:
+            print("# frames for '{}': {}".format(
+                emo, len(list(filter(lambda t: t == mapping[emo], tmp)))))
+
+        # Random seeds
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
+        # Shuffle frames
+        random.shuffle(frames)
+
+        if max_samples is not None:
+            frames = frames[:min(len(frames), max_samples)]
+
+        # Transforms
+        trans = [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+        ]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.transform = transforms.Compose(trans)
+
+        self.frames = frames
+
+    def __len__(self):
+        return len(self.frames)
+
+    def _int_to_one_hot(self, label):
+        one_hot = torch.zeros(8)
+        one_hot[label] = 1
+        return one_hot
+
+    def __getitem__(self, item):
+        # Select frame
+        frame = self.frames[item]
+        # Get emotion
+        emotion = int(frame.split('/')[-2].split('-')[2]) - 1
+        if self.label_one_hot:
+            emotion = self._int_to_one_hot(emotion)
+        # Load image
+        img = self.transform(Image.open(frame))
+
+        return {'x': img, 'y': emotion}

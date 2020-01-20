@@ -1,3 +1,4 @@
+import os
 import torch.nn as nn
 import torch
 
@@ -7,6 +8,60 @@ import my_models.model_utils as model_utils
 
 
 """ Image models """
+
+
+class FERModelGitHub(nn.Module):
+    """
+    Source: https://github.com/WuJie1010/Facial-Expression-Recognition.Pytorch
+    """
+    def __init__(self, pretrained=True):
+        super(FERModelGitHub, self).__init__()
+        self.features = self._make_layers()
+        self.classifier = nn.Linear(512, 7)
+
+        if pretrained:
+            self._load_weights()
+
+    def _make_layers(self):
+        cfg = [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256,
+               'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M']
+        layers = []
+        in_channels = 3
+        for x in cfg:
+            if x == 'M':
+                layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
+            else:
+                layers += [nn.Conv2d(in_channels, x, kernel_size=3, padding=1),
+                           nn.BatchNorm2d(x),
+                           nn.ReLU(inplace=True)]
+                in_channels = x
+        layers += [nn.AvgPool2d(kernel_size=1, stride=1)]
+        return nn.Sequential(*layers)
+
+    def _load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/FERModelGitHub.pt'))
+        self.load_state_dict(w['net'])
+
+    def _map_to_ravdess_out(self, out):
+        ravdess_out = torch.zeros((out.shape[0], 8), dtype=out.dtype, device=out.device)
+        ravdess_out[:, 0] = out[:, 6]  # neutral
+        # ravdess_out[:, 1] = 0.       # calm
+        ravdess_out[:, 2] = out[:, 3]  # happy
+        ravdess_out[:, 3] = out[:, 4]  # sad
+        ravdess_out[:, 4] = out[:, 0]  # angry
+        ravdess_out[:, 5] = out[:, 2]  # fearful
+        ravdess_out[:, 6] = out[:, 1]  # disgust
+        ravdess_out[:, 7] = out[:, 5]  # surprised
+        return ravdess_out
+
+    def forward(self, x):
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        out = torch.nn.functional.dropout(out, p=0.5, training=self.training)
+        out = self.classifier(out)
+        out = self._map_to_ravdess_out(out)
+        return out
 
 
 class PreTrainedResNet18(nn.Module):

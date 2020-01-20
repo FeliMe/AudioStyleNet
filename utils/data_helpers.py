@@ -19,8 +19,8 @@ from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
 # from keras.utils import get_file
-from utils.ffhq_dataset.face_alignment import image_align
-# from utils.ffhq_dataset.landmarks_detector import LandmarksDetector
+from ffhq_dataset.face_alignment import image_align
+# from ffhq_dataset.landmarks_detector import LandmarksDetector
 
 from dataloader import RAVDESSDataset
 
@@ -673,10 +673,11 @@ def ravdess_project_to_latent(path_to_actor):
         'disgust': '07',
         'surprised': '08'
     }
-    emotions = [mapping[e] for e in ['happy', 'angry', 'sad']]
+    emotions = [mapping[e] for e in ['neutral', 'calm', 'fearful', 'disgust', 'surprised']]
     sentences = list(filter(lambda s: s.split('/')[-1].split('-')[2]
                             in emotions, sentences))
     print(sentences)
+    1 / 0
 
     for folder in tqdm(sentences):
         save_dir = os.path.join(new_dir, folder.split('/')[-1])

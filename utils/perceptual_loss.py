@@ -183,10 +183,10 @@ class EmotionLoss(nn.Module):
         classifier.load_state_dict(state_dict)
 
         self.model = classifier.convolutions
-        self.model = nn.Sequential(
-            classifier.convolutions,
-            classifier.temporal
-        )
+        # self.model = nn.Sequential(
+        #     classifier.convolutions,
+        #     classifier.temporal
+        # )
 
         for param in self.model.parameters():
             param.requires_grad = False
@@ -199,21 +199,21 @@ class EmotionLoss(nn.Module):
             x = x * mask
             y = y * mask
 
-        x_feats, _ = self.model(x)
-        y_feats, _ = self.model(y)
+        x_feats = self.model(x)
+        y_feats = self.model(y)
 
-        # # Normalize features
-        # x_n = torch.sum(x_feats ** 2, dim=1, keepdim=True) ** 0.5
-        # x_feats_n = x_feats / (x_n + 1e-10)
+        # Normalize features
+        x_n = torch.sum(x_feats ** 2, dim=1, keepdim=True) ** 0.5
+        x_feats_n = x_feats / (x_n + 1e-10)
 
-        # x_n = torch.sum(y_feats ** 2, dim=1, keepdim=True) ** 0.5
-        # y_feats_n = y_feats / (x_n + 1e-10)
+        x_n = torch.sum(y_feats ** 2, dim=1, keepdim=True) ** 0.5
+        y_feats_n = y_feats / (x_n + 1e-10)
 
-        # # Compute diff
-        # diff = (x_feats_n - y_feats_n) ** 2
+        # Compute diff
+        diff = (x_feats_n - y_feats_n) ** 2
 
-        # result = diff.mean()
+        result = diff.mean()
 
-        result = ((x_feats - y_feats) ** 2).mean()
+        # result = ((x_feats - y_feats) ** 2).mean()
 
         return result

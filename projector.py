@@ -3,6 +3,7 @@ import torch
 
 from lpips import PerceptualLoss
 from tqdm import tqdm
+from my_models.style_gan_2 import StyleGAN2DiscriminatorLoss
 
 
 class Projector:
@@ -29,7 +30,6 @@ class Projector:
         self.latent_expr = None
         self.lpips = None
         self.target_images = None
-        self.imag_gen = None
         self.loss = None
         self.cur_step = None
 

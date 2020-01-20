@@ -436,7 +436,11 @@ class ResBlock(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, size, channel_multiplier=2, blur_kernel=[1, 3, 3, 1]):
+    def __init__(self,
+                 size,
+                 channel_multiplier=2,
+                 blur_kernel=[1, 3, 3, 1],
+                 pretrained=False):
         super().__init__()
 
         channels = {
@@ -475,6 +479,14 @@ class Discriminator(nn.Module):
                         activation='fused_lrelu'),
             EqualLinear(channels[4], 1),
         )
+
+        if pretrained:
+            self.load_weights()
+
+    def load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        self.load_state_dict(w['d'])
 
     def forward(self, input):
         out = self.convs(input)
@@ -680,3 +692,17 @@ class Generator(nn.Module):
 
         else:
             return image, None
+
+
+class StyleGAN2DiscriminatorLoss(nn.Module):
+    def __init__(self, size):
+        super(StyleGAN2DiscriminatorLoss, self).__init__()
+
+        self.d = Discriminator(size, pretrained=True).eval()
+
+        for param in self.d.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        fake_pred = self.d(x)
+        return F.softplus(fake_pred).mean()

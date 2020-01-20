@@ -9,7 +9,7 @@ if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('-a', '--actor', type=str, required=True)
-    parser.add_argument('--emotions',
+    parser.add_argument('-e', '--emotions',
                         help='two emotions to calculate the offset vector between',
                         nargs='+', required=True)
     args = parser.parse_args()
@@ -46,11 +46,22 @@ if __name__ == '__main__':
     sentences2 = list(filter(lambda s: s.split(
         '/')[-1].split('-')[2] == mapping[emotion2], sentences))
 
+    print("Sentences 1:")
+    for s in sentences1:
+        print(s)
+
+    print("Sentences 2:")
+    for s in sentences2:
+        print(s)
+
     # Get frames
-    frames1 = []
-    for sentence in sentences1:
-        for f in list(pathlib.Path(sentence).glob('*')):
-            frames1.append(str(f))
+    print("\n\n\n")
+    print(sentences1[-1])
+    frames1 = [str(f) for f in list(pathlib.Path(sentences1[-1]).glob('*'))]
+    # frames1 = []
+    # for sentence in sentences1:
+    #     for f in list(pathlib.Path(sentence).glob('*')):
+    #         frames1.append(str(f))
 
     frames2 = []
     for sentence in sentences2:
@@ -70,10 +81,11 @@ if __name__ == '__main__':
         offset_means.append((vectors2 - vector).mean(dim=0))
     offset_means = torch.stack(offset_means)
     print(offset_means.shape)
-    offset = offset_means.mean(dim=0)
+    offset = offset_means
+    # offset = offset_means.mean(dim=0)
 
     # Save
-    os.makedirs('../saves/offsets/', exist_ok=True)
-    torch.save(offset, '../saves/offsets/{}_offset_{}-{}.pt'.format(
+    os.makedirs('saves/offsets/', exist_ok=True)
+    torch.save(offset, 'saves/offsets/{}_sentence-1_offset_{}-{}.pt'.format(
         actor, emotion1, emotion2
     ))

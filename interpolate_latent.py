@@ -27,7 +27,7 @@ if __name__ == "__main__":
     for param in G.parameters():
         param.requires_grad = False
 
-    os.makedirs('../saves/latent_interpolation/', exist_ok=True)
+    os.makedirs('saves/latent_interpolation/', exist_ok=True)
 
     steps = 90
 
@@ -35,5 +35,5 @@ if __name__ == "__main__":
         w = latent1 + (t / steps) * (latent2 - latent1)
         img, _ = G.g([w], input_is_latent=True)
 
-        save_image(img, '../saves/latent_interpolation/{}.png'.format(str(t + 1).zfill(3)),
+        save_image(img, 'saves/latent_interpolation/{}.png'.format(str(t + 1).zfill(3)),
                    normalize=True, range=(-1, 1))
