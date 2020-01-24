@@ -5,21 +5,42 @@ import torch
 
 from tqdm import tqdm
 from my_models.style_gan_2 import Generator
-from lpips import PerceptualLoss
+# from lpips import PerceptualLoss, EmotionLoss
 from PIL import Image
-from utils.perceptual_loss import EmotionLoss, EmotionClassifier
+from utils.perceptual_loss import EmotionClassifier, FERLossLpips, EmotionLoss
 from utils.utils import Downsample
 from torchvision import transforms
 from torchvision.utils import save_image
+
+
+def update_lr(t, initial_lr, opt):
+    lr_rampdown_length = 0.25
+    lr_rampup_length = 0.05
+    lr_ramp = min(1.0, (1.0 - t) / lr_rampdown_length)
+    lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
+    lr_ramp = lr_ramp * min(1.0, t / lr_rampup_length)
+    lr = initial_lr * lr_ramp
+    opt.param_groups[0]['lr'] = lr
+    return lr
+
+
+def downsample_img(img):
+    b, c, h, w = img.shape
+    factor = h // 256
+    img = img.reshape(
+        b, c, h // factor, factor, w // factor, factor)
+    img = img.mean([3, 5])
+    return img
 
 
 if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-l', '--latent', help='Latent to be optimized', required=True)
-    parser.add_argument('-i', '--target_image', help='Target image', required=True)
-    parser.add_argument('--dst_dir', help='Target directory', default='saves/ascent_emotion')
+    parser.add_argument('-l', '--latent', type=str, help='Latent to be optimized', required=True)
+    parser.add_argument('-t', '--target_image', type=str, help='Target image', required=True)
+    parser.add_argument('--dst_dir', type=str, help='Target directory', default='saves/ascent_emotion')
+    parser.add_argument('--lr', default=0.1, type=int)
     args = parser.parse_args()
 
     # Select device
@@ -32,19 +53,16 @@ if __name__ == '__main__':
     sample = torch.load(args.latent).to(device)
     sample.requires_grad = True
 
-    # mask_predictor = FaceMaskPredictor()
-    # mask = None
-
     g = Generator(1024, 512, 8, pretrained=True).to(device)
     g.noises = [n.to(device) for n in g.noises]
 
     emotion_classifier = EmotionClassifier(use_mask=False).to(device)
-    # criterion = nn.BCELoss()
-    criterion = EmotionLoss(use_mask=False).to(device)
-    opt = torch.optim.Adam([sample])
+    # emotion_classifier = FERModelGitHub(pretrained=True).to(device)
+    # criterion = EmotionLoss().to(device)
+    # criterion = FERLossLpips().to(device)
+    criterion = EmotionLoss().to(device)
 
-    # Regularization
-    lpips = PerceptualLoss(model='net-lin', net='vgg').to(device)
+    opt = torch.optim.Adam([sample], lr=args.lr)
 
     emotions = {
         'neutral': 0,
@@ -57,46 +75,54 @@ if __name__ == '__main__':
         'surprise': 7
     }
 
-    # target = torch.zeros((1, 8)).to(device)
-    # target[:, emotions['angry']] = 1.
+    # Load target image
+    # t = transforms.Compose([transforms.Resize(48), transforms.ToTensor()])
+    t = transforms.Compose([transforms.ToTensor(), Downsample(256)])
+    target = t(Image.open(args.target_image)).unsqueeze(0).to(device)
 
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        Downsample(256),
-    ])
-    target = transform(Image.open(args.target_image)).unsqueeze(0).to(device)
-
-    save_image(target.cpu(), '{}/target_img.png'.format(target_dir),
+    # Save target image in target directory
+    save_image(target.detach().cpu(), '{}/target_img.png'.format(target_dir),
                normalize=True)
+
+    import torch.nn.functional as F
+    pred = F.softmax(emotion_classifier(target), dim=1)[
+        0].detach().cpu().numpy()
+    print("Target emotion")
+    for key, value in emotions.items():
+        print("{}: {:.3f}".format(key, pred[value]))
+    print()
 
     # Init pbar
     num_steps = 1000
+    i_save = 1
     pbar = tqdm(range(num_steps))
 
     for i in pbar:
+        t = i / num_steps
+        lr = update_lr(t, args.lr, opt)
+
         # Generated image from latent vetor
         img_gen, _ = g([sample], input_is_latent=True, noise=g.noises)
 
-        # Downsample generated image to 256
-        b, c, h, w = img_gen.shape
-        factor = h // 256
-        img_gen = img_gen.reshape(
-            b, c, h // factor, factor, w // factor, factor)
-        img_gen = img_gen.mean([3, 5])
+        # Save generated image in interval
+        if i % 50 == 0:
+            save_image(img_gen.detach().cpu(), '{}/{}.png'.format(
+                target_dir, str(i_save).zfill(3)), normalize=True)
+            i_save += 1
 
-        # if mask is None:
-        #     mask = mask_predictor.get_mask(img_gen).to(device)
+        # Downsample generated image to 256
+        img_gen = downsample_img(img_gen)
 
         # emotion_pred = emotion_classifier(img_gen)
         # loss = criterion(emotion_pred, target)
         emotion_loss = criterion(img_gen, target)
-        # perceptual_loss = lpips(img_gen, target)
-        # loss = emotion_loss + perceptual_loss
         loss = emotion_loss
 
         opt.zero_grad()
         loss.backward()
         opt.step()
+
+        pbar.set_description("lr: {:.4f}".format(lr))
 
         if i % 50 == 0:
             np.set_printoptions(precision=3, suppress=True)
@@ -105,8 +131,7 @@ if __name__ == '__main__':
             print(f'\nloss: {loss.item(): .3f}')
             for key, value in emotions.items():
                 print("{}: {:.3f}".format(key, emotion_pred[value]))
-            # pbar.set_description("Emotion: {}".format(emotion_pred.cpu().numpy()))
-            # pbar.set_description(
-            #     (f'e-loss: {emotion_loss.item():.3f}; lpips: {perceptual_loss.item():.3f}'))
-            save_image(img_gen.detach().cpu(), '{}/{}_of_{}.png'.format(
-                target_dir, i, num_steps), normalize=True)
+
+    img_gen, _ = g([sample], input_is_latent=True, noise=g.noises)
+    save_image(img_gen.detach().cpu(), '{}/{}.png'.format(
+        target_dir, str(i_save).zfill(3)), normalize=True)

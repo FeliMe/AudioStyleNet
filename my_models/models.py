@@ -10,6 +10,38 @@ import my_models.model_utils as model_utils
 """ Image models """
 
 
+class VGGStyleClassifier(nn.Module):
+    def __init__(self):
+        super(VGGStyleClassifier, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 8, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+
+            nn.Conv2d(8, 16, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+
+            nn.Conv2d(16, 16, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(2, 2),
+        )
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(16 * 16 * 16, 8),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
+
+        return x
+
+
 class FERModelGitHub(nn.Module):
     """
     Source: https://github.com/WuJie1010/Facial-Expression-Recognition.Pytorch

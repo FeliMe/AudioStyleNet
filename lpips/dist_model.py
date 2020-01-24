@@ -29,7 +29,7 @@ class DistModel(BaseModel):
                     ['net'] for off-the-shelf network
                     ['L2'] for L2 distance in Lab colorspace
                     ['SSIM'] for ssim in RGB colorspace
-            net - ['squeeze','alex','vgg']
+            net - ['squeeze','alex','vgg', 'emotion-vgg']
             model_path - if None, will look in weights/[NET_NAME].pth
             colorspace - ['Lab','RGB'] colorspace to use for L2 and SSIM
             use_gpu - bool - whether or not to use a GPU
@@ -61,11 +61,23 @@ class DistModel(BaseModel):
                 kw['map_location'] = 'cpu'
             if(model_path is None):
                 import inspect
+                # tmp_net = 'vgg' if net == 'emotion-vgg' else net
                 model_path = os.path.abspath(os.path.join(inspect.getfile(self.initialize), '..', 'weights/v%s/%s.pth' % (version, net)))
 
             if(not is_train):
                 print('Loading model from: %s' % model_path)
-                self.net.load_state_dict(torch.load(model_path, **kw), strict=False)
+                weights = torch.load(model_path, **kw)
+
+                # if net == 'emotion-vgg':
+                #     chns = [8, 16, 16, 16]
+                #     for i, key in enumerate(weights.keys()):
+                #         if i == len(chns):
+                #             del weights[key]
+                #             break
+                #         w = weights[key]
+                #         weights[key] = (torch.randn([1, chns[i], 1, 1]) * w.std()) + w.mean()
+
+                self.net.load_state_dict(weights, strict=False)
 
         elif(self.model == 'net'):  # pretrained network
             self.net = networks.PNetLin(pnet_rand=pnet_rand, pnet_type=net, lpips=False)

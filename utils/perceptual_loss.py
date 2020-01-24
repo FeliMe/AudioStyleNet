@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from torchvision.models.vgg import vgg16, vgg19
-from my_models.models import ConvAndConvLSTM
+from my_models.models import ConvAndConvLSTM, FERModelGitHub
 
 
 VGG_MEAN = [0.485, 0.456, 0.406]
@@ -171,7 +171,7 @@ class EmotionClassifier(nn.Module):
 
 
 class EmotionLoss(nn.Module):
-    def __init__(self, use_mask):
+    def __init__(self, use_mask=False):
         super().__init__()
         classifier = ConvAndConvLSTM(gray=False)
         if use_mask:
@@ -215,5 +215,113 @@ class EmotionLoss(nn.Module):
         result = diff.mean()
 
         # result = ((x_feats - y_feats) ** 2).mean()
+
+        return result
+
+
+class FERLossLpips(nn.Module):
+    def __init__(self):
+        super(FERLossLpips, self).__init__()
+
+        features = FERModelGitHub(pretrained=True).features
+
+        self.slice1 = nn.Sequential()
+        self.slice2 = nn.Sequential()
+        self.slice3 = nn.Sequential()
+        self.slice4 = nn.Sequential()
+        self.slice5 = nn.Sequential()
+        for x in range(6):
+            self.slice1.add_module(str(x), features[x])
+        for x in range(6, 13):
+            self.slice2.add_module(str(x), features[x])
+        for x in range(13, 26):
+            self.slice3.add_module(str(x), features[x])
+        for x in range(26, 39):
+            self.slice4.add_module(str(x), features[x])
+        for x in range(39, 52):
+            self.slice5.add_module(str(x), features[x])
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def downsample_img(self, img):
+        b, c, h, w = img.shape
+        factor = h // 64
+        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
+        img = img.mean([3, 5])
+        return img
+
+    def _forward(self, x):
+        from collections import namedtuple
+        h = self.slice1(x)
+        h_relu1 = h
+        h = self.slice2(h)
+        h_relu2 = h
+        h = self.slice3(h)
+        h_relu3 = h
+        h = self.slice4(h)
+        h_relu4 = h
+        h = self.slice5(h)
+        h_relu5 = h
+        FEROutputs = namedtuple(
+            "FEROutputs", ['relu1', 'relu2', 'relu3', 'relu4', 'relu5'])
+        out = FEROutputs(h_relu1, h_relu2, h_relu3, h_relu4, h_relu5)
+
+        return out
+
+    def forward(self, x, y):
+        # Resize input images
+        x = self.downsample_img(x)
+        y = self.downsample_img(y)
+
+        x_feats = self._forward(x)
+        y_feats = self._forward(y)
+
+        # Normalize features
+        x_feats_n = []
+        for f in x_feats:
+            n = torch.sum(f ** 2, dim=1, keepdim=True) ** 0.5
+            x_feats_n.append(f / (n + 1e-10))
+
+        y_feats_n = []
+        for f in y_feats:
+            n = torch.sum(f ** 2, dim=1, keepdim=True) ** 0.5
+            y_feats_n.append(f / (n + 1e-10))
+
+        diff = [(x_ - y_) ** 2 for x_, y_ in zip(x_feats_n, y_feats_n)]
+        # diff = [(x_ - y_) ** 2 for x_, y_ in zip(x_feats, y_feats)]
+
+        result = sum(d.mean() for d in diff)
+
+        return result
+
+
+class FERLoss(nn.Module):
+    def __init__(self):
+        super(FERLoss, self).__init__()
+
+        classifier = FERModelGitHub(pretrained=True)
+
+        self.model = classifier.features
+
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+    def downsample_img(self, img):
+        b, c, h, w = img.shape
+        factor = h // 64
+        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
+        img = img.mean([3, 5])
+        return img
+
+    def forward(self, x, y):
+        # Resize input images
+        x = self.downsample_img(x)
+        y = self.downsample_img(y)
+
+        x_feats = self.model(x)
+        y_feats = self.model(y)
+
+        result = ((x_feats - y_feats) ** 2).mean()
 
         return result

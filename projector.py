@@ -3,7 +3,6 @@ import torch
 
 from lpips import PerceptualLoss
 from tqdm import tqdm
-from my_models.style_gan_2 import StyleGAN2DiscriminatorLoss
 
 
 class Projector:
@@ -140,7 +139,8 @@ class Projector:
         self.update_lr(t)
 
         # Train
-        self.img_gen, _ = self.g_ema([self.latent_expr], input_is_latent=True, noise=self.noises)
+        self.img_gen, _ = self.g_ema(
+            [self.latent_expr], input_is_latent=True, noise=self.noises)
         # Downsample to 256 x 256
         self.img_gen = self.downsample_img(self.img_gen)
 

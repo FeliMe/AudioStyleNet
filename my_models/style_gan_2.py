@@ -590,7 +590,7 @@ class Generator(nn.Module):
         self.n_latent = self.log_size * 2 - 2
 
         self.latent_avg = torch.randn(512)
-        self.noises = self.make_noise
+        self.noises = self.make_noise()
 
         if pretrained:
             self.load_weights()

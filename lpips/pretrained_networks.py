@@ -1,4 +1,5 @@
 from collections import namedtuple
+import os
 import torch
 from torchvision import models as tv
 
@@ -116,25 +117,11 @@ class vgg16(torch.nn.Module):
         for x in range(23, 30):
             self.slice5.add_module(str(x), vgg_pretrained_features[x])
 
-        # TODO: edited myself
-        # self.mean = torch.nn.Parameter(torch.tensor(
-        #     [0.485, 0.456, 0.406]).view(1, -1, 1, 1))
-        # self.std = torch.nn.Parameter(torch.tensor(
-        #     [0.229, 0.224, 0.225]).view(1, -1, 1, 1))
-        # self.mean = torch.nn.Parameter(torch.tensor(
-        #     [0.5, 0.5, 0.5]).view(1, -1, 1, 1))
-        # self.std = torch.nn.Parameter(torch.tensor(
-        #     [0.5, 0.5, 0.5]).view(1, -1, 1, 1))
-        # -------------------
-
         if not requires_grad:
             for param in self.parameters():
                 param.requires_grad = False
 
     def forward(self, X):
-        # TODO: edited myself
-        # X = (X - self.mean) / self.std
-        # -------------------
 
         h = self.slice1(X)
         h_relu1_2 = h
@@ -193,5 +180,74 @@ class resnet(torch.nn.Module):
 
         outputs = namedtuple("Outputs", ['relu1', 'conv2', 'conv3', 'conv4', 'conv5'])
         out = outputs(h_relu1, h_conv2, h_conv3, h_conv4, h_conv5)
+
+        return out
+
+
+class EmotionVGG(torch.nn.Module):
+    def __init__(self, requires_grad=False, pretrained=True):
+        super(EmotionVGG, self).__init__()
+
+        self.features = torch.nn.Sequential(
+            torch.nn.Conv2d(3, 8, 3, padding=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.MaxPool2d(2, 2),
+
+            torch.nn.Conv2d(8, 16, 3, padding=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.MaxPool2d(2, 2),
+
+            torch.nn.Conv2d(16, 16, 3, padding=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.MaxPool2d(2, 2),
+
+            torch.nn.Conv2d(16, 16, 3, padding=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.MaxPool2d(2, 2),
+        )
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.Linear(16 * 16 * 16, 8),
+        )
+
+        if pretrained:
+            weight_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                       'weights/emotion_vgg.pt')
+            self.load_state_dict(torch.load(weight_path))
+
+        self.slice1 = torch.nn.Sequential()
+        self.slice2 = torch.nn.Sequential()
+        self.slice3 = torch.nn.Sequential()
+        self.slice4 = torch.nn.Sequential()
+        self.N_slices = 4
+        for x in range(2):
+            self.slice1.add_module(str(x), self.features[x])
+        for x in range(2, 5):
+            self.slice2.add_module(str(x), self.features[x])
+        for x in range(5, 8):
+            self.slice3.add_module(str(x), self.features[x])
+        for x in range(8, 11):
+            self.slice4.add_module(str(x), self.features[x])
+
+        del self.features
+        del self.classifier
+
+        if not requires_grad:
+            for param in self.parameters():
+                param.requires_grad = False
+
+    def forward(self, X):
+
+        h = self.slice1(X)
+        h_relu1_2 = h
+        h = self.slice2(h)
+        h_relu2_2 = h
+        h = self.slice3(h)
+        h_relu3_3 = h
+        h = self.slice4(h)
+        h_relu4_3 = h
+        vgg_outputs = namedtuple(
+            "VggOutputs", ['relu1_2', 'relu2_2', 'relu3_3', 'relu4_3'])
+        out = vgg_outputs(h_relu1_2, h_relu2_2, h_relu3_3, h_relu4_3)
 
         return out

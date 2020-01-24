@@ -26,7 +26,6 @@ config = Config({
     'log_run': False,
 
     # Dataset configs
-    # 'data_path': HOME + '/Datasets/RAVDESS/Aligned_256',
     'data_path': HOME + '/Datasets/RAVDESS/Aligned256',
     'mask_path': HOME + '/Datasets/RAVDESS/Mask_Aligned256',
     'data_format': 'image',
@@ -45,20 +44,19 @@ config = Config({
     'batch_size': 32,
 
     # Logging
-    'save_interval': 1,
+    'log_interval': 5,
     'save_path': 'saves/Classification_Image'
 })
 
 config.update({
     # Model parameters
+    'model': models.VGGStyleClassifier(),
+    # 'model': models.ConvAndConvLSTM(config.use_gray)
     # 'model': models.ConvAndCat(config.sequence_length, config.use_gray)
     # 'model': models.ConvAndPool(config.use_gray)
     # 'model': models.ConvAnd3D(config.sequence_length, config.use_gray)
     # 'model': models.ConvAndRNN(config.use_gray)
-    'model': models.ConvAndConvLSTM(config.use_gray)
     # 'model': models.SiameseConv3D(config.use_gray)
-    #
-    # 'model': models.TestModel()
 })
 
 config.update({

@@ -42,6 +42,9 @@ class PNetLin(nn.Module):
         elif(self.pnet_type == 'squeeze'):
             net_type = pn.squeezenet
             self.chns = [64, 128, 256, 384, 384, 512, 512]
+        elif(self.pnet_type == 'emotion-vgg'):
+            net_type = pn.EmotionVGG
+            self.chns = [8, 16, 16, 16]
         self.L = len(self.chns)
 
         self.net = net_type(pretrained=not self.pnet_rand, requires_grad=self.pnet_tune)
@@ -51,9 +54,12 @@ class PNetLin(nn.Module):
             self.lin1 = NetLinLayer(self.chns[1], use_dropout=use_dropout)
             self.lin2 = NetLinLayer(self.chns[2], use_dropout=use_dropout)
             self.lin3 = NetLinLayer(self.chns[3], use_dropout=use_dropout)
-            self.lin4 = NetLinLayer(self.chns[4], use_dropout=use_dropout)
-            self.lins = [self.lin0, self.lin1, self.lin2, self.lin3, self.lin4]
-            if(self.pnet_type == 'squeeze'):  # 7 layers for squeezenet
+            self.lins = [self.lin0, self.lin1, self.lin2, self.lin3]
+
+            if self.pnet_type in ['vgg', 'vgg16', 'alex', 'squeeze']:
+                self.lin4 = NetLinLayer(self.chns[4], use_dropout=use_dropout)
+                self.lins += [self.lin4]
+            if self.pnet_type == 'squeeze':  # 7 layers for squeezenet
                 self.lin5 = NetLinLayer(self.chns[5], use_dropout=use_dropout)
                 self.lin6 = NetLinLayer(self.chns[6], use_dropout=use_dropout)
                 self.lins += [self.lin5, self.lin6]
