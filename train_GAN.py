@@ -9,7 +9,7 @@ import torch
 import wandb
 
 from my_models.model_utils import weights_init
-from utils import dataloader, utils
+from utils import datasets, utils
 from perceptual_loss import PerceptualLoss
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import make_grid, save_image
@@ -535,7 +535,7 @@ if __name__ == '__main__':
     config = importlib.import_module('configs.ravdess_im_gan').config
 
     # Load dataset
-    # ds = dataloader.CELEBADataset(
+    # ds = datasets.CELEBADataset(
     #     root_path=HOME + '/Datasets/CELEBA/LandmarksLineImage',
     #     target_path=HOME + '/Datasets/CELEBA/Imgs',
     #     normalize=config.normalize,
@@ -544,23 +544,23 @@ if __name__ == '__main__':
     #     img_size=config.image_size
     # )
 
-    ds = dataloader.RAVDESSDSPix2Pix(root_path=config.data_path,
-                                     target_root_path=config.target_data_path,
-                                     data_format=config.data_format,
-                                     use_same_sentence=config.use_same_sentence,
-                                     normalize=config.normalize,
-                                     mean=config.mean,
-                                     std=config.std,
-                                     max_samples=None,
-                                     seed=config.random_seed,
-                                     image_size=config.image_size,
-                                     label_one_hot=True,
-                                     emotions=config.emotions,
-                                     actors=config.actors)
+    ds = datasets.RAVDESSDSPix2Pix(root_path=config.data_path,
+                                   target_root_path=config.target_data_path,
+                                   data_format=config.data_format,
+                                   use_same_sentence=config.use_same_sentence,
+                                   normalize=config.normalize,
+                                   mean=config.mean,
+                                   std=config.std,
+                                   max_samples=None,
+                                   seed=config.random_seed,
+                                   image_size=config.image_size,
+                                   label_one_hot=True,
+                                   emotions=config.emotions,
+                                   actors=config.actors)
 
     print("Found {} samples in total".format(len(ds)))
 
-    data_loaders, dataset_sizes = dataloader.get_data_loaders(
+    data_loaders, dataset_sizes = datasets.get_data_loaders(
         ds, config.validation_split, config.batch_size, config.use_cuda)
 
     print("Using {} samples for training and {} for validation".format(
@@ -577,5 +577,4 @@ if __name__ == '__main__':
     solver = GANSolver(config, len(ds))
 
     # Train
-    solver.train_model(data_loaders,
-                   PLOT_GRADS)
+    solver.train_model(data_loaders)

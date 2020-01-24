@@ -50,8 +50,8 @@ if __name__ == "__main__":
         latents = proj.get_latents()
 
         # Save results
-        save_str = 'saves/explore_latent/' + file.split('/')[-1].split('.')[0]
-        os.makedirs('saves/explore_latent/', exist_ok=True)
+        save_str = 'saves/projected_images/' + file.split('/')[-1].split('.')[0]
+        os.makedirs('saves/projected_images/', exist_ok=True)
         print('Saving {}'.format(save_str + '_p.png'))
         save_image(generated, save_str + '_p.png', normalize=True)
         torch.save(latents.detach().cpu(), save_str + '.pt')

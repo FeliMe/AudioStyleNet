@@ -11,7 +11,7 @@ import wandb
 
 from sklearn.metrics import confusion_matrix
 from torch.utils.tensorboard import SummaryWriter
-from utils import dataloader, utils
+from utils import datasets, utils
 
 HOME = os.path.expanduser('~')
 
@@ -305,19 +305,19 @@ if __name__ == '__main__':
     torch.manual_seed(seed)
 
     # Load dataset
-    ds = dataloader.RAVDESSDataset(config.data_path,
-                                   data_format=config.data_format,
-                                   use_mask=config.use_mask,
-                                   mask_path=config.mask_path,
-                                   normalize=config.normalize,
-                                   mean=config.mean,
-                                   std=config.std,
-                                   max_samples=None,
-                                   image_size=config.image_size)
+    ds = datasets.RAVDESSDataset(config.data_path,
+                                 data_format=config.data_format,
+                                 use_mask=config.use_mask,
+                                 mask_path=config.mask_path,
+                                 normalize=config.normalize,
+                                 mean=config.mean,
+                                 std=config.std,
+                                 max_samples=None,
+                                 image_size=config.image_size)
 
     print("Found {} samples in total".format(len(ds)))
 
-    data_loaders, dataset_sizes = dataloader.get_data_loaders(
+    data_loaders, dataset_sizes = datasets.get_data_loaders(
         ds, config.validation_split, config.batch_size, config.use_cuda)
 
     print("Using {} samples for training and {} for validation".format(
