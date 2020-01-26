@@ -49,6 +49,14 @@ class Downsample(object):
         return sample
 
 
+def downsample_256(img):
+        b, c, h, w = img.shape
+        factor = h // 256
+        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
+        img = img.mean([3, 5])
+        return img
+
+
 class GradPlotter:
     """
     Source: https://discuss.pytorch.org/t/check-gradient-flow-in-network/15063/10

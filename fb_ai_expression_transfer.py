@@ -25,7 +25,7 @@ if __name__ == '__main__':
     appearance = torch.load(args.appearance).to(device)
     expression = torch.load(args.expression).to(device)
 
-    # Define mixin levels
+    # Define mixing levels
     alpha = torch.ones((18, 1), device=device)
     alpha[3] = 0.
     alpha[4] = 0.

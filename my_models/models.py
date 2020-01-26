@@ -355,32 +355,31 @@ class SiameseConv3D(nn.Module):
         return y
 
 
-""" Landmark models """
+class resnetEncoder(nn.Module):
+    def __init__(self):
+        super(resnetEncoder, self).__init__()
 
+        from torchvision.models import resnet18
+        resnet = resnet18(pretrained=True)
 
-class LandmarksLSTM(nn.Module):
-    def __init__(self, window_size):
-        super(LandmarksLSTM, self).__init__()
-        hidden_size = 256
-        num_layers = 3
+        for param in resnet.parameters():
+            param.requires_grad = False
 
-        self.rnn = nn.LSTM(68 * 2 * window_size, hidden_size, num_layers,
-                           batch_first=True)
-        self.classifier = nn.Sequential(
-            nn.Linear(hidden_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, 8)
-        )
+        self.convolutions = nn.Sequential(*list(resnet.children())[:-2])
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear = nn.Linear(512, 512 * 18)
 
     def forward(self, x):
-        # shape: [batch, sequence_length, 68 * 2 * window_size]
-        out, _ = self.rnn(x)
-        # shape: [batch, sequence_length, hidden_size]
-        out = out[:, -1]
-        # shape: [batch, hidden_size]
-        out = self.classifier(out)
-        # shape: [batch, 8]
-        return out
+
+        y = self.convolutions(x)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+        y = self.linear(y)
+
+        y = y.view(-1, 18, 512)
+
+        return y
 
 
 class EmotionDatabase(nn.Module):

@@ -652,10 +652,18 @@ class Generator(nn.Module):
 
         if len(styles) < 2:
             inject_index = self.n_latent
-            if len(styles[0]) == self.n_latent:
+
+            if len(styles[0].shape) == 2:  # [18, 512]
                 latent = styles[0].unsqueeze(0)
             else:
-                latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
+                latent = styles[0]
+            if latent.shape[1] == 1:  # [b, 1, 512]
+                latent = latent.repeat(1, inject_index, 1)
+
+            # if len(styles[0]) == self.n_latent:
+            #     latent = styles[0].unsqueeze(0)
+            # else:
+            #     latent = styles[0].unsqueeze(1).repeat(1, inject_index, 1)
 
         else:
             if inject_index is None:
