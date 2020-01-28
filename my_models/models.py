@@ -96,6 +96,21 @@ class FERModelGitHub(nn.Module):
         return out
 
 
+class FERClassifier(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.classifier = FERModelGitHub(pretrained=True)
+
+        for param in self.classifier.parameters():
+            param.requires_grad = False
+
+    def forward(self, x):
+        if x.shape[-1] != 48:
+            x = nn.functional.interpolate(
+                x, 48, mode='bilinear', align_corners=False)
+        return nn.functional.softmax(self.classifier(x), dim=1)
+
+
 class PreTrainedResNet18(nn.Module):
     def __init__(self, window_size):
         super(PreTrainedResNet18, self).__init__()
@@ -357,27 +372,91 @@ class SiameseConv3D(nn.Module):
 
 class resnetEncoder(nn.Module):
     def __init__(self):
-        super(resnetEncoder, self).__init__()
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
 
         from torchvision.models import resnet18
         resnet = resnet18(pretrained=True)
 
-        for param in resnet.parameters():
-            param.requires_grad = False
+        self.layer0 = nn.Sequential(*list(resnet.children())[:4])
+        _set_requires_grad_false(self.layer0)
+        self.layer1 = resnet.layer1
+        _set_requires_grad_false(self.layer1)
+        self.layer2 = resnet.layer2
+        _set_requires_grad_false(self.layer2)
+        self.layer3 = resnet.layer3
+        # _set_requires_grad_false(self.layer3)
+        self.layer4 = resnet.layer4
+        # _set_requires_grad_false(self.layer4)
 
-        self.convolutions = nn.Sequential(*list(resnet.children())[:-2])
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
-        self.linear = nn.Linear(512, 512 * 18)
+        self.linear_n = nn.Linear(512, 512 * 18)
 
     def forward(self, x):
 
-        y = self.convolutions(x)
+        y = self.layer0(x)
+        y = self.layer1(y)
+        y = self.layer2(y)
+        y = self.layer3(y)
+        y = self.layer4(y)
         y = self.avgpool(y)
         y = self.flatten(y)
-        y = self.linear(y)
 
-        y = y.view(-1, 18, 512)
+        y = self.linear_n(y).view(-1, 18, 512)
+
+        return y
+
+
+class neutralToXResNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        from torchvision.models import resnet18
+        resnet = resnet18(pretrained=True)
+
+        # Layer 0
+        self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
+        _set_requires_grad_false(self.layer0)
+        # Layer 1
+        self.adain1 = model_utils.AdaIN(1, 64)
+        self.layer1 = resnet.layer1  # 64
+        # Layer 2
+        self.adain2 = model_utils.AdaIN(1, 64)
+        self.layer2 = resnet.layer2  # 128
+        # Layer 3
+        self.adain3 = model_utils.AdaIN(1, 128)
+        self.layer3 = resnet.layer3  # 256
+        # Layer 4
+        self.adain4 = model_utils.AdaIN(1, 256)
+        self.layer4 = resnet.layer4  # 512
+
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear_n = nn.Linear(512, 512 * 18)
+
+    def forward(self, x, score):
+
+        y = self.layer0(x)
+        y = self.adain1(y, score)
+        y = self.layer1(y)
+        y = self.adain2(y, score)
+        y = self.layer2(y)
+        y = self.adain3(y, score)
+        y = self.layer3(y)
+        y = self.adain4(y, score)
+        y = self.layer4(y)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+
+        y = self.linear_n(y).view(-1, 18, 512)
 
         return y
 

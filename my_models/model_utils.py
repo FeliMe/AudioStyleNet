@@ -4,15 +4,6 @@ import torch.nn.functional as F
 import torch.nn.utils.spectral_norm as spectral_norm
 
 
-class EmotionDB(nn.Module):
-    def __init__(self, length, dimensions):
-        super(EmotionDB, self).__init__()
-        self.db = nn.Parameter(torch.randn((length, dimensions)))
-
-    def forward(self, idx):
-        return self.db[idx]
-
-
 class MaxChannelPool(nn.Module):
     """
     Max Pool batch of sequences of images along the sequence dimension
@@ -90,10 +81,6 @@ class ConvLSTM(nn.Module):
         """
 
         # get sizes
-        # batch_size = x.size(0)
-        # sequence_length = x.size(1)
-        # spatial_size = x.size()[3:]
-        # state_size = [batch_size, self.hidden_size] + list(spatial_size)
         batch_size = x.size(0)
         spatial_size = x.size()[2:]
         state_size = [batch_size, self.hidden_size] + list(spatial_size)
@@ -106,8 +93,6 @@ class ConvLSTM(nn.Module):
             c = torch.zeros(state_size).to(x.device)
 
         # Forward every step in the sequence
-        # for i in range(sequence_length):
-        #     h, c = self.forward_one(x[:, i], h, c)
         h, c = self.forward_one(x, h, c)
 
         return h, c
@@ -398,6 +383,25 @@ class DiscriminatorCondCat(nn.Module):
 
         # Forward
         return self.main(x)
+
+
+class AdaIN(nn.Module):
+    def __init__(self, latent_size, channels):
+        super().__init__()
+        self.channels = channels
+        self.norm = nn.InstanceNorm2d(channels)
+        self.lin = nn.Linear(latent_size, channels * 2)
+
+    def forward(self, x, latent):
+        # Normalize
+        x = self.norm(x)
+
+        # Apply transform
+        style = self.lin(latent)  # style => [batch_size, n_channels*2]
+        style = style.view((-1, 2, self.channels, 1, 1))
+        x = x * (style[:, 0] + 1.) + style[:, 1]
+
+        return x
 
 
 def discriminator_block(in_filters, out_filters, normalization=True):

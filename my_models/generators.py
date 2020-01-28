@@ -7,7 +7,6 @@ from math import log
 
 import my_models.model_utils as mu
 import my_models.style_gan as sg
-import my_models.style_gan_2 as sg2
 
 
 class NoiseGenerator(nn.Module):
@@ -366,49 +365,3 @@ class StyleGANDecoder(nn.Module):
 
         mean_w /= 10
         return mean_w, std_w
-
-
-class StyleGAN2Decoder(nn.Module):
-    def __init__(self, pretrained=True):
-        super(StyleGAN2Decoder, self).__init__()
-
-        self.g = sg2.Generator(1024, 512, 8)
-        self.latent_avg = torch.randn(512)
-        self.noises = None if pretrained else self.g.make_noise
-
-        if pretrained:
-            self.load_weights()
-
-    def load_weights(self):
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                       '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
-        self.g.load_state_dict(w['g_ema'])
-        self.latent_avg = w['latent_avg']
-        self.noises = [n for n in w['noises']]
-
-    def mean_style(self, z):
-        return self.g.style(z).mean(0, keepdim=True)
-
-    def std_style(self, z):
-        return self.g.style(z).std()
-
-    @torch.no_grad()
-    def get_mean_std_w(self, device):
-        mean_w = None
-        for i in range(10):
-            w = self.mean_style(torch.randn(1024, 512).to(device))
-            if mean_w is None:
-                mean_w = w
-            else:
-                mean_w += w
-        std_w = self.std_style(torch.randn(1024, 512).to(device))
-
-        mean_w /= 10
-        return mean_w, std_w
-
-    def forward(self, x):
-        if type(x) != list:
-            x = [x]
-        y, _ = self.g(x, truncation=0.5,
-                      truncation_latent=self.latent_avg.to(x[0].device))
-        return y

@@ -9,6 +9,7 @@ import pathlib
 import random
 import torch
 
+from my_models.models import FERClassifier
 from PIL import Image
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.dataset import Dataset
@@ -30,25 +31,18 @@ MAPPING = {
 
 class RAVDESSDataset(Dataset):
     """
-    Dataset class for loading RAVDESS sentences in a sequential manner.
-
-    Shortest sentence in RAVDESS has 94 frames.
+    Dataset class for loading RAVDESS sentences
 
     Output shapes:
-        'image': [batch_size, 1 or 3, height, width]
-        'landmarks': [batch_size, 68 * 2]
+        [batch_size, 1 or 3, height, width]
 
     Arguments:
         root_path (str): Path to data files
-        data_format (str): Format of data files ('image' or 'landmarks')
         normalize (bool): Normalize data before outputting
         mean (list): Dataset mean values
         std (list): Dataset standard deviations
-        max_samples (int or None): Maximum number of samples to be considered.
-                                   Choose None for whole dataset
         seed (int): Random seed for reproducible shuffling
         image_size (int or tuple): Size of input images
-        num_classes (int): Number of classes (used for conditioning)
         label_one_hot (bool): Choose if emotion is scalar or one_hot vector
         emotions (list of str): List of emotions to be considered
         actors (list of int): List of actors to be considered
@@ -112,10 +106,11 @@ class RAVDESSDataset(Dataset):
         random.shuffle(sentences)
         # random.shuffle(frames)
 
-        trans = [
-            transforms.ToTensor(),
-            Downsample(image_size),
-        ]
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+
         if self.normalize:
             trans.append(transforms.Normalize(mean=self.mean, std=self.std))
         self.t = transforms.Compose(trans)
@@ -309,6 +304,7 @@ class CELEBADataset(Dataset):
 class RAVDESSFlatDataset(Dataset):
     def __init__(self,
                  root_path,
+                 device,
                  normalize=True,
                  mean=[0., 0., 0.],
                  std=[1., 1., 1.],
@@ -324,6 +320,7 @@ class RAVDESSFlatDataset(Dataset):
         self.mean = mean
         self.std = std
         self.label_one_hot = label_one_hot
+        self.device = device
 
         root_dir = pathlib.Path(root_path)
 
@@ -356,16 +353,16 @@ class RAVDESSFlatDataset(Dataset):
         # Select load function
         if frames[0].split('.')[-1] in ['jpg', 'png']:
             self.load_fn = Image.open
-            trans = [
-                transforms.ToTensor(),
-                Downsample(image_size),
-            ]
+            if int(np.log2(image_size)) - np.log2(image_size) == 0:
+                trans = [transforms.ToTensor(), Downsample(image_size)]
+            else:
+                trans = [transforms.Resize(image_size), transforms.ToTensor()]
             if self.normalize:
                 trans.append(transforms.Normalize(mean=self.mean, std=self.std))
-            self.transform = transforms.Compose(trans)
+            self.t = transforms.Compose(trans)
         elif frames[0].split('.')[-1] == 'pt':
             self.load_fn = torch.load
-            self.transform = lambda x: x
+            self.t = lambda x: x
 
         # Count number of frames for every emotion
         tmp = [f.split('/')[-2].split('-')[2] for f in frames]
@@ -392,29 +389,50 @@ class RAVDESSFlatDataset(Dataset):
         ]
         if self.normalize:
             trans.append(transforms.Normalize(mean=self.mean, std=self.std))
-        self.transform = transforms.Compose(trans)
+        self.t = transforms.Compose(trans)
 
         self.frames = frames
+
+        self.target_happy_scores = self._compute_happy_scores()
 
     def __len__(self):
         return len(self.frames)
 
-    def __getitem__(self, item):
+    def _compute_happy_scores(self):
+        print("Computing happy scores for target images")
+        model = FERClassifier().to(self.device)
+        scores = []
+        for frame in self.frames:
+            img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
+            score = model(img)[0, 2].cpu().view(1,)
+            scores.append(score)
+
+        # Linearify scores from 0 to 1
+        lin_scores = [0] * len(scores)
+        for i, (item, idx) in enumerate(zip(np.linspace(0., 1., num=len(scores)), np.argsort(scores))):
+            lin_scores[idx] = torch.tensor([item])
+        scores = lin_scores
+
+        return scores
+
+    def __getitem__(self, index):
         # Select frame
-        frame = self.frames[item]
+        frame = self.frames[index]
         # Get emotion
         emotion = int(frame.split('/')[-2].split('-')[2]) - 1
         if self.label_one_hot:
             emotion = int_to_one_hot(emotion)
         # Load image
-        img = self.transform(self.load_fn(frame))
+        img = self.t(self.load_fn(frame))
 
-        return {'x': img, 'y': emotion}
+        return {'x': img, 'y': emotion, 'index': index}
 
 
 class RAVDESSPseudoPairDataset(Dataset):
     def __init__(self,
                  root_path,
+                 device,
+                 seed=123,
                  normalize=True,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
@@ -423,10 +441,12 @@ class RAVDESSPseudoPairDataset(Dataset):
                  target_emotion='happy',
                  actors=[i + 1 for i in range(24)]):
         super(RAVDESSPseudoPairDataset, self).__init__()
+        print("Loading dataset")
 
         self.normalize = normalize
         self.mean = mean
         self.std = std
+        self.device = device
 
         root_dir = pathlib.Path(root_path)
 
@@ -459,10 +479,10 @@ class RAVDESSPseudoPairDataset(Dataset):
         len_target_sentences = [len(s) for s in target_sentences]
 
         # Transforms
-        trans = [
-            transforms.ToTensor(),
-            Downsample(image_size),
-        ]
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
         if self.normalize:
             trans.append(transforms.Normalize(mean=self.mean, std=self.std))
         self.t = transforms.Compose(trans)
@@ -472,8 +492,38 @@ class RAVDESSPseudoPairDataset(Dataset):
         self.len_src_sentences = len_src_sentences
         self.len_target_sentences = len_target_sentences
 
+        self.target_happy_scores = self._compute_happy_scores()
+
     def __len__(self):
         return len(self.src_sentences)
+
+    def _compute_happy_scores(self):
+        print("Computing happy scores for target images")
+        model = FERClassifier().to(self.device)
+        scores = []
+        for sentence in self.target_sentences:
+            scores.append([])
+            for frame in sentence:
+                img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
+                score = model(img)[0, 2].cpu().view(1,)
+                scores[-1].append(score)
+
+        # Linearify scores from 0 to 1
+        scores_flat = np.array([it for s in scores for it in s])
+        lin_scores_flat = np.zeros_like(scores_flat)
+        for item, idx in zip(np.linspace(0., 1., num=len(scores_flat)), np.argsort(scores_flat)):
+            lin_scores_flat[idx] = item
+
+        lin_scores = []
+        counter = 0
+        for i in range(len(scores)):
+            lin_scores.append([])
+            for j in range(len(scores[i])):
+                lin_scores[-1].append(torch.tensor([lin_scores_flat[counter]]))
+                counter += 1
+        scores = lin_scores
+
+        return scores
 
     def __getitem__(self, index):
         # Select src and target sentence
@@ -489,7 +539,16 @@ class RAVDESSPseudoPairDataset(Dataset):
         src = self.t(Image.open(src_sentence[rand_src_idx]))
         target = self.t(Image.open(target_sentence[rand_target_idx]))
 
-        return {'src': src, 'target': target}
+        res = {
+            'src': src,
+            'target': target,
+            'index': index,
+            'rand_target_idx': rand_target_idx,
+        }
+
+        res['target_happy_score'] = self.target_happy_scores[index][rand_target_idx]
+
+        return res
 
 
 def show_pix2pix(sample, mean, std, normalize):
