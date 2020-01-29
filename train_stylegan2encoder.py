@@ -1,5 +1,5 @@
 import argparse
-import copy
+import numpy as np
 import os
 import torch
 
@@ -22,6 +22,11 @@ class solverEncoder:
 
         self.device = args.device
         self.args = args
+
+        self.initial_lr = self.args.lr
+        self.lr = self.args.lr
+        self.lr_rampdown_length = 0.3
+        self.lr_rampup_length = 0.1
 
         # Load generator
         self.g = Generator(1024, 512, 8, pretrained=True).eval().to(self.device)
@@ -49,7 +54,7 @@ class solverEncoder:
         ))
 
         # Select optimizer and loss criterion
-        self.opt = torch.optim.Adam(self.e.parameters(), lr=args.lr)
+        self.opt = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
         self.criterion = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
 
         # Set up tensorboard
@@ -68,8 +73,16 @@ class solverEncoder:
         print(f"Saving: {save_path}")
         torch.save(self.e.state_dict(), save_path)
 
+    def update_lr(self, t):
+        lr_ramp = min(1.0, (1.0 - t) / self.lr_rampdown_length)
+        lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
+        lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
+        self.lr = self.initial_lr * lr_ramp
+        self.opt.param_groups[0]['lr'] = self.lr
+
     def train(self, data_loaders, n_epochs):
         print("Start training")
+        n_iters = n_epochs * len(data_loaders['train'])
         val_loss = 0.
         for i_epoch in range(n_epochs):
             print('Epoch {}/{}'.format(i_epoch, n_epochs))
@@ -79,6 +92,10 @@ class solverEncoder:
             for batch in pbar:
                 # Unpack batch
                 img = batch['x'].to(device)
+
+                # Update learning rate
+                t = self.global_step / n_iters
+                self.update_lr(t)
 
                 # Encode
                 latent_offset = self.e(img)
@@ -102,7 +119,15 @@ class solverEncoder:
                 self.global_step += 1
 
                 if self.global_step % self.args.log_every == 0:
-                    pbar.set_description(f'train loss: {loss:.4f}; val loss: {val_loss:.4f}')
+                    pbar.set_description('Step {gs} - '
+                                         'train loss {tl:.4f} - '
+                                         'val loss {vl:.4f} - '
+                                         'lr {lr:.4f}'.format(
+                                             gs=self.global_step,
+                                             tl=loss,
+                                             vl=val_loss,
+                                             lr=self.lr
+                                         ))
                     if self.args.log:
                         self.writer.add_scalar('train/Loss', loss, self.global_step)
 
@@ -171,14 +196,14 @@ class solverEncoder:
 
         return val_loss
 
-    def test(self, data_loaders, n_samples=8):
-        iters = min(n_samples // self.args.batch_size, 1)
-
+    def test_model(self, data_loaders, n_samples=8):
+        iters = max(n_samples // self.args.batch_size, 1)
         self.e.eval()
         imgs = []
+        imgs_gen = []
         for i in range(iters):
-            sample = next(iter(ds))
-            img = sample['src'].to(self.device)
+            sample = next(iter(data_loaders['val']))
+            img = sample['x'].to(self.device)
 
             with torch.no_grad():
                 latent_offset = self.e(img)
@@ -192,13 +217,18 @@ class solverEncoder:
                 # Downsample to 256 x 256
                 img_gen = utils.downsample_256(img_gen)
 
-            imgs.append(img_gen)
+            imgs.append(img)
+            imgs_gen.append(img_gen)
         imgs = torch.cat(imgs, dim=0)
+        imgs_gen = torch.cat(imgs_gen, dim=0)
+
+        img_tensor = torch.cat((imgs, imgs_gen), dim=0)
 
         save_image(
-            imgs,
+            img_tensor,
             f'{self.args.save_dir}test_model.png',
-            normalize=True
+            normalize=True,
+            nrow=n_samples
         )
         self.e.train()
 
@@ -207,8 +237,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--lr', type=int, default=0.001)
-    parser.add_argument('--n_epochs', type=int, default=10000)
+    parser.add_argument('--lr', type=int, default=0.01)
+    parser.add_argument('--n_epochs', type=int, default=10)
     parser.add_argument('--log_every', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=100)
     parser.add_argument('--save_every', type=int, default=1000)
@@ -245,7 +275,6 @@ if __name__ == '__main__':
         std=[0.5, 0.5, 0.5],
         image_size=256,
         actors=[1],
-        emotions=['happy'],
     )
     data_loaders, dataset_sizes = datasets.get_data_loaders(
         ds, validation_split=0.8, batch_size=args.batch_size, use_cuda=True)

@@ -411,6 +411,82 @@ class resnetEncoder(nn.Module):
         return y
 
 
+class pretrainedAdaIN(nn.Module):
+    def __init__(self, latent_size, p_norm):
+        super().__init__()
+
+        # Get original beta and gamma from bn
+        mean = p_norm._parameters['bias'].view(1, -1, 1, 1).detach()
+        self.register_buffer("mean", mean)
+        var = p_norm._parameters['weight'].view(1, -1, 1, 1).detach()
+        self.register_buffer("var", var)
+
+        # Own layers
+        self.channels = p_norm.num_features
+        self.norm = nn.InstanceNorm2d(self.channels)
+        self.lin = nn.Linear(latent_size, self.channels * 2)
+
+    def forward(self, x, latent):
+        # Normalize
+        x = self.norm(x)
+
+        # Apply transform
+        style = self.lin(latent)  # style => [batch_size, n_channels*2]
+        style = style.view((-1, 2, self.channels, 1, 1))
+        x = x * (style[:, 0] + self.var) + (self.mean + style[:, 1])
+
+        return x
+
+
+class pretrainedBasicBlock(nn.Module):
+    def __init__(self, p_block):
+        super().__init__()
+
+        self.conv1 = p_block.conv1
+        self.adain1 = pretrainedAdaIN(1, p_block.bn1)
+        self.relu = p_block.relu
+        self.conv2 = p_block.conv2
+        self.adain2 = pretrainedAdaIN(1, p_block.bn2)
+        if p_block.downsample is not None:
+            self.downsample = True
+            self.down_conv = p_block.downsample[0]
+            self.down_norm = pretrainedAdaIN(1, p_block.downsample[1])
+        else:
+            self.downsample = False
+
+    def forward(self, x, score):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.adain1(out, score)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.adain2(out, score)
+
+        if self.downsample:
+            identity = self.down_norm(self.down_conv(x), score)
+
+        out += identity
+        out = self.relu(out)
+
+        return out
+
+
+class pretrainedResNetBlock(nn.Module):
+    def __init__(self, p_block):
+        super().__init__()
+
+        self.block1 = pretrainedBasicBlock(p_block[0])
+        self.block2 = pretrainedBasicBlock(p_block[1])
+
+    def forward(self, x, score):
+        x = self.block1(x, score)
+        x = self.block2(x, score)
+
+        return x
+
+
 class neutralToXResNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -426,17 +502,17 @@ class neutralToXResNet(nn.Module):
         self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
         _set_requires_grad_false(self.layer0)
         # Layer 1
-        self.adain1 = model_utils.AdaIN(1, 64)
-        self.layer1 = resnet.layer1  # 64
+        # self.layer1 = resnet.layer1  # 64
+        self.layer1 = pretrainedResNetBlock(resnet.layer1)
         # Layer 2
-        self.adain2 = model_utils.AdaIN(1, 64)
-        self.layer2 = resnet.layer2  # 128
+        # self.layer2 = resnet.layer2  # 128
+        self.layer2 = pretrainedResNetBlock(resnet.layer2)
         # Layer 3
-        self.adain3 = model_utils.AdaIN(1, 128)
-        self.layer3 = resnet.layer3  # 256
+        # self.layer3 = resnet.layer3  # 256
+        self.layer3 = pretrainedResNetBlock(resnet.layer3)
         # Layer 4
-        self.adain4 = model_utils.AdaIN(1, 256)
-        self.layer4 = resnet.layer4  # 512
+        # self.layer4 = resnet.layer4  # 512
+        self.layer4 = pretrainedResNetBlock(resnet.layer4)
 
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
@@ -445,14 +521,10 @@ class neutralToXResNet(nn.Module):
     def forward(self, x, score):
 
         y = self.layer0(x)
-        y = self.adain1(y, score)
-        y = self.layer1(y)
-        y = self.adain2(y, score)
-        y = self.layer2(y)
-        y = self.adain3(y, score)
-        y = self.layer3(y)
-        y = self.adain4(y, score)
-        y = self.layer4(y)
+        y = self.layer1(y, score)
+        y = self.layer2(y, score)
+        y = self.layer3(y, score)
+        y = self.layer4(y, score)
         y = self.avgpool(y)
         y = self.flatten(y)
 

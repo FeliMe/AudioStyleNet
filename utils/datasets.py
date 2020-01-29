@@ -393,7 +393,7 @@ class RAVDESSFlatDataset(Dataset):
 
         self.frames = frames
 
-        self.target_happy_scores = self._compute_happy_scores()
+        # self.target_happy_scores = self._compute_happy_scores()
 
     def __len__(self):
         return len(self.frames)

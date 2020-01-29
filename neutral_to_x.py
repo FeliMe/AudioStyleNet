@@ -24,6 +24,11 @@ class solverEncoder:
         self.device = args.device
         self.args = args
 
+        self.initial_lr = self.args.lr
+        self.lr = self.args.lr
+        self.lr_rampdown_length = 0.25
+        self.lr_rampup_length = 0.1
+
         # Load generator
         self.g = Generator(
             1024, 512, 8, pretrained=True).eval().to(self.device)
@@ -51,7 +56,7 @@ class solverEncoder:
         ))
 
         # Select optimizer and loss criterion
-        self.opt = torch.optim.Adam(self.e.parameters(), lr=args.lr)
+        self.opt = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
         self.criterion = PerceptualLoss(
             model='net-lin', net='vgg').to(self.device)
 
@@ -71,8 +76,16 @@ class solverEncoder:
         print(f"Saving: {save_path}")
         torch.save(self.e.state_dict(), save_path)
 
+    def update_lr(self, t):
+        lr_ramp = min(1.0, (1.0 - t) / self.lr_rampdown_length)
+        lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
+        lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
+        self.lr = self.initial_lr * lr_ramp
+        self.opt.param_groups[0]['lr'] = self.lr
+
     def train(self, data_loaders, n_epochs):
         print("Start training")
+        n_iters = self.global_step + (n_epochs * len(data_loaders['train']))
         pbar = tqdm(range(n_epochs))
         for i_epoch in pbar:
             for _, batch in enumerate(data_loaders['train']):
@@ -80,6 +93,10 @@ class solverEncoder:
                 img = batch['src'].to(device)
                 target = batch['target'].to(device)
                 target_happy_score = batch['target_happy_score'].to(device)
+
+                # Update learning rate
+                t = self.global_step / n_iters
+                self.update_lr(t)
 
                 # Encode
                 latent_offset = self.e(img, target_happy_score)
@@ -96,8 +113,6 @@ class solverEncoder:
                 # Compute perceptual loss
                 loss = self.criterion(img_gen, target).mean()
 
-                # loss = p_loss + 0.05 * F.mse_loss(img_gen, target)
-
                 # Optimize
                 self.opt.zero_grad()
                 loss.backward()
@@ -106,8 +121,13 @@ class solverEncoder:
                 self.global_step += 1
 
                 if self.global_step % self.args.log_every == 0:
-                    pbar.set_description(
-                        f'train loss: {loss:.4f}')
+                    pbar.set_description('step {gs} - '
+                                         'train loss {tl:.4f}'
+                                         'lr {lr:.4f}'.format(
+                                             gs=self.global_step,
+                                             tl=loss,
+                                             lr=self.lr
+                                         ))
                     if self.args.log:
                         self.writer.add_scalar(
                             'train/Loss', loss, self.global_step)
@@ -150,7 +170,7 @@ class solverEncoder:
                     [latent], input_is_latent=True, noise=self.g.noises)
 
                 # Downsample to 256 x 256
-                img_gen = utils.downsample_256(img_gen)
+                # img_gen = utils.downsample_256(img_gen)
 
             imgs.append(img_gen)
         imgs = torch.cat(imgs, dim=0)
@@ -167,8 +187,8 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--lr', type=int, default=0.001)
-    parser.add_argument('--n_epochs', type=int, default=10000)
+    parser.add_argument('--lr', type=int, default=0.01)
+    parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--log_every', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=100)
     parser.add_argument('--save_every', type=int, default=1000)
