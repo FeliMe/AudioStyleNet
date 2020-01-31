@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 import os
+import random
 import torch
 
 from datetime import datetime
@@ -235,6 +236,13 @@ class solverEncoder:
 
 if __name__ == '__main__':
 
+    # Random seeds
+    seed = 0
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+
+    # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=int, default=0.01)

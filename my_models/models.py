@@ -412,7 +412,7 @@ class resnetEncoder(nn.Module):
 
 
 class pretrainedAdaIN(nn.Module):
-    def __init__(self, latent_size, p_norm):
+    def __init__(self, p_norm, latent_size):
         super().__init__()
 
         # Get original beta and gamma from bn
@@ -439,18 +439,18 @@ class pretrainedAdaIN(nn.Module):
 
 
 class pretrainedBasicBlock(nn.Module):
-    def __init__(self, p_block):
+    def __init__(self, p_block, latent_size):
         super().__init__()
 
         self.conv1 = p_block.conv1
-        self.adain1 = pretrainedAdaIN(1, p_block.bn1)
+        self.adain1 = pretrainedAdaIN(p_block.bn1, latent_size)
         self.relu = p_block.relu
         self.conv2 = p_block.conv2
-        self.adain2 = pretrainedAdaIN(1, p_block.bn2)
+        self.adain2 = pretrainedAdaIN(p_block.bn2, latent_size)
         if p_block.downsample is not None:
             self.downsample = True
             self.down_conv = p_block.downsample[0]
-            self.down_norm = pretrainedAdaIN(1, p_block.downsample[1])
+            self.down_norm = pretrainedAdaIN(p_block.downsample[1], latent_size)
         else:
             self.downsample = False
 
@@ -474,11 +474,11 @@ class pretrainedBasicBlock(nn.Module):
 
 
 class pretrainedResNetBlock(nn.Module):
-    def __init__(self, p_block):
+    def __init__(self, p_block, latent_size):
         super().__init__()
 
-        self.block1 = pretrainedBasicBlock(p_block[0])
-        self.block2 = pretrainedBasicBlock(p_block[1])
+        self.block1 = pretrainedBasicBlock(p_block[0], latent_size)
+        self.block2 = pretrainedBasicBlock(p_block[1], latent_size)
 
     def forward(self, x, score):
         x = self.block1(x, score)
@@ -503,27 +503,22 @@ class neutralToXResNet(nn.Module):
         _set_requires_grad_false(self.layer0)
         # Layer 1
         # self.layer1 = resnet.layer1  # 64
-        self.layer1 = pretrainedResNetBlock(resnet.layer1)
+        self.layer1 = pretrainedResNetBlock(resnet.layer1, 1)
         # Layer 2
         # self.layer2 = resnet.layer2  # 128
-        self.layer2 = pretrainedResNetBlock(resnet.layer2)
+        self.layer2 = pretrainedResNetBlock(resnet.layer2, 1)
         # Layer 3
         # self.layer3 = resnet.layer3  # 256
-        self.layer3 = pretrainedResNetBlock(resnet.layer3)
+        self.layer3 = pretrainedResNetBlock(resnet.layer3, 1)
         # Layer 4
         # self.layer4 = resnet.layer4  # 512
-        self.layer4 = pretrainedResNetBlock(resnet.layer4)
+        self.layer4 = pretrainedResNetBlock(resnet.layer4, 1)
 
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
-        self.lin_score = nn.Linear(1, 64)
-        self.linear_n = nn.Linear(512 + 64, 512 * 18)
-
-        # self.model = torch.nn.Sequential(
-        #     torch.nn.Linear(1, 512),
-        #     torch.nn.ReLU(inplace=True),
-        #     torch.nn.Linear(512, 18 * 512)
-        # )
+        # self.lin_score = nn.Linear(1, 64)
+        # self.linear_n = nn.Linear(512 + 64, 512 * 18)
+        self.linear_n = nn.Linear(512, 512 * 18)
 
     def forward(self, x, score):
 
@@ -535,11 +530,106 @@ class neutralToXResNet(nn.Module):
         y = self.avgpool(y)
         y = self.flatten(y)
 
-        y = torch.cat((y, self.lin_score(score)), dim=1)
+        # y = torch.cat((y, self.lin_score(score)), dim=1)
 
         y = self.linear_n(y).view(-1, 18, 512)
 
-        # y = self.model(score).view(-1, 18, 512)
+        return y
+
+
+class resNetOffsetEncoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        from torchvision.models import resnet18
+        resnet = resnet18(pretrained=True)
+
+        self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
+        _set_requires_grad_false(self.layer0)
+        self.layer1 = pretrainedResNetBlock(resnet.layer1, 1)
+        self.layer2 = pretrainedResNetBlock(resnet.layer2, 1)
+        self.layer3 = pretrainedResNetBlock(resnet.layer3, 1)
+        self.layer4 = pretrainedResNetBlock(resnet.layer4, 1)
+
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear_n = nn.Linear(512, 512 * 18)
+        self.lin_offest = nn.Linear(512, 512 * 18)
+
+    def forward(self, x, score):
+
+        y = self.layer0(x)
+        y = self.layer1(y, score)
+        y = self.layer2(y, score)
+        y = self.layer3(y, score)
+        y = self.layer4(y, score)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+
+        y_n = self.linear_n(y).view(-1, 18, 512)
+        y_offset = self.lin_offest(y).view(-1, 18, 512)
+
+        return y_n, y_offset
+
+
+class neutralToXMLP(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.model = torch.nn.Sequential(
+            torch.nn.Linear(1, 512),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.Linear(512, 18 * 512)
+        )
+
+    def forward(self, x, score):
+
+        y = self.model(score).view(-1, 18, 512)
+
+        return y
+
+
+class EmoDBResNet(nn.Module):
+    def __init__(self, n_latent=16):
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        from torchvision.models import resnet18
+        resnet = resnet18(pretrained=True)
+
+        self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
+        _set_requires_grad_false(self.layer0)
+        # self.layer1 = resnet.layer1  # 64
+        self.layer1 = pretrainedResNetBlock(resnet.layer1, n_latent)
+        # self.layer2 = resnet.layer2  # 128
+        self.layer2 = pretrainedResNetBlock(resnet.layer2, n_latent)
+        # self.layer3 = resnet.layer3  # 256
+        self.layer3 = pretrainedResNetBlock(resnet.layer3, n_latent)
+        # self.layer4 = resnet.layer4  # 512
+        self.layer4 = pretrainedResNetBlock(resnet.layer4, n_latent)
+
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear_n = nn.Linear(512, 512 * 18)
+
+    def forward(self, x, score):
+
+        y = self.layer0(x)
+        y = self.layer1(y, score)
+        y = self.layer2(y, score)
+        y = self.layer3(y, score)
+        y = self.layer4(y, score)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+
+        y = self.linear_n(y).view(-1, 18, 512)
 
         return y
 

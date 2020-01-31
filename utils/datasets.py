@@ -11,7 +11,7 @@ import torch
 
 from my_models.models import FERClassifier
 from PIL import Image
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
 from torch.utils.data.dataset import Dataset
 from torchvision import transforms
 from torchvision.utils import make_grid
@@ -395,13 +395,31 @@ class RAVDESSPseudoPairDataset(Dataset):
 
         # Filter senteces by emotions
         src_sentences = filter_emotion([MAPPING[src_emotion]], sentences)
-        target_sentences = filter_emotion([MAPPING[target_emotion]], sentences)
-        print(f"# Source sentences: {len(src_sentences)}")
-        print(f"# Target sentences: {len(target_sentences)}")
+
+        # Get target_sentence pairs
+        sentence_pairs = {'src': [], 'target': []}
+        for s in src_sentences:
+            sentence_pairs['src'].append(s)
+            ident = s[0].split('/')[-2].split('-')
+            ident[2] = MAPPING[target_emotion]
+            ident[3] = '02'
+            ident = '-'.join(ident)
+            sentence_pairs['target'] += list(
+                filter(lambda s: s[0].split('/')[-2] == ident, sentences))
+        #
+        #
+        #
+        # src_sentences = [src_sentences[0]]
+        # target_sentences = [target_sentences[0]]
+        #
+        #
+        #
+        print(f"# Source sentences: {len(sentence_pairs['src'])}")
+        print(f"# Target sentences: {len(sentence_pairs['target'])}")
 
         # Get length of sentences
-        len_src_sentences = [len(s) for s in src_sentences]
-        len_target_sentences = [len(s) for s in target_sentences]
+        len_src_sentences = [len(s) for s in sentence_pairs['src']]
+        len_target_sentences = [len(s) for s in sentence_pairs['target']]
 
         # Transforms
         if int(np.log2(image_size)) - np.log2(image_size) == 0:
@@ -412,21 +430,23 @@ class RAVDESSPseudoPairDataset(Dataset):
             trans.append(transforms.Normalize(mean=self.mean, std=self.std))
         self.t = transforms.Compose(trans)
 
-        self.src_sentences = src_sentences
-        self.target_sentences = target_sentences
+        self.sentence_pairs = sentence_pairs
         self.len_src_sentences = len_src_sentences
         self.len_target_sentences = len_target_sentences
+
+        print(len(self.sentence_pairs['src']))
+        print(len(self.sentence_pairs['target']))
 
         self.target_happy_scores = self._compute_happy_scores()
 
     def __len__(self):
-        return len(self.src_sentences)
+        return len(self.sentence_pairs['src'])
 
     def _compute_happy_scores(self):
         print("Computing happy scores for target images")
         model = FERClassifier().to(self.device)
         scores = []
-        for sentence in self.target_sentences:
+        for sentence in self.sentence_pairs['target']:
             scores.append([])
             for frame in sentence:
                 img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
@@ -452,13 +472,12 @@ class RAVDESSPseudoPairDataset(Dataset):
 
     def __getitem__(self, index):
         # Select src and target sentence
-        src_sentence = self.src_sentences[index]
-        target_idx = random.randint(0, len(self.target_sentences) - 1)
-        target_sentence = self.target_sentences[target_idx]
+        src_sentence = self.sentence_pairs['src'][index]
+        target_sentence = self.sentence_pairs['target'][index]
 
         # Get random index
         rand_src_idx = random.randint(0, self.len_src_sentences[index] - 1)
-        rand_target_idx = min(rand_src_idx, self.len_target_sentences[target_idx] - 1)
+        rand_target_idx = min(rand_src_idx, self.len_target_sentences[index] - 1)
 
         # Load Images
         src = self.t(Image.open(src_sentence[rand_src_idx]))
@@ -474,6 +493,61 @@ class RAVDESSPseudoPairDataset(Dataset):
         res['target_happy_score'] = self.target_happy_scores[index][rand_target_idx]
 
         return res
+
+
+class RAVDESSEmoDBFlatDataset(Dataset):
+    def __init__(self,
+                 paths,
+                 device,
+                 normalize=True,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 seed=123,
+                 image_size=256):
+
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.device = device
+
+        frames = paths
+
+        # Select load function
+        self.load_fn = Image.open
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(self.mean, self.std))
+        self.t = transforms.Compose(trans)
+
+        self.frames = frames
+
+    def __len__(self):
+        return len(self.frames)
+
+    def get_idx_from_str(self, str_path):
+        return [idx for idx, f in enumerate(self.frames) if str_path in f][0]
+
+    def __getitem__(self, index):
+        # Check if first frame in a sentence
+        if self.frames[index].split('/')[-1].split('.')[0] == '001':
+            ind1 = index
+            ind2 = index + 1
+        else:
+            ind1 = index - 1
+            ind2 = index
+        # Load image
+        img1 = self.t(self.load_fn(self.frames[ind1]))
+        img2 = self.t(self.load_fn(self.frames[ind2]))
+
+        # Stack images
+        imgs = torch.stack((img1, img2), dim=0)
+        inds = torch.tensor([ind1, ind2])
+        # print(self.frames[ind1], self.frames[ind2], ind1, ind2)
+
+        return {'x': imgs, 'index': inds}
 
 
 def show_pix2pix(sample, mean, std, normalize):
@@ -522,7 +596,7 @@ def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None
                             num_workers=4,
                             shuffle=True,
                             drop_last=True,
-                            **kwargs)
+                            **kwargs) if val_ds is not None else None
 
     data_loaders = {
         'train': train_loader,
@@ -531,7 +605,7 @@ def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None
 
     dataset_sizes = {
         'train': len(train_ds),
-        'val': len(val_ds)
+        'val': len(val_ds) if val_ds is not None else None
     }
 
     return data_loaders, dataset_sizes
@@ -539,6 +613,8 @@ def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None
 
 def get_paths(root_path,
               flat,
+              shuffled=True,
+              use_strong_only=False,
               validation_split=0.0,
               emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
                         'fearful', 'disgust', 'surprised'],
@@ -563,17 +639,23 @@ def get_paths(root_path,
     print("Emotions included in data: {}".format(
         [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
 
+    if use_strong_only:
+        # Only use strong emotions (and all neutral ones)
+        filtered = list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                               in ['01'], sentences))
+        filtered += list(filter(lambda s: s.split('/')[-1].split('-')[3]
+                         in ['02'], sentences))
+        sentences = filtered
+
     # Get all frames from selected sentences
+    paths = sorted([sorted([str(p) for p in list(pathlib.Path(s).glob('*')) if str(p).split('/')[-1] != '.DS_Store'])
+                    for s in sentences])
     if flat:
-        paths = [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.jpg'))]
-        paths += [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.png'))]
-        paths += [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.pt'))]
-    else:
-        paths = [sorted([str(p) for p in list(pathlib.Path(s).glob('*')) if str(p).split('/')[-1] != '.DS_Store'])
-                 for s in sentences]
+        paths = [item for sublist in paths for item in sublist]
+
+    if shuffled:
+        # Shuffle sentences
+        random.shuffle(paths)
 
     # Count number of frames for every emotion and split in train and val
     print(f'# paths in total: {len(paths)}')
@@ -588,7 +670,6 @@ def get_paths(root_path,
         split = int(np.floor(validation_split * len(emo_lst)))
         train_paths = train_paths + emo_lst[split:]
         val_paths = val_paths + emo_lst[:split]
-        print("# paths for '{}': {}".format(emo, len(emo_lst)))
 
     return train_paths, val_paths
 

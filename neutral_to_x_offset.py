@@ -17,7 +17,7 @@ from torchvision.utils import save_image
 HOME = os.path.expanduser('~')
 
 
-class solverEncoder:
+class Solver:
     def __init__(self, args):
         super().__init__()
 
@@ -42,8 +42,7 @@ class solverEncoder:
         self.global_step = 0
 
         # Define encoder model
-        self.e = models.neutralToXResNet().to(self.device).train()
-        # self.e = models.neutralToXMLP().to(self.device).train()
+        self.e = models.resNetOffsetEncoder().to(self.device).train()
         print(self.e)
 
         if self.args.cont or self.args.test:
@@ -103,19 +102,26 @@ class solverEncoder:
                 self.update_lr(t)
 
                 # Encode
-                latent_offset = self.e(img, target_happy_score)
+                latent_offset, offset_to_x = self.e(img, target_happy_score)
                 # Add mean (we only want to compute offset to mean latent)
-                latent = latent_offset + self.latent_avg
+                latent_n = latent_offset + self.latent_avg
+                latent_x = latent_n + offset_to_x
 
                 # Decode
-                img_gen, _ = self.g(
-                    [latent], input_is_latent=True, noise=self.g.noises)
+                img_n, _ = self.g(
+                    [latent_n], input_is_latent=True, noise=self.g.noises)
+                img_x, _ = self.g(
+                    [latent_x], input_is_latent=True, noise=self.g.noises)
 
                 # Downsample to 256 x 256
-                img_gen = utils.downsample_256(img_gen)
+                img_n = utils.downsample_256(img_n)
+                img_x = utils.downsample_256(img_x)
 
                 # Compute perceptual loss
-                loss = self.criterion(img_gen, target).mean()
+                loss_n = self.criterion(img_n, img).mean()
+                loss_x = self.criterion(img_x, target).mean()
+
+                loss = 0.5 * (loss_x + loss_n)
 
                 # Optimize
                 self.opt.zero_grad()
@@ -144,7 +150,7 @@ class solverEncoder:
                 if self.global_step % self.args.eval_every == 0:
                     # Save train sample
                     save_tensor = torch.cat(
-                        (img.detach(), target.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
+                        (img.detach(), target.detach(), img_n.detach().clamp(-1., 1.), img_x.detach().clamp(-1., 1.)), dim=0)
                     save_image(
                         save_tensor,
                         f'{self.args.save_dir}train_gen_{self.global_step}.png',
@@ -173,19 +179,27 @@ class solverEncoder:
 
         # Encode
         with torch.no_grad():
-            latent_offset = self.e(img, target_happy_score)
+            # Encode
+            latent_offset, offset_to_x = self.e(img, target_happy_score)
             # Add mean (we only want to compute offset to mean latent)
-            latent = latent_offset + self.latent_avg
+            latent_n = latent_offset + self.latent_avg
+            latent_x = latent_n + offset_to_x
 
             # Decode
-            img_gen, _ = self.g(
-                [latent], input_is_latent=True, noise=self.g.noises)
+            img_n, _ = self.g(
+                [latent_n], input_is_latent=True, noise=self.g.noises)
+            img_x, _ = self.g(
+                [latent_x], input_is_latent=True, noise=self.g.noises)
 
             # Downsample to 256 x 256
-            img_gen = utils.downsample_256(img_gen)
+            img_n = utils.downsample_256(img_n)
+            img_x = utils.downsample_256(img_x)
 
             # Compute perceptual loss
-            val_loss = self.criterion(img_gen, target).mean()
+            loss_n = self.criterion(img_n, img).mean()
+            loss_x = self.criterion(img_x, target).mean()
+
+            val_loss = 0.5 * (loss_x + loss_n)
 
             if self.args.log:
                 self.writer.add_scalar(
@@ -193,7 +207,7 @@ class solverEncoder:
 
         # Save val sample
         save_tensor = torch.cat(
-            (img.detach(), target.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
+            (img.detach(), target.detach(), img_n.detach().clamp(-1., 1.), img_x.detach().clamp(-1., 1.)), dim=0)
         save_image(
             save_tensor,
             f'{self.args.save_dir}val_gen_{self.global_step}.png',
@@ -206,35 +220,55 @@ class solverEncoder:
 
         return val_loss
 
-    def test_model(self, data_loaders, n_img=8):
+    def test_model(self, test_latent, n_img=8):
+        test_latent = torch.load(test_latent).to(self.device)
         sample = next(iter(data_loaders['val']))
         img = sample['src'][0].unsqueeze(0).to(self.device)
         scores = torch.tensor(np.linspace(0., 1., n_img),
                               dtype=torch.float32, device=device)
 
-        imgs = [img]
+        test_img, _ = self.g(
+            [test_latent], input_is_latent=True, noise=self.g.noises
+        )
+        test_img = utils.downsample_256(test_img)
+
+        imgs_test = [test_img]
+        imgs_train_actor = [utils.downsample_256(img)]
         self.e.eval()
         for score in scores:
             # Encode
             print(f"Score: {score.item():.4f}")
             with torch.no_grad():
-                latent_offset = self.e(img, score.view((1, -1)))
+                latent_offset, offset_to_x = self.e(img, score.view((1, -1)))
                 # Add mean (we only want to compute offset to mean latent)
-                latent = latent_offset + self.latent_avg
+                latent_n = latent_offset + self.latent_avg + offset_to_x
+                latent_x = test_latent + offset_to_x
 
                 # Decode
-                img_gen, _ = self.g(
-                    [latent], input_is_latent=True, noise=self.g.noises)
+                img_n, _ = self.g(
+                    [latent_n], input_is_latent=True, noise=self.g.noises)
+                img_x, _ = self.g(
+                    [latent_x], input_is_latent=True, noise=self.g.noises)
 
                 # Downsample to 256 x 256
-                img_gen = utils.downsample_256(img_gen)
+                img_n = utils.downsample_256(img_n)
+                img_x = utils.downsample_256(img_x)
 
-            imgs.append(img_gen)
-        imgs = torch.cat(imgs, dim=0)
+            imgs_test.append(img_x)
+            imgs_train_actor.append(img_n)
+
+        imgs_test = torch.cat(imgs_test, dim=0)
+        imgs_train_actor = torch.cat(imgs_train_actor, dim=0)
 
         save_image(
-            imgs,
-            f'{self.args.save_dir}eval_scores.png',
+            imgs_test,
+            f'{self.args.save_dir}test_offset_x.png',
+            normalize=True,
+            nrow=n_img + 1,
+        )
+        save_image(
+            imgs_train_actor,
+            f'{self.args.save_dir}test_scores.png',
             normalize=True,
             nrow=n_img + 1,
         )
@@ -262,10 +296,12 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--model_path', type=str, default=None)
+    parser.add_argument('--test_latent', type=str, default=None)
     args = parser.parse_args()
 
     if args.cont or args.test:
         assert args.model_path is not None
+        assert args.test_latent is not None
 
     # Correct path
     if args.save_dir[-1] != '/':
@@ -286,7 +322,10 @@ if __name__ == '__main__':
         HOME + '/Datasets/RAVDESS/Aligned256/',
         validation_split=0.25,
         flat=False,
-        actors=[1],
+        actors=[1, 2],
+        emotions=['neutral', 'happy'],
+        shuffled=False,
+        use_strong_only=True,
     )
     train_ds = datasets.RAVDESSPseudoPairDataset(
         train_paths,
@@ -308,10 +347,10 @@ if __name__ == '__main__':
         train_ds, val_ds, batch_size=args.batch_size, use_cuda=True, val_batch_size=1)
 
     # Init solver
-    solver = solverEncoder(args)
+    solver = Solver(args)
 
     # Train
     if args.test:
-        solver.test_model(data_loaders)
+        solver.test_model(args.test_latent)
     else:
         solver.train(data_loaders, args.n_epochs)
