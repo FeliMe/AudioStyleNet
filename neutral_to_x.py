@@ -43,6 +43,7 @@ class solverEncoder:
 
         # Define encoder model
         self.e = models.neutralToXResNet().to(self.device).train()
+        # print(self.e)
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -85,6 +86,7 @@ class solverEncoder:
 
     def train(self, data_loaders, n_epochs):
         print("Start training")
+        val_loss = 0.
         n_iters = self.global_step + (n_epochs * len(data_loaders['train']))
         pbar = tqdm(range(n_epochs))
         for i_epoch in pbar:
@@ -122,15 +124,17 @@ class solverEncoder:
 
                 if self.global_step % self.args.log_every == 0:
                     pbar.set_description('step {gs} - '
-                                         'train loss {tl:.4f}'
+                                         'train loss {tl:.4f} - '
+                                         'val loss {vl:.4f} - '
                                          'lr {lr:.4f}'.format(
                                              gs=self.global_step,
                                              tl=loss,
+                                             vl=val_loss,
                                              lr=self.lr
                                          ))
                     if self.args.log:
                         self.writer.add_scalar(
-                            'train/Loss', loss, self.global_step)
+                            'loss/train', loss, self.global_step)
 
                 if self.global_step % self.args.save_every == 0:
                     self.save()
@@ -146,12 +150,62 @@ class solverEncoder:
                         nrow=min(8, self.args.batch_size)
                     )
 
+                    # Eval one batch
+                    val_loss = self.eval(data_loaders['val'])
+
         self.save()
         print('Done.')
 
-    def test_model(self, ds, n_img=8):
-        sample = next(iter(ds))
-        img = sample['src'].unsqueeze(0).to(self.device)
+    def eval(self, val_loader):
+        # Set encoder to eval
+        self.e.eval()
+
+        # Get random validation batch
+        batch = next(iter(val_loader))
+
+        # Unpack batch
+        img = batch['src'].to(device)
+        target = batch['target'].to(device)
+        target_happy_score = batch['target_happy_score'].to(device)
+
+        # Encode
+        with torch.no_grad():
+            latent_offset = self.e(img, target_happy_score)
+            # Add mean (we only want to compute offset to mean latent)
+            latent = latent_offset + self.latent_avg
+
+            # Decode
+            img_gen, _ = self.g(
+                [latent], input_is_latent=True, noise=self.g.noises)
+
+            # Downsample to 256 x 256
+            img_gen = utils.downsample_256(img_gen)
+
+            # Compute perceptual loss
+            val_loss = self.criterion(img_gen, target).mean()
+
+            if self.args.log:
+                self.writer.add_scalar(
+                    'loss/val', val_loss, self.global_step)
+
+        # Save val sample
+        save_tensor = torch.cat(
+            (img.detach(), target.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
+        save_image(
+            save_tensor,
+            f'{self.args.save_dir}train_gen_{self.global_step}.png',
+            normalize=True,
+            nrow=min(8, self.args.batch_size)
+        )
+
+        # Set encoder back to train
+        self.e.train()
+
+        return val_loss
+
+    def test_model(self, data_loaders, n_img=8):
+        sample = next(iter(data_loaders['val']))
+        img = sample['src'][0].unsqueeze(0).to(self.device)
         scores = torch.tensor(np.linspace(0., 1., n_img),
                               dtype=torch.float32, device=device)
 
@@ -190,7 +244,7 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=int, default=0.01)
     parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--log_every', type=int, default=1)
-    parser.add_argument('--eval_every', type=int, default=100)
+    parser.add_argument('--eval_every', type=int, default=10)
     parser.add_argument('--save_every', type=int, default=1000)
     parser.add_argument('--save_dir', type=str, default='saves/neutral_to_x/')
     parser.add_argument('--log', action='store_true')
@@ -226,30 +280,36 @@ if __name__ == '__main__':
         torch.backends.cudnn.benchmark = False
 
     # Load data
-    ds = datasets.RAVDESSPseudoPairDataset(
+    train_paths, val_paths = datasets.get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
+        validation_split=0.25,
+        flat=False,
+        actors=[1],
+    )
+    train_ds = datasets.RAVDESSPseudoPairDataset(
+        train_paths,
         device=device,
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        actors=[1],
     )
-    data_loaders = {
-        'train': torch.utils.data.DataLoader(
-            ds,
-            batch_size=args.batch_size,
-            num_workers=4,
-            shuffle=True,
-            drop_last=True,
-        )
-    }
+    val_ds = datasets.RAVDESSPseudoPairDataset(
+        val_paths,
+        device=device,
+        normalize=True,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256,
+    )
+    data_loaders, dataset_sizes = datasets.get_data_loaders(
+        train_ds, val_ds, batch_size=3, use_cuda=True, val_batch_size=1)
 
     # Init solver
     solver = solverEncoder(args)
 
     # Train
     if args.test:
-        solver.test_model(ds)
+        solver.test_model(data_loaders)
     else:
         solver.train(data_loaders, args.n_epochs)

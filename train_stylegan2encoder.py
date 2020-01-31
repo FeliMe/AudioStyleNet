@@ -84,7 +84,7 @@ class solverEncoder:
         print("Start training")
         n_iters = n_epochs * len(data_loaders['train'])
         val_loss = 0.
-        for i_epoch in range(n_epochs):
+        for i_epoch in range(1, n_epochs + 1):
             print('Epoch {}/{}'.format(i_epoch, n_epochs))
             print('-' * 10)
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=int, default=0.01)
-    parser.add_argument('--n_epochs', type=int, default=10)
+    parser.add_argument('--n_epochs', type=int, default=2)
     parser.add_argument('--log_every', type=int, default=1)
     parser.add_argument('--eval_every', type=int, default=100)
     parser.add_argument('--save_every', type=int, default=1000)
@@ -267,17 +267,31 @@ if __name__ == '__main__':
     args.device = device
 
     # Load data
-    ds = datasets.RAVDESSFlatDataset(
+    train_paths, val_paths = datasets.get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
+        validation_split=0.2,
+        flat=True,
+        actors=[1]
+    )
+    train_ds = datasets.RAVDESSFlatDataset(
+        paths=train_paths,
         device=device,
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        actors=[1],
     )
-    data_loaders, dataset_sizes = datasets.get_data_loaders(
-        ds, validation_split=0.8, batch_size=args.batch_size, use_cuda=True)
+    val_ds = datasets.RAVDESSFlatDataset(
+        paths=val_paths,
+        device=device,
+        normalize=True,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256,
+    )
+    data_loaders, _ = datasets.get_data_loaders(
+        train_ds, val_ds, args.batch_size, use_cuda=True
+    )
 
     # Init solver
     solver = solverEncoder(args)

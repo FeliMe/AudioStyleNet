@@ -1,3 +1,4 @@
+import argparse
 import glob
 import os
 import numpy as np
@@ -36,6 +37,8 @@ class Projector:
         self.latent_expr = None
         self.lpips = None
         self.target_images = None
+        self.loss_appearance = None
+        self.loss_expression = None
         self.loss = None
         self.cur_step = None
 
@@ -62,15 +65,20 @@ class Projector:
             self.latent_in = self.latent_in.repeat(self.g_ema.n_latent, 1)
         else:
             self.latent_in = initial_latent
-        self.latent_in.requires_grad = True
+
+        self.latent_appearance = torch.cat((self.latent_in[:3], self.latent_in[5:]), dim=0)
+        self.latent_expression = self.latent_in[3:5]
+        self.latent_appearance.requires_grad = True
+        self.latent_expression.requires_grad = True
 
         # Find noise inputs.
         self.noises = [noise.to(self.device) for noise in g.noises]
 
         # Init optimizer
-        # self.opt = torch.optim.Adam(
-        #     [self.latent_in] + self.noises, lr=self.initial_lr)
-        self.opt = torch.optim.Adam([self.latent_in], lr=self.initial_lr)
+        self.opt_appearance = torch.optim.Adam(
+            [self.latent_appearance], lr=self.initial_lr)
+        self.opt_expression = torch.optim.Adam(
+            [self.latent_expression], lr=self.initial_lr)
 
         # Init loss function
         self.lpips = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
@@ -84,7 +92,8 @@ class Projector:
         lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
         lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
         self.lr = self.initial_lr * lr_ramp
-        self.opt.param_groups[0]['lr'] = self.lr
+        self.opt_appearance.param_groups[0]['lr'] = self.lr
+        self.opt_expression.param_groups[0]['lr'] = self.lr
 
     def noise_regularization(self):
         reg_loss = 0.0
@@ -107,13 +116,12 @@ class Projector:
             std = noise.std()
             noise.data.add_(-mean).div_(std)
 
-    def prepare_input(self, target_images):
-        if len(target_images.shape) == 3:
-            target_images = target_images.unsqueeze(0)
-        if target_images.shape[2] > 256:
-            target_images = self.downsample_img(target_images)
-        self.target_images = target_images
-        print(self.target_images.shape)
+    def prepare_input(self, target_image):
+        if len(target_image.shape) == 3:
+            target_image = target_image.unsqueeze(0)
+        if target_image.shape[2] > 256:
+            target_image = self.downsample_img(target_image)
+        return target_image
 
     def downsample_img(self, img):
         b, c, h, w = img.shape
@@ -122,9 +130,10 @@ class Projector:
         img = img.mean([3, 5])
         return img
 
-    def run(self, target_images, num_steps):
+    def run(self, appearance, expression, num_steps):
         self.num_steps = num_steps
-        self.prepare_input(target_images)
+        self.appearance = self.prepare_input(appearance)
+        self.expression = self.prepare_input(expression)
 
         self._info('Running...')
         pbar = tqdm(range(self.num_steps))
@@ -137,6 +146,12 @@ class Projector:
     def step(self):
         # Hyperparameters
         t = self.cur_step / self.num_steps
+
+        # Build latent back together
+        self.latent_in = torch.cat(
+            (self.latent_appearance[:3], self.latent_expression, self.latent_appearance[3:]),
+            dim=0
+        )
 
         # Add noise to dlatents
         noise_strength = self.latent_std * self.initial_noise_factor * \
@@ -155,30 +170,46 @@ class Projector:
         self.img_gen = self.downsample_img(self.img_gen)
 
         # Compute perceptual loss
-        self.loss = self.lpips(self.img_gen, self.target_images).sum()
+        self.loss_appearance = self.lpips(self.img_gen, self.appearance).sum()
+        self.loss_expression = self.lpips(self.img_gen, self.expression).sum()
 
-        # Noise regularization
-        # reg_loss = self.noise_regularization()
-        # self.loss += reg_loss * self.regularize_noise_weight
+        self.loss = self.loss_appearance + self.loss_expression
 
         # Update params
-        self.opt.zero_grad()
-        self.loss.backward()
-        self.opt.step()
+        self.opt_appearance.zero_grad()
+        self.loss_appearance.backward(retain_graph=True)
+        self.opt_appearance.step()
 
-        # Normalize noise
-        # self.normalize_noise()
+        self.opt_expression.zero_grad()
+        self.loss_expression.backward()
+        self.opt_expression.step()
 
     def get_images(self):
+        self.latent_in = torch.cat(
+            (self.latent_appearance[:3], self.latent_expression, self.latent_appearance[3:]),
+            dim=0
+        )
         imgs, _ = self.g_ema(
             [self.latent_in], input_is_latent=True, noise=self.noises)
         return imgs
 
     def get_latents(self):
+        self.latent_in = torch.cat(
+            (self.latent_appearance[:3], self.latent_expression, self.latent_appearance[3:]),
+            dim=0
+        )
         return self.latent_in.detach()
 
 
 if __name__ == "__main__":
+
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('appearance', type=str)
+    parser.add_argument('expression', type=str)
+    parser.add_argument('--target_dir', type=str,
+                        default='saves/fb_expression_transfer/')
+    args = parser.parse_args()
 
     # Select device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -190,36 +221,32 @@ if __name__ == "__main__":
 
     proj = Projector(g)
 
-    # Load target image
-    path = sys.argv[1]
-    if os.path.isdir(path):
-        image_files = glob.glob(path + '*.png')
-        image_files += glob.glob(path + '*.jpg')
-    else:
-        image_files = [path]
+    # Load image
+    t = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+    appearance = t(Image.open(args.appearance)).to(device)
+    expression = t(Image.open(args.expression)).to(device)
 
-    for i, file in tqdm(enumerate(sorted(image_files))):
-        print('Projecting {}'.format(file))
+    # Get names
+    appearance_name = args.appearance.split('/')[-1].split('.')[0]
+    expression_name = args.expression.split('/')[-1].split('.')[0]
+    print("Projecting for appearance {} and expression {}".format(
+        appearance_name, expression_name
+    ))
 
-        # Load image
-        target_image = Image.open(file)
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
-        ])
-        target_image = transform(target_image).to(device)
+    # Run projector
+    proj.run(appearance, expression, 1000)
 
-        # Run projector
-        proj.run(target_image, 1000 if i == 0 else 50)
+    # Collect results
+    generated = proj.get_images()
+    latents = proj.get_latents()
 
-        # Collect results
-        generated = proj.get_images()
-        latents = proj.get_latents()
-
-        # Save results
-        save_str = 'saves/projected_images/' + \
-            file.split('/')[-1].split('.')[0]
-        os.makedirs('saves/projected_images/', exist_ok=True)
-        print('Saving {}'.format(save_str + '_p.png'))
-        save_image(generated, save_str + '_p.png', normalize=True)
-        torch.save(latents.detach().cpu(), save_str + '.pt')
+    # Save results
+    save_str = 'saves/projected_images/' + \
+        f"{appearance_name}-{expression_name}-g"
+    os.makedirs('saves/projected_images/', exist_ok=True)
+    print('Saving {}'.format(save_str + '.png'))
+    save_image(generated, save_str + '.png', normalize=True)
+    torch.save(latents.detach().cpu(), save_str + '.pt')

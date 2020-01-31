@@ -303,7 +303,7 @@ class CELEBADataset(Dataset):
 
 class RAVDESSFlatDataset(Dataset):
     def __init__(self,
-                 root_path,
+                 paths,
                  device,
                  normalize=True,
                  mean=[0., 0., 0.],
@@ -311,10 +311,7 @@ class RAVDESSFlatDataset(Dataset):
                  max_samples=None,
                  seed=123,
                  image_size=64,
-                 label_one_hot=False,
-                 emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
-                           'fearful', 'disgust', 'surprised'],
-                 actors=[i + 1 for i in range(24)]):
+                 label_one_hot=False):
 
         self.normalize = normalize
         self.mean = mean
@@ -322,33 +319,7 @@ class RAVDESSFlatDataset(Dataset):
         self.label_one_hot = label_one_hot
         self.device = device
 
-        root_dir = pathlib.Path(root_path)
-
-        # Get paths to all sentences
-        sentences = [str(p) for p in list(root_dir.glob('*/*'))
-                     if str(p).split('/')[-1] != '.DS_Store']
-
-        # Check if not empty
-        if len(sentences) == 0:
-            raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
-
-        # Filter included actors
-        sentences = filter_actor(sentences, actors)
-        print("Actors included in data: {}".format(actors))
-
-        # Filter senteces by emotions
-        mapped_emotions = [MAPPING[e] for e in emotions]
-        sentences = filter_emotion(mapped_emotions, sentences)
-        print("Emotions included in data: {}".format(
-            [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
-
-        # Get all frames from selected sentences
-        frames = [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.jpg'))]
-        frames += [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.png'))]
-        frames += [str(f) for s in sentences for f in list(
-            pathlib.Path(s).glob('*.pt'))]
+        frames = paths
 
         # Select load function
         if frames[0].split('.')[-1] in ['jpg', 'png']:
@@ -363,33 +334,6 @@ class RAVDESSFlatDataset(Dataset):
         elif frames[0].split('.')[-1] == 'pt':
             self.load_fn = torch.load
             self.t = lambda x: x
-
-        # Count number of frames for every emotion
-        tmp = [f.split('/')[-2].split('-')[2] for f in frames]
-        print(f'# frames in total: {len(tmp)}')
-        for emo in emotions:
-            print("# frames for '{}': {}".format(
-                emo, len(list(filter(lambda t: t == MAPPING[emo], tmp)))))
-
-        # Random seeds
-        random.seed(seed)
-        np.random.seed(seed)
-        torch.manual_seed(seed)
-
-        # Shuffle frames
-        random.shuffle(frames)
-
-        if max_samples is not None:
-            frames = frames[:min(len(frames), max_samples)]
-
-        # Transforms
-        trans = [
-            transforms.Resize(image_size),
-            transforms.ToTensor(),
-        ]
-        if self.normalize:
-            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
-        self.t = transforms.Compose(trans)
 
         self.frames = frames
 
@@ -430,7 +374,7 @@ class RAVDESSFlatDataset(Dataset):
 
 class RAVDESSPseudoPairDataset(Dataset):
     def __init__(self,
-                 root_path,
+                 paths,
                  device,
                  seed=123,
                  normalize=True,
@@ -438,8 +382,7 @@ class RAVDESSPseudoPairDataset(Dataset):
                  std=[0.5, 0.5, 0.5],
                  image_size=256,
                  src_emotion='neutral',
-                 target_emotion='happy',
-                 actors=[i + 1 for i in range(24)]):
+                 target_emotion='happy'):
         super(RAVDESSPseudoPairDataset, self).__init__()
         print("Loading dataset")
 
@@ -448,31 +391,13 @@ class RAVDESSPseudoPairDataset(Dataset):
         self.std = std
         self.device = device
 
-        root_dir = pathlib.Path(root_path)
-
-        # Get paths to all sentences
-        sentences = [str(p) for p in list(root_dir.glob('*/*'))
-                     if str(p).split('/')[-1] != '.DS_Store']
-
-        # Check if not empty
-        if len(sentences) == 0:
-            raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
-
-        # Filter included actors
-        sentences = filter_actor(sentences, actors)
-        print("Actors included in data: {}".format(actors))
+        sentences = paths
 
         # Filter senteces by emotions
         src_sentences = filter_emotion([MAPPING[src_emotion]], sentences)
         target_sentences = filter_emotion([MAPPING[target_emotion]], sentences)
         print(f"# Source sentences: {len(src_sentences)}")
         print(f"# Target sentences: {len(target_sentences)}")
-
-        # Get all frames of all sentences
-        src_sentences = [sorted([str(p) for p in list(pathlib.Path(s).glob('*'))])
-                         for s in src_sentences]
-        target_sentences = [sorted([str(p) for p in list(pathlib.Path(s).glob('*'))])
-                            for s in target_sentences]
 
         # Get length of sentences
         len_src_sentences = [len(s) for s in src_sentences]
@@ -575,15 +500,7 @@ def show_pix2pix(sample, mean, std, normalize):
     plt.show()
 
 
-def get_data_loaders(dataset, validation_split, batch_size, use_cuda):
-    dataset_size = len(dataset)
-    indices = list(range(dataset_size))
-    split = int(np.floor(validation_split * dataset_size))
-
-    train_indices, val_indices = indices[split:], indices[:split]
-
-    train_sampler = RandomSampler(train_indices)
-    val_sampler = RandomSampler(val_indices)
+def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None):
 
     if use_cuda and torch.cuda.is_available():
         print("Pinning memory")
@@ -591,17 +508,19 @@ def get_data_loaders(dataset, validation_split, batch_size, use_cuda):
     else:
         kwargs = {}
 
-    train_loader = DataLoader(dataset,
+    val_batch_size = val_batch_size if val_batch_size is not None else batch_size
+
+    train_loader = DataLoader(train_ds,
                               batch_size=batch_size,
                               num_workers=4,
-                              sampler=train_sampler,
+                              shuffle=True,
                               drop_last=True,
                               **kwargs)
 
-    val_loader = DataLoader(dataset,
-                            batch_size=batch_size,
+    val_loader = DataLoader(val_ds,
+                            batch_size=val_batch_size,
                             num_workers=4,
-                            sampler=val_sampler,
+                            shuffle=True,
                             drop_last=True,
                             **kwargs)
 
@@ -611,11 +530,67 @@ def get_data_loaders(dataset, validation_split, batch_size, use_cuda):
     }
 
     dataset_sizes = {
-        'train': len(train_indices),
-        'val': len(val_indices)
+        'train': len(train_ds),
+        'val': len(val_ds)
     }
 
     return data_loaders, dataset_sizes
+
+
+def get_paths(root_path,
+              flat,
+              validation_split=0.0,
+              emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                        'fearful', 'disgust', 'surprised'],
+              actors=[i + 1 for i in range(24)]):
+    root_dir = pathlib.Path(root_path)
+
+    # Get paths to all sentences
+    sentences = [str(p) for p in list(root_dir.glob('*/*'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+    # Check if not empty
+    if len(sentences) == 0:
+        raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
+
+    # Filter included actors
+    sentences = filter_actor(sentences, actors)
+    print("Actors included in data: {}".format(actors))
+
+    # Filter senteces by emotions
+    mapped_emotions = [MAPPING[e] for e in emotions]
+    sentences = filter_emotion(mapped_emotions, sentences)
+    print("Emotions included in data: {}".format(
+        [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
+
+    # Get all frames from selected sentences
+    if flat:
+        paths = [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.jpg'))]
+        paths += [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.png'))]
+        paths += [str(f) for s in sentences for f in list(
+            pathlib.Path(s).glob('*.pt'))]
+    else:
+        paths = [sorted([str(p) for p in list(pathlib.Path(s).glob('*')) if str(p).split('/')[-1] != '.DS_Store'])
+                 for s in sentences]
+
+    # Count number of frames for every emotion and split in train and val
+    print(f'# paths in total: {len(paths)}')
+    train_paths, val_paths = [], []
+    for emo in emotions:
+        if flat:
+            emo_lst = list(filter(lambda s: s.split('/')[-2].split('-')[2]
+                                  in MAPPING[emo], paths))
+        else:
+            emo_lst = list(filter(lambda s: s[0].split('/')[-2].split('-')[2]
+                                  in MAPPING[emo], paths))
+        split = int(np.floor(validation_split * len(emo_lst)))
+        train_paths = train_paths + emo_lst[split:]
+        val_paths = val_paths + emo_lst[:split]
+        print("# paths for '{}': {}".format(emo, len(emo_lst)))
+
+    return train_paths, val_paths
 
 
 def filter_actor(sentences, actors):
@@ -624,8 +599,12 @@ def filter_actor(sentences, actors):
 
 
 def filter_emotion(emotions, sentences):
-    return list(filter(lambda s: s.split('/')[-1].split('-')[2]
-                in emotions, sentences))
+    if type(sentences[0]) is list:
+        return list(filter(lambda s: s[0].split('/')[-2].split('-')[2]
+                    in emotions, sentences))
+    else:
+        return list(filter(lambda s: s.split('/')[-1].split('-')[2]
+                    in emotions, sentences))
 
 
 def int_to_one_hot(label):

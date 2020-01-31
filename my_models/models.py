@@ -516,7 +516,14 @@ class neutralToXResNet(nn.Module):
 
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
-        self.linear_n = nn.Linear(512, 512 * 18)
+        self.lin_score = nn.Linear(1, 64)
+        self.linear_n = nn.Linear(512 + 64, 512 * 18)
+
+        # self.model = torch.nn.Sequential(
+        #     torch.nn.Linear(1, 512),
+        #     torch.nn.ReLU(inplace=True),
+        #     torch.nn.Linear(512, 18 * 512)
+        # )
 
     def forward(self, x, score):
 
@@ -528,7 +535,11 @@ class neutralToXResNet(nn.Module):
         y = self.avgpool(y)
         y = self.flatten(y)
 
+        y = torch.cat((y, self.lin_score(score)), dim=1)
+
         y = self.linear_n(y).view(-1, 18, 512)
+
+        # y = self.model(score).view(-1, 18, 512)
 
         return y
 
