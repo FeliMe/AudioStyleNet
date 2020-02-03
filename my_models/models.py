@@ -10,6 +10,18 @@ import my_models.model_utils as model_utils
 """ Image models """
 
 
+MAPPING = {
+    'neutral': '01',
+    'calm': '02',
+    'happy': '03',
+    'sad': '04',
+    'angry': '05',
+    'fearful': '06',
+    'disgust': '07',
+    'surprised': '08'
+}
+
+
 class VGGStyleClassifier(nn.Module):
     def __init__(self):
         super(VGGStyleClassifier, self).__init__()
@@ -40,6 +52,42 @@ class VGGStyleClassifier(nn.Module):
         x = self.classifier(x)
 
         return x
+
+
+class EmotionClassifier(nn.Module):
+    def __init__(
+        self,
+        softmaxed=True,
+        emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                  'fearful', 'disgust', 'surprised']):
+        super().__init__()
+        self.classifier = ConvAndConvLSTM(gray=False)
+        self._load_weights()
+
+        self.emotions = [int(MAPPING[e]) - 1 for e in emotions]
+        self.softmaxed = softmaxed
+
+        for param in self.classifier.parameters():
+            param.requires_grad = False
+
+    def _load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/classifier_aligned256.pt'))
+        self.classifier.load_state_dict(w)
+
+    def _filter_emotions(self, out):
+        return out[:, self.emotions]
+
+    def forward(self, x):
+        if x.shape[-1] != 256:
+            x = nn.functional.interpolate(
+                x, 256, mode='bilinear', align_corners=False)
+
+        out = self.classifier(x)
+        if self.softmaxed:
+            out = nn.functional.softmax(out, dim=1)
+        out = self._filter_emotions(out)
+        return out
 
 
 class FERModelGitHub(nn.Module):
@@ -75,8 +123,31 @@ class FERModelGitHub(nn.Module):
                                     '../saves/pre-trained/FERModelGitHub.pt'))
         self.load_state_dict(w['net'])
 
+    def forward(self, x):
+        out = self.features(x)
+        out = out.view(out.size(0), -1)
+        out = torch.nn.functional.dropout(out, p=0.5, training=self.training)
+        out = self.classifier(out)
+        return out
+
+
+class FERClassifier(nn.Module):
+    def __init__(
+        self,
+        softmaxed=True,
+        emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                  'fearful', 'disgust', 'surprised']):
+        super().__init__()
+        self.classifier = FERModelGitHub(pretrained=True)
+        self.emotions = [int(MAPPING[e]) - 1 for e in emotions]
+        self.softmaxed = softmaxed
+
+        for param in self.classifier.parameters():
+            param.requires_grad = False
+
     def _map_to_ravdess_out(self, out):
-        ravdess_out = torch.zeros((out.shape[0], 8), dtype=out.dtype, device=out.device)
+        ravdess_out = torch.zeros(
+            (out.shape[0], 8), dtype=out.dtype, device=out.device)
         ravdess_out[:, 0] = out[:, 6]  # neutral
         # ravdess_out[:, 1] = 0.       # calm
         ravdess_out[:, 2] = out[:, 3]  # happy
@@ -87,28 +158,20 @@ class FERModelGitHub(nn.Module):
         ravdess_out[:, 7] = out[:, 5]  # surprised
         return ravdess_out
 
-    def forward(self, x):
-        out = self.features(x)
-        out = out.view(out.size(0), -1)
-        out = torch.nn.functional.dropout(out, p=0.5, training=self.training)
-        out = self.classifier(out)
-        out = self._map_to_ravdess_out(out)
-        return out
-
-
-class FERClassifier(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.classifier = FERModelGitHub(pretrained=True)
-
-        for param in self.classifier.parameters():
-            param.requires_grad = False
+    def _filter_emotions(self, out):
+        return out[:, self.emotions]
 
     def forward(self, x):
         if x.shape[-1] != 48:
             x = nn.functional.interpolate(
                 x, 48, mode='bilinear', align_corners=False)
-        return nn.functional.softmax(self.classifier(x), dim=1)
+
+        out = self.classifier(x)
+        out = self._map_to_ravdess_out(out)
+        if self.softmaxed:
+            out = nn.functional.softmax(out, dim=1)
+        out = self._filter_emotions(out)
+        return out
 
 
 class PreTrainedResNet18(nn.Module):

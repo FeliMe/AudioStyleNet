@@ -18,9 +18,7 @@ from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
-# from keras.utils import get_file
 from ffhq_dataset.face_alignment import image_align
-# from ffhq_dataset.landmarks_detector import LandmarksDetector
 
 from dataloader import RAVDESSDataset
 
@@ -700,19 +698,66 @@ def ravdess_project_to_latent(path_to_actor):
             torch.save(latents, save_path)
 
 
+def ravdess_get_scores(root_path, model='fer'):
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    if model == 'fer':
+        from my_models.models import FERClassifier
+        model = FERClassifier(softmaxed=False).eval().to(device)
+        appendix = '-logit_fer.pt'
+    elif model == 'ravdess':
+        from my_models.models import EmotionClassifier
+        model = EmotionClassifier(softmaxed=False).eval().to(device)
+        appendix = '-logit_ravdess.pt'
+    else:
+        raise NotImplementedError
+
+    if root_path[-1] == '/':
+        root_path = root_path[:-1]
+
+    actors = sorted([str(p) for p in list(pathlib.Path(root_path).glob('*/'))
+                     if str(p).split('/')[-1] != '.DS_Store'])
+
+    t = transforms.Compose([
+        transforms.Resize(48),
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+
+    for actor in actors:
+        print(actor.split('/')[-1])
+        sentences = [str(s) for s in pathlib.Path(actor).glob('*/')
+                     if str(s).split('/')[-1] != '.DS_Store']
+
+        for folder in tqdm(sentences):
+            frames = sorted([str(f)
+                             for f in pathlib.Path(folder).glob('*.png')])
+            for i, frame in enumerate(sorted(frames)):
+                save_path = frame.split('.')[0] + appendix
+
+                img = t(Image.open(frame)).unsqueeze(0).to(device)
+                logits = model(img)[0].cpu()
+                # print(save_path)
+                # print(logits)
+                # 1 / 0
+
+                torch.save(logits, save_path)
+
+
 if __name__ == "__main__":
 
-    actor = sys.argv[1]
+    path = sys.argv[1]
 
     # ravdess_get_mean_std_image(IMAGE_256_PATH, True)
-    # ravdess_extract_landmarks(actor)
-    ravdess_project_to_latent(actor)
+    # ravdess_extract_landmarks(path_to_actor=path)
+    # ravdess_project_to_latent(path_to_actor=path)
     # ravdess_group_by_utterance(IMAGE_256_PATH)
     # ravdess_plot_label_distribution(IMAGE_PATH)
-    # ravdess_resize_frames(actor)
-    # ravdess_align_videos(VIDEO_PATH, actor)
+    # ravdess_resize_frames(path_to_actor=path)
+    # ravdess_align_videos(VIDEO_PATH, actor=path)
     # ravdess_convert_to_frames(VIDEO_PATH)
     # ravdess_to_frames_center_crop(VIDEO_PATH)
     # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
     # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
     # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
+    ravdess_get_scores(root_path=path)

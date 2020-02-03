@@ -149,27 +149,6 @@ class VGG16Loss(nn.Module):
         return result
 
 
-class EmotionClassifier(nn.Module):
-    def __init__(self, use_mask):
-        super().__init__()
-        self.classifier = ConvAndConvLSTM(gray=False)
-        if use_mask:
-            state_dict = torch.load('saves/pre-trained/classifier_aligned256_masked.pt')
-        else:
-            state_dict = torch.load('saves/pre-trained/classifier_aligned256.pt')
-        self.classifier.load_state_dict(state_dict)
-
-        for param in self.classifier.parameters():
-            param.requires_grad = False
-
-        self.use_mask = use_mask
-
-    def forward(self, x, mask=None):
-        if self.use_mask:
-            x = x * mask
-        return nn.functional.softmax(self.classifier(x), dim=1)
-
-
 class EmotionLoss(nn.Module):
     def __init__(self, use_mask=False):
         super().__init__()

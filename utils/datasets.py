@@ -8,6 +8,7 @@ import os
 import pathlib
 import random
 import torch
+import torch.nn.functional as F
 
 from my_models.models import FERClassifier
 from PIL import Image
@@ -305,12 +306,10 @@ class RAVDESSFlatDataset(Dataset):
     def __init__(self,
                  paths,
                  device,
-                 normalize=True,
-                 mean=[0., 0., 0.],
-                 std=[1., 1., 1.],
-                 max_samples=None,
-                 seed=123,
-                 image_size=64,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256,
                  label_one_hot=False):
 
         self.normalize = normalize
@@ -342,22 +341,22 @@ class RAVDESSFlatDataset(Dataset):
     def __len__(self):
         return len(self.frames)
 
-    def _compute_happy_scores(self):
-        print("Computing happy scores for target images")
-        model = FERClassifier().to(self.device)
-        scores = []
-        for frame in self.frames:
-            img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
-            score = model(img)[0, 2].cpu().view(1,)
-            scores.append(score)
+    # def _compute_happy_scores(self):
+    #     print("Computing happy scores for target images")
+    #     model = FERClassifier().to(self.device)
+    #     scores = []
+    #     for frame in self.frames:
+    #         img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
+    #         score = model(img)[0, 2].cpu().view(1,)
+    #         scores.append(score)
 
-        # Linearify scores from 0 to 1
-        lin_scores = [0] * len(scores)
-        for i, (item, idx) in enumerate(zip(np.linspace(0., 1., num=len(scores)), np.argsort(scores))):
-            lin_scores[idx] = torch.tensor([item])
-        scores = lin_scores
+    #     # Linearify scores from 0 to 1
+    #     lin_scores = [0] * len(scores)
+    #     for i, (item, idx) in enumerate(zip(np.linspace(0., 1., num=len(scores)), np.argsort(scores))):
+    #         lin_scores[idx] = torch.tensor([item])
+    #     scores = lin_scores
 
-        return scores
+    #     return scores
 
     def __getitem__(self, index):
         # Select frame
@@ -369,57 +368,54 @@ class RAVDESSFlatDataset(Dataset):
         # Load image
         img = self.t(self.load_fn(frame))
 
-        return {'x': img, 'y': emotion, 'index': index}
+        return {'x': img, 'y': emotion, 'index': index, 'paths': frame}
 
 
-class RAVDESSPseudoPairDataset(Dataset):
+class RAVDESSNeutralToXDataset(Dataset):
     def __init__(self,
                  paths,
+                 all_paths,
                  device,
                  seed=123,
                  normalize=True,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
                  image_size=256,
-                 src_emotion='neutral',
-                 target_emotion='happy'):
-        super(RAVDESSPseudoPairDataset, self).__init__()
+                 emotion_x='angry',
+                 lin_scores=False,
+                 score_type='fer'):
+        super().__init__()
         print("Loading dataset")
 
         self.normalize = normalize
         self.mean = mean
         self.std = std
         self.device = device
-
-        sentences = paths
+        self.lin_scores = lin_scores
+        self.score_type = score_type
+        self.emotion_x = emotion_x
 
         # Filter senteces by emotions
-        src_sentences = filter_emotion([MAPPING[src_emotion]], sentences)
+        sentences_neutral = filter_emotion([MAPPING['neutral']], all_paths)
+        sentences_x = filter_emotion(MAPPING[self.emotion_x], paths)
 
-        # Get target_sentence pairs
-        sentence_pairs = {'src': [], 'target': []}
-        for s in src_sentences:
-            sentence_pairs['src'].append(s)
+        # Get x_neutral pairs
+        sentence_pairs = {'neutral': [], 'x': []}
+        for s in sentences_x:
+            sentence_pairs['x'].append(s)
             ident = s[0].split('/')[-2].split('-')
-            ident[2] = MAPPING[target_emotion]
-            ident[3] = '02'
+            ident[2] = MAPPING['neutral']
+            ident[3] = '01'
             ident = '-'.join(ident)
-            sentence_pairs['target'] += list(
-                filter(lambda s: s[0].split('/')[-2] == ident, sentences))
+            sentence_pairs['neutral'] += list(
+                filter(lambda s: s[0].split('/')[-2] == ident, sentences_neutral))
         #
+        # sentences_neutral = [sentences_neutral[0]]
+        # sentences_x = [sentences_x[0]]
         #
-        #
-        # src_sentences = [src_sentences[0]]
-        # target_sentences = [target_sentences[0]]
-        #
-        #
-        #
-        print(f"# Source sentences: {len(sentence_pairs['src'])}")
-        print(f"# Target sentences: {len(sentence_pairs['target'])}")
-
         # Get length of sentences
-        len_src_sentences = [len(s) for s in sentence_pairs['src']]
-        len_target_sentences = [len(s) for s in sentence_pairs['target']]
+        len_sentences_neutral = [len(s) for s in sentence_pairs['neutral']]
+        len_sentences_x = [len(s) for s in sentence_pairs['x']]
 
         # Transforms
         if int(np.log2(image_size)) - np.log2(image_size) == 0:
@@ -431,66 +427,145 @@ class RAVDESSPseudoPairDataset(Dataset):
         self.t = transforms.Compose(trans)
 
         self.sentence_pairs = sentence_pairs
-        self.len_src_sentences = len_src_sentences
-        self.len_target_sentences = len_target_sentences
+        self.len_sentences_neutral = len_sentences_neutral
+        self.len_sentences_x = len_sentences_x
 
-        print(len(self.sentence_pairs['src']))
-        print(len(self.sentence_pairs['target']))
-
-        self.target_happy_scores = self._compute_happy_scores()
+        self.scores_x = self._load_scores_x()
 
     def __len__(self):
-        return len(self.sentence_pairs['src'])
+        return len(self.sentence_pairs['x'])
 
-    def _compute_happy_scores(self):
-        print("Computing happy scores for target images")
-        model = FERClassifier().to(self.device)
-        scores = []
-        for sentence in self.sentence_pairs['target']:
-            scores.append([])
-            for frame in sentence:
-                img = self.t(Image.open(frame)).unsqueeze(0).to(self.device)
-                score = model(img)[0, 2].cpu().view(1,)
-                scores[-1].append(score)
+    def _load_scores_x(self):
+        print("Loading scores for {}".format(self.emotion_x))
+        scores_x = []
+        for s in self.sentence_pairs['x']:
+            scores_x.append([])
+            for f in s:
+                emotion = int(f.split('/')[-2].split('-')[2]) - 1
+                score_path = f.split('.')[0] + '-logit_{}.pt'.format(self.score_type)
+                score = torch.load(score_path)
+                score = F.softmax(score, dim=0)[emotion]
+                scores_x[-1].append(score)
+        scores_flat = np.array([it for s in scores_x for it in s])
+        print("Min score: {:.4f}; max score: {:.4f}".format(
+            scores_flat.min(), scores_flat.max()))
 
-        # Linearify scores from 0 to 1
-        scores_flat = np.array([it for s in scores for it in s])
-        lin_scores_flat = np.zeros_like(scores_flat)
-        for item, idx in zip(np.linspace(0., 1., num=len(scores_flat)), np.argsort(scores_flat)):
-            lin_scores_flat[idx] = item
+        if self.lin_scores:
+            # Linearify scores from 0 to 1
+            print("Linearifying scores from 0 to 1")
+            lin_scores_flat = np.zeros_like(scores_flat)
+            for item, idx in zip(np.linspace(0., 1., num=len(scores_flat)), np.argsort(scores_flat)):
+                lin_scores_flat[idx] = item
+            lin_scores = []
+            counter = 0
+            for i in range(len(scores_x)):
+                lin_scores.append([])
+                for j in range(len(scores_x[i])):
+                    lin_scores[-1].append(torch.tensor([lin_scores_flat[counter]]))
+                    counter += 1
+            scores_x = lin_scores
 
-        lin_scores = []
-        counter = 0
-        for i in range(len(scores)):
-            lin_scores.append([])
-            for j in range(len(scores[i])):
-                lin_scores[-1].append(torch.tensor([lin_scores_flat[counter]]))
-                counter += 1
-        scores = lin_scores
-
-        return scores
+        return scores_x
 
     def __getitem__(self, index):
         # Select src and target sentence
-        src_sentence = self.sentence_pairs['src'][index]
-        target_sentence = self.sentence_pairs['target'][index]
+        sentence_neutral = self.sentence_pairs['neutral'][index]
+        sentence_x = self.sentence_pairs['x'][index]
 
         # Get random index
-        rand_src_idx = random.randint(0, self.len_src_sentences[index] - 1)
-        rand_target_idx = min(rand_src_idx, self.len_target_sentences[index] - 1)
+        rand_idx_neutral = random.randint(
+            0, self.len_sentences_neutral[index] - 1)
+        rand_idx_x = min(rand_idx_neutral, self.len_sentences_x[index] - 1)
 
         # Load Images
-        src = self.t(Image.open(src_sentence[rand_src_idx]))
-        target = self.t(Image.open(target_sentence[rand_target_idx]))
+        neutral = self.t(Image.open(sentence_neutral[rand_idx_neutral]))
+        x = self.t(Image.open(sentence_x[rand_idx_x]))
 
         res = {
-            'src': src,
-            'target': target,
+            'neutral': neutral,
+            'x': x,
             'index': index,
-            'rand_target_idx': rand_target_idx,
+            'rand_x_idx': rand_idx_x,
         }
 
-        res['target_happy_score'] = self.target_happy_scores[index][rand_target_idx]
+        res['score_x'] = self.scores_x[index][rand_idx_x]
+
+        return res
+
+
+class RAVDESSNeutralToAllDataset(Dataset):
+    def __init__(self,
+                 paths,
+                 device,
+                 seed=123,
+                 normalize=True,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256,
+                 emotions=['calm', 'happy', 'sad', 'angry',
+                           'fearful', 'disgust', 'surprised']):
+        super().__init__()
+        print("Loading dataset")
+
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.device = device
+
+        # Filter in neutral sentences and rest
+        neutral_sentences = filter_emotion(MAPPING['neutral'], paths)
+        x_sentences = filter_emotion(
+            [MAPPING[e] for e in emotions if e != 'neutral'], paths)
+
+        # Get lengths of sentences
+        len_neutral_sentences = [len(s) for s in neutral_sentences]
+        len_x_sentences = [len(s) for s in x_sentences]
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+        self.neutral_sentences = neutral_sentences
+        self.x_sentences = x_sentences
+        self.len_neutral_sentences = len_neutral_sentences
+        self.len_x_sentences = len_x_sentences
+        self.emotions = emotions
+
+        print(len(self.neutral_sentences))
+        print(len(self.x_sentences))
+
+        # self.x_scores = self._compute_x_scores()
+
+    def __len__(self):
+        return len(self.sentence_pairs['x'])
+
+    def __getitem__(self, index):
+        # Select src and target sentence
+        neutral_sentence = self.neutral_sentences[index]
+        x_index = random.randint(0, len(self.x_sentences) - 1)
+        x_sentence = self.x_sentences[x_index]
+
+        # Get random index
+        rand_neutral_idx = random.randint(0, self.len_neutral_sentences[index] - 1)
+        rand_x_idx = min(rand_neutral_idx, self.x_sentences[x_index] - 1)
+
+        # Load Images
+        neutral = self.t(Image.open(neutral_sentence[rand_neutral_idx]))
+        x = self.t(Image.open(x_sentence[rand_x_idx]))
+
+        res = {
+            'neutral': neutral,
+            'x': x,
+            'index': index,
+            'rand_target_idx': rand_x_idx,
+        }
+
+        res['x_score'] = self.x_scores[x_index][rand_x_idx]
 
         return res
 
@@ -614,7 +689,58 @@ def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None
 def get_paths(root_path,
               flat,
               shuffled=True,
-              use_strong_only=False,
+              validation_split=0.0,
+              emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                        'fearful', 'disgust', 'surprised'],
+              actors=[i + 1 for i in range(24)]):
+    root_dir = pathlib.Path(root_path)
+
+    # Get paths to all sentences
+    sentences = [str(p) for p in list(root_dir.glob('*/*/'))
+                 if str(p).split('/')[-1] != '.DS_Store']
+
+    # Check if not empty
+    if len(sentences) == 0:
+        raise (RuntimeError("Found 0 files in sub-folders of: " + root_path))
+
+    # Filter included actors
+    sentences = filter_actor(sentences, actors)
+    print("Actors included in data: {}".format(actors))
+
+    # Filter senteces by emotions
+    mapped_emotions = [MAPPING[e] for e in emotions]
+    sentences = filter_emotion(mapped_emotions, sentences)
+    print("Emotions included in data: {}".format(
+        [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
+
+    # Get all frames from selected sentences
+    all_paths = sorted([sorted([str(p) for p in list(pathlib.Path(s).glob('*.png'))])
+                        for s in sentences])
+    if flat:
+        all_paths = [item for sublist in all_paths for item in sublist]
+
+    if shuffled:
+        # Shuffle sentences
+        random.shuffle(all_paths)
+
+    # Count number of frames for every emotion and split in train and val
+    print(f'# paths in total: {len(all_paths)}')
+    train_paths, val_paths = [], []
+    for emo in emotions:
+        if flat:
+            emo_lst = list(filter(lambda s: s.split('/')[-2].split('-')[2]
+                                  in MAPPING[emo], all_paths))
+        else:
+            emo_lst = list(filter(lambda s: s[0].split('/')[-2].split('-')[2]
+                                  in MAPPING[emo], all_paths))
+        split = int(np.floor(validation_split * len(emo_lst)))
+        train_paths = train_paths + emo_lst[split:]
+        val_paths = val_paths + emo_lst[:split]
+
+    return train_paths, val_paths, all_paths
+
+
+def get_pairs(root_path,
               validation_split=0.0,
               emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
                         'fearful', 'disgust', 'surprised'],
@@ -639,39 +765,39 @@ def get_paths(root_path,
     print("Emotions included in data: {}".format(
         [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
 
-    if use_strong_only:
-        # Only use strong emotions (and all neutral ones)
-        filtered = list(filter(lambda s: s.split('/')[-1].split('-')[2]
-                               in ['01'], sentences))
-        filtered += list(filter(lambda s: s.split('/')[-1].split('-')[3]
-                         in ['02'], sentences))
-        sentences = filtered
-
     # Get all frames from selected sentences
-    paths = sorted([sorted([str(p) for p in list(pathlib.Path(s).glob('*')) if str(p).split('/')[-1] != '.DS_Store'])
+    paths = sorted([sorted([str(p) for p in list(pathlib.Path(s).glob('*.png'))])
                     for s in sentences])
-    if flat:
-        paths = [item for sublist in paths for item in sublist]
 
-    if shuffled:
-        # Shuffle sentences
-        random.shuffle(paths)
+    # Get target_sentence pairs
+    without_neutral = filter_emotion(
+        [MAPPING[e] for e in emotions if e != 'neutral'], paths)
+    sentence_pairs = {'neutral': [], 'x': []}
+    for s in without_neutral:
+        sentence_pairs['x'].append(s)
+        ident = s[0].split('/')[-2].split('-')
+        ident[2] = MAPPING['neutral']
+        ident[3] = '01'
+        ident = '-'.join(ident)
+        sentence_pairs['neutral'] += list(
+            filter(lambda s: s[0].split('/')[-2] == ident, paths))
 
-    # Count number of frames for every emotion and split in train and val
-    print(f'# paths in total: {len(paths)}')
-    train_paths, val_paths = [], []
-    for emo in emotions:
-        if flat:
-            emo_lst = list(filter(lambda s: s.split('/')[-2].split('-')[2]
-                                  in MAPPING[emo], paths))
-        else:
-            emo_lst = list(filter(lambda s: s[0].split('/')[-2].split('-')[2]
-                                  in MAPPING[emo], paths))
-        split = int(np.floor(validation_split * len(emo_lst)))
-        train_paths = train_paths + emo_lst[split:]
-        val_paths = val_paths + emo_lst[:split]
+    # Count number of pairs and split in train and val
+    print('# pairs in total: {}'.format(len(sentence_pairs['x'])))
 
-    return train_paths, val_paths
+    # Split in train and val
+    random.shuffle(sentence_pairs['x'])
+    random.shuffle(sentence_pairs['neutral'])
+
+    train_pairs = {'neutral': [], 'x': []}
+    val_pairs = {'neutral': [], 'x': []}
+    split = int(np.floor(validation_split * len(sentence_pairs['x'])))
+    train_pairs['neutral'] = sentence_pairs['neutral'][split:]
+    train_pairs['x'] = sentence_pairs['x'][split:]
+    val_pairs['neutral'] = sentence_pairs['neutral'][:split]
+    val_pairs['x'] = sentence_pairs['x'][:split]
+
+    return train_pairs, val_pairs
 
 
 def filter_actor(sentences, actors):
