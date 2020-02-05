@@ -601,7 +601,7 @@ class neutralToXResNet(nn.Module):
 
 
 class resNetOffsetEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, n_emotions):
         super().__init__()
 
         def _set_requires_grad_false(layer):
@@ -613,10 +613,10 @@ class resNetOffsetEncoder(nn.Module):
 
         self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
         _set_requires_grad_false(self.layer0)
-        self.layer1 = pretrainedResNetBlock(resnet.layer1, 1)
-        self.layer2 = pretrainedResNetBlock(resnet.layer2, 1)
-        self.layer3 = pretrainedResNetBlock(resnet.layer3, 1)
-        self.layer4 = pretrainedResNetBlock(resnet.layer4, 1)
+        self.layer1 = pretrainedResNetBlock(resnet.layer1, n_emotions)
+        self.layer2 = pretrainedResNetBlock(resnet.layer2, n_emotions)
+        self.layer3 = pretrainedResNetBlock(resnet.layer3, n_emotions)
+        self.layer4 = pretrainedResNetBlock(resnet.layer4, n_emotions)
 
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()

@@ -1,17 +1,17 @@
 import argparse
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import os
 import random
 import torch
 
 from datetime import datetime
 from lpips import PerceptualLoss
-from matplotlib.widgets import Slider
+from matplotlib.widgets import Slider, Button
 from my_models.style_gan_2 import Generator
 from my_models import models
 from torch.utils.tensorboard import SummaryWriter
-from torchvision import transforms
+from torchvision.transforms import transforms
 from torchvision.utils import save_image, make_grid
 from tqdm import tqdm
 from utils import datasets, utils
@@ -45,7 +45,8 @@ class Solver:
         self.global_step = 0
 
         # Define encoder model
-        self.e = models.resNetOffsetEncoder(1).to(self.device).train()
+        self.e = models.resNetOffsetEncoder(len(args.emotions))
+        self.e = self.e.to(self.device).train()
         # print(self.e)
 
         if self.args.cont or self.args.test:
@@ -68,7 +69,7 @@ class Solver:
         # Set up tensorboard
         if self.args.log and not self.args.test:
             self.args.save_dir.split('/')[-1]
-            tb_dir = 'tensorboard_runs/neutral_to_x/' + \
+            tb_dir = 'tensorboard_runs/neutral_to_all/' + \
                 self.args.save_dir.split('/')[-2]
             self.writer = SummaryWriter(tb_dir)
             print(f"Logging run to {tb_dir}")
@@ -154,7 +155,8 @@ class Solver:
                 if self.global_step % self.args.eval_every == 0:
                     # Save train sample
                     save_tensor = torch.cat(
-                        (img_n.detach(), img_x.detach(), img_n_gen.detach().clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
+                        (img_n.detach(), img_x.detach(), img_n_gen.detach(
+                        ).clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
                         dim=0
                     )
                     save_image(
@@ -213,7 +215,8 @@ class Solver:
 
         # Save val sample
         save_tensor = torch.cat(
-            (img_n.detach(), img_x.detach(), img_n_gen.detach().clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
+            (img_n.detach(), img_x.detach(), img_n_gen.detach(
+            ).clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
             dim=0
         )
         save_image(
@@ -228,74 +231,16 @@ class Solver:
 
         return val_loss
 
-    def test_model(self, test_latent_path, n_img=8):
-        test_latent = torch.load(test_latent_path).to(self.device)
-        sample = next(iter(data_loaders['val']))
-        img_n = sample['neutral'][0].unsqueeze(0).to(self.device)
-        scores = torch.tensor(np.linspace(0., 1., n_img),
-                              dtype=torch.float32, device=device)
-
-        test_img, _ = self.g(
-            [test_latent], input_is_latent=True, noise=self.g.noises
-        )
-        test_img = utils.downsample_256(test_img)
-
-        imgs_test = [test_img]
-        imgs_train_actor = [utils.downsample_256(img_n)]
-        self.e.eval()
-        for score in scores:
-            # Encode
-            print(f"Score: {score.item():.4f}")
-            with torch.no_grad():
-                latent_offset, offset_to_x = self.e(img_n, score.view((1, -1)))
-                # Add mean (we only want to compute offset to mean latent)
-                latent_n = latent_offset + self.latent_avg + offset_to_x
-                latent_x = test_latent + offset_to_x
-
-                # Decode
-                img_n_gen, _ = self.g(
-                    [latent_n], input_is_latent=True, noise=self.g.noises)
-                img_x_gen, _ = self.g(
-                    [latent_x], input_is_latent=True, noise=self.g.noises)
-
-                # Downsample to 256 x 256
-                img_n_gen = utils.downsample_256(img_n_gen)
-                img_x_gen = utils.downsample_256(img_x_gen)
-
-            imgs_test.append(img_x_gen)
-            imgs_train_actor.append(img_n_gen)
-
-        imgs_test = torch.cat(imgs_test, dim=0)
-        imgs_train_actor = torch.cat(imgs_train_actor, dim=0)
-
-        tmp_path = "{}{}_offset_{}.png".format(
-            self.args.save_dir,
-            test_latent_path.split('/')[-1].split('.')[0],
-            self.args.emotion
-        )
-        print("Saving to {}".format(tmp_path))
-        save_image(
-            imgs_test,
-            tmp_path,
-            normalize=True,
-            nrow=n_img + 1,
-        )
-        save_image(
-            imgs_train_actor,
-            f'{self.args.save_dir}test_scores.png',
-            normalize=True,
-            nrow=n_img + 1,
-        )
-        self.e.train()
-
-    def test_model2(self, test_latent_path):
+    def test_model(self, test_latent_path):
         """
         Matplotlib slideshow
         """
         # Prepare inputs
         test_latent = torch.load(test_latent_path).to(self.device)
         sample = next(iter(data_loaders['val']))
+        # sample = next(iter(data_loaders['train']))
         img_n = sample['neutral'][0].unsqueeze(0).to(self.device)
+        score_x = sample['score_x'][0]
 
         test_img, _ = self.g(
             [test_latent], input_is_latent=True, noise=self.g.noises
@@ -305,20 +250,21 @@ class Solver:
         t = transforms.ToPILImage(mode='RGB')
 
         # Set up plot
-        fig, ax = plt.subplots()
-        plt.subplots_adjust(bottom=0.25)
+        fig, ax = plt.subplots(figsize=(8, 8))
+        plt.subplots_adjust(bottom=0.55)
         im = plt.imshow(t(test_img[0].cpu()))
         plt.axis('off')
-        # ax.margins(x=0)
-        ax_slider1 = plt.axes([0.2, 0.1, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-        slider1 = Slider(ax_slider1, 'score', 0.0, 1.0, valinit=0.0, valstep=0.1)
+        ax_sliders = [plt.axes([0.2, 0.1 + 0.05 * i, 0.65, 0.03],
+                               facecolor='lightgoldenrodyellow') for i in range(len(self.args.emotions))]
+        sliders = [Slider(ax_slider, emotion, 0.0, 1.0, valinit=score, valstep=0.01)
+                   for emotion, ax_slider, score in zip(self.args.emotions, ax_sliders, score_x)]
 
         self.e.eval()
 
         def update(val):
-            score = torch.tensor(slider1.val).view(1, -1).to(self.device)
+            score = torch.tensor([slider.val for slider in sliders]).view(
+                1, -1).to(self.device)
             # Encode
-            print(f"Score: {score.item():.4f}")
             with torch.no_grad():
                 _, offset_to_x = self.e(img_n, score)
                 latent_x = test_latent + offset_to_x
@@ -335,7 +281,18 @@ class Solver:
             im.set_data(t(img_x_gen[0].cpu()))
             fig.canvas.draw_idle()
 
-        slider1.on_changed(update)
+        for slider in sliders:
+            slider.on_changed(update)
+
+        resetax = plt.axes([0.8, 0.025, 0.1, 0.04])
+        button = Button(resetax, 'Reset', color='lightgoldenrodyellow',
+                        hovercolor='0.975')
+
+        def reset(event):
+            for slider in sliders:
+                slider.reset()
+
+        button.on_clicked(reset)
         plt.show()
 
         self.e.train()
@@ -351,9 +308,10 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('-e', '--emotion', type=str, required=True)
-    parser.add_argument('--lin_scores', action='store_true')
-    parser.add_argument('--score_type', type=str, default='fer', help="'fer' or 'ravdess'")
+    parser.add_argument('--score_type', type=str,
+                        default='fer', help="'fer' or 'ravdess'")
+    parser.add_argument('-e', '--emotions', type=list, default=[
+                        'calm', 'happy', 'sad', 'angry', 'fearful', 'disgust', 'surprised'])
     parser.add_argument('--log', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
@@ -364,9 +322,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=int, default=0.01)
     parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--log_every', type=int, default=1)
-    parser.add_argument('--eval_every', type=int, default=100)
-    parser.add_argument('--save_every', type=int, default=1000)
-    parser.add_argument('--save_dir', type=str, default='saves/neutral_to_x/')
+    parser.add_argument('--eval_every', type=int, default=2000)
+    parser.add_argument('--save_every', type=int, default=10000)
+    parser.add_argument('--save_dir', type=str, default='saves/neutral_to_all/')
     args = parser.parse_args()
 
     if args.cont or args.test:
@@ -391,10 +349,11 @@ if __name__ == '__main__':
     train_paths, val_paths, all_paths = datasets.get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
         validation_split=0.25,
-        # actors=[1],
+        actors=[1],
         flat=False,
+        emotions=['neutral'] + args.emotions,
     )
-    train_ds = datasets.RAVDESSNeutralToXDataset(
+    train_ds = datasets.RAVDESSNeutralToAllDataset(
         train_paths,
         all_paths,
         device=device,
@@ -402,11 +361,10 @@ if __name__ == '__main__':
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        emotion_x=args.emotion,
-        lin_scores=args.lin_scores,
         score_type=args.score_type,
+        emotions=args.emotions,
     )
-    val_ds = datasets.RAVDESSNeutralToXDataset(
+    val_ds = datasets.RAVDESSNeutralToAllDataset(
         val_paths,
         all_paths,
         device=device,
@@ -414,9 +372,8 @@ if __name__ == '__main__':
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        emotion_x=args.emotion,
-        lin_scores=args.lin_scores,
         score_type=args.score_type,
+        emotions=args.emotions
     )
     data_loaders, dataset_sizes = datasets.get_data_loaders(
         train_ds, val_ds, batch_size=args.batch_size, use_cuda=True, val_batch_size=1)
@@ -427,6 +384,6 @@ if __name__ == '__main__':
 
     # Train
     if args.test:
-        solver.test_model2(args.test_latent)
+        solver.test_model(args.test_latent)
     else:
         solver.train(data_loaders, args.n_epochs)

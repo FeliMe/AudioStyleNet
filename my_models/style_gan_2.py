@@ -689,8 +689,16 @@ class Generator(nn.Module):
 
         return latent
 
-    def get_latent(self, input):
-        return self.style(input)
+    def get_latent(self, inp, truncation=1, truncation_latent=None):
+        styles = [self.style(s) for s in inp]
+        if truncation < 1:
+            style_t = []
+            for style in styles:
+                style_t.append(
+                    truncation_latent + truncation * (style - truncation_latent)
+                )
+            styles = style_t
+        return styles
 
     def forward(
         self,
