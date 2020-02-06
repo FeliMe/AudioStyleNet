@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     # Save target image in target directory
     save_image(target.detach().cpu(), '{}/target_img.png'.format(target_dir),
-               normalize=True)
+               normalize=True, range=(-1, 1))
 
     import torch.nn.functional as F
     pred = F.softmax(emotion_classifier(target), dim=1)[
@@ -107,7 +107,7 @@ if __name__ == '__main__':
         # Save generated image in interval
         if i % 50 == 0:
             save_image(img_gen.detach().cpu(), '{}/{}.png'.format(
-                target_dir, str(i_save).zfill(3)), normalize=True)
+                target_dir, str(i_save).zfill(3)), normalize=True, range=(-1, 1))
             i_save += 1
 
         # Downsample generated image to 256
@@ -134,4 +134,4 @@ if __name__ == '__main__':
 
     img_gen, _ = g([sample], input_is_latent=True, noise=g.noises)
     save_image(img_gen.detach().cpu(), '{}/{}.png'.format(
-        target_dir, str(i_save).zfill(3)), normalize=True)
+        target_dir, str(i_save).zfill(3)), normalize=True, range=(-1, 1))

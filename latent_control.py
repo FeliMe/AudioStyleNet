@@ -18,9 +18,9 @@ if __name__ == '__main__':
     parser.add_argument('-i', '--input_latent', type=str,
                         default='saves/projected_images/generated.pt')
     parser.add_argument('-v', '--vec', type=str,
-                        default='saves/disentangled_vectors/smile.npy')
+                        default='saves/luxemburg_control_latent/smile.npy')
     parser.add_argument('-d', '--save_dir', type=str,
-                        default='saves/disentangled_vectors/')
+                        default='saves/luxemburg_control_latent/')
     args = parser.parse_args()
 
     if args.save_dir[-1] != '/':
@@ -70,7 +70,7 @@ if __name__ == '__main__':
             img, _ = g([latent], input_is_latent=True, noise=g.noises)
 
             save_image(img, args.save_dir + str(i + 1).zfill(3) +
-                       '.png', normalize=True)
+                       '.png', normalize=True, range=(-1, 1))
 
     # Convert output frames to video
     os.chdir(args.save_dir)

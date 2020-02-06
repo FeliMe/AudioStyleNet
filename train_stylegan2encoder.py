@@ -143,6 +143,7 @@ class solverEncoder:
                         save_tensor,
                         f'{self.args.save_dir}train_gen_{self.global_step}.png',
                         normalize=True,
+                        range=(-1, 1),
                         nrow=min(8, self.args.batch_size)
                     )
 
@@ -189,6 +190,7 @@ class solverEncoder:
             save_tensor,
             f'{self.args.save_dir}val_gen_{self.global_step}.png',
             normalize=True,
+            range=(-1, 1),
             nrow=min(8, self.args.batch_size)
         )
 
@@ -229,6 +231,7 @@ class solverEncoder:
             img_tensor,
             f'{self.args.save_dir}test_model.png',
             normalize=True,
+            range=(-1, 1),
             nrow=n_samples
         )
         self.e.train()

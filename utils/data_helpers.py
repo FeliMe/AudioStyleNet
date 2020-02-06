@@ -3,6 +3,7 @@ File with helper functions to modify datasets. Mostly those functions are
 only used once.
 """
 
+import bz2
 import cv2
 import dlib
 import matplotlib.pyplot as plt
@@ -11,16 +12,17 @@ import os
 import pathlib
 import random
 import sys
-import bz2
+import time
 import torch
 
+from azure.cognitiveservices.vision.face import FaceClient
+from msrest.authentication import CognitiveServicesCredentials
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
-from ffhq_dataset.face_alignment import image_align
 
-from dataloader import RAVDESSDataset
+# from utils.dataloader import RAVDESSDataset
 
 HOME = os.path.expanduser('~')
 
@@ -146,6 +148,98 @@ def unpack_bz2(src_path):
     return dst_path
 
 
+def align_image(
+        frame,
+        landmarks,
+        output_size=1024,
+        transform_size=4096,
+        enable_padding=True):
+
+    # Parse landmarks.
+    # pylint: disable=unused-variable
+    lm = np.array(landmarks)
+    # lm_chin = lm[0: 17]  # left-right
+    # lm_eyebrow_left = lm[17: 22]  # left-right
+    # lm_eyebrow_right = lm[22: 27]  # left-right
+    # lm_nose = lm[27: 31]  # top-down
+    # lm_nostrils = lm[31: 36]  # top-down
+    lm_eye_left = lm[36: 42]  # left-clockwise
+    lm_eye_right = lm[42: 48]  # left-clockwise
+    lm_mouth_outer = lm[48: 60]  # left-clockwise
+    # lm_mouth_inner = lm[60: 68]  # left-clockwise
+
+    # Calculate auxiliary vectors.
+    eye_left = np.mean(lm_eye_left, axis=0)
+    eye_right = np.mean(lm_eye_right, axis=0)
+    eye_avg = (eye_left + eye_right) * 0.5
+    eye_to_eye = eye_right - eye_left
+    mouth_left = lm_mouth_outer[0]
+    mouth_right = lm_mouth_outer[6]
+    mouth_avg = (mouth_left + mouth_right) * 0.5
+    eye_to_mouth = mouth_avg - eye_avg
+
+    # Choose oriented crop rectangle.
+    x = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
+    x /= np.hypot(*x)
+    x *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
+    y = np.flipud(x) * [-1, 1]
+    c = eye_avg + eye_to_mouth * 0.1
+    quad = np.stack([c - x - y, c - x + y, c + x + y, c + x - y])
+    qsize = np.hypot(*x) * 2
+
+    # Convert image to PIL
+    img = Image.fromarray(frame)
+
+    # Shrink.
+    shrink = int(np.floor(qsize / output_size * 0.5))
+    if shrink > 1:
+        rsize = (int(np.rint(
+            float(img.size[0]) / shrink)), int(np.rint(float(img.size[1]) / shrink)))
+        img = img.resize(rsize, Image.ANTIALIAS)
+        quad /= shrink
+        qsize /= shrink
+
+    # Crop.
+    border = max(int(np.rint(qsize * 0.1)), 3)
+    crop = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(
+        np.ceil(max(quad[:, 0]))), int(np.ceil(max(quad[:, 1]))))
+    crop = (max(crop[0] - border, 0), max(crop[1] - border, 0),
+            min(crop[2] + border, img.size[0]), min(crop[3] + border, img.size[1]))
+    if crop[2] - crop[0] < img.size[0] or crop[3] - crop[1] < img.size[1]:
+        img = img.crop(crop)
+        quad -= crop[0:2]
+
+    # Pad.
+    pad = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(
+        np.ceil(max(quad[:, 0]))), int(np.ceil(max(quad[:, 1]))))
+    pad = (max(-pad[0] + border, 0), max(-pad[1] + border, 0), max(pad[2] -
+                                                                   img.size[0] + border, 0), max(pad[3] - img.size[1] + border, 0))
+    if enable_padding and max(pad) > border - 4:
+        pad = np.maximum(pad, int(np.rint(qsize * 0.3)))
+        img = np.pad(np.float32(
+            img), ((pad[1], pad[3]), (pad[0], pad[2]), (0, 0)), 'reflect')
+        h, w, _ = img.shape
+        y, x, _ = np.ogrid[:h, :w, :1]
+        mask = np.maximum(1.0 - np.minimum(np.float32(x) / pad[0], np.float32(
+            w - 1 - x) / pad[2]), 1.0 - np.minimum(np.float32(y) / pad[1], np.float32(h - 1 - y) / pad[3]))
+        blur = qsize * 0.02
+        img += (gaussian_filter(img, [blur, blur, 0]) -
+                img) * np.clip(mask * 3.0 + 1.0, 0.0, 1.0)
+        img += (np.median(img, axis=(0, 1)) - img) * \
+            np.clip(mask, 0.0, 1.0)
+        img = Image.fromarray(
+            np.uint8(np.clip(np.rint(img), 0, 255)), 'RGB')
+        quad += pad[:2]
+
+    # Transform.
+    img = img.transform((transform_size, transform_size),
+                        Image.QUAD, (quad + 0.5).flatten(), Image.BILINEAR)
+    if output_size < transform_size:
+        img = img.resize((output_size, output_size), Image.ANTIALIAS)
+
+    return img
+
+
 def ravdess_align_videos(root_path, actor):
     print("Aligning {}".format(actor))
     # Load landmarks model
@@ -197,7 +291,9 @@ def ravdess_align_videos(root_path, actor):
             for rect in detector(frame_small, 1):
                 landmarks = [(int(item.x / factor), int(item.y / factor))
                              for item in predictor(gray_small, rect).parts()]
-                image_align(frame, save_str, landmarks)
+                frame = align_image(
+                    frame, landmarks, output_size=256, transform_size=1024)
+                frame.save(save_str)
                 break
 
 
@@ -744,6 +840,62 @@ def ravdess_get_scores(root_path, model='fer'):
                 torch.save(logits, save_path)
 
 
+def ravdess_azure_scores(actor):
+
+    if actor[-1] == '/':
+        actor = actor[:-1]
+
+    KEY = 'b33dd9ddc4134928bb0af7e58aad8545'
+    ENDPOINT = 'https://testfacefelime.cognitiveservices.azure.com/'
+
+    # Create an authenticated FaceClient.
+    face_client = FaceClient(ENDPOINT, CognitiveServicesCredentials(KEY))
+
+    sentences = [str(s) for s in pathlib.Path(actor).glob('*/')
+                 if str(s).split('/')[-1] != '.DS_Store']
+
+    counter = 0
+
+    for folder in tqdm(sentences):
+        frames = sorted([str(f) for f in pathlib.Path(folder).glob('*.png')])
+        for i, frame in enumerate(sorted(frames)):
+            save_path = frame.split('.')[0] + '-score_azure.pt'
+
+            detected_faces = face_client.face.detect_with_stream(
+                image=open(frame, 'r+b'),
+                return_face_id=False,
+                return_face_landmarks=False,
+                return_face_attributes=['emotion'],
+                recognition_model='recognition_01'
+            )
+            counter += 1
+
+            if not detected_faces:
+                continue
+
+            for face in detected_faces:
+                emotions = face.face_attributes.emotion
+                scores = torch.tensor([
+                    emotions.neutral,
+                    emotions.contempt,
+                    emotions.happiness,
+                    emotions.sadness,
+                    emotions.anger,
+                    emotions.fear,
+                    emotions.disgust,
+                    emotions.surprise
+                ])
+                break
+            # print(save_path)
+            # print(scores)
+            # 1 / 0
+
+            torch.save(scores, save_path)
+
+            if counter % 20 == 0:
+                time.sleep(60)
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]
@@ -760,4 +912,5 @@ if __name__ == "__main__":
     # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
     # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
     # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
-    ravdess_get_scores(root_path=path)
+    # ravdess_get_scores(root_path=path)
+    ravdess_azure_scores(actor=path)

@@ -161,6 +161,7 @@ class Solver:
                         save_tensor,
                         f'{self.args.save_dir}train_gen_{self.global_step}.png',
                         normalize=True,
+                        range=(-1, 1),
                         nrow=min(8, self.args.batch_size)
                     )
 
@@ -220,6 +221,7 @@ class Solver:
             save_tensor,
             f'{self.args.save_dir}val_gen_{self.global_step}.png',
             normalize=True,
+            range=(-1, 1),
             nrow=min(8, self.args.batch_size)
         )
 
@@ -278,12 +280,14 @@ class Solver:
             imgs_test,
             tmp_path,
             normalize=True,
+            range=(-1, 1),
             nrow=n_img + 1,
         )
         save_image(
             imgs_train_actor,
             f'{self.args.save_dir}test_scores.png',
             normalize=True,
+            range=(-1, 1),
             nrow=n_img + 1,
         )
         self.e.train()

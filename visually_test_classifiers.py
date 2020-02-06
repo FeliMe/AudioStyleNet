@@ -92,4 +92,4 @@ if __name__ == '__main__':
     save_dir = 'saves/test_classifiers/'
     os.makedirs(save_dir, exist_ok=True)
     plt.savefig(save_dir + '{}_{}_distribution.png'.format(args.model, args.emotion))
-    save_image(imgs, save_dir + title, normalize=True)
+    save_image(imgs, save_dir + title, normalize=True, range=(-1, 1))

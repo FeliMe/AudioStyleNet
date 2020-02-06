@@ -3,6 +3,7 @@ import os
 import numpy as np
 import sys
 import torch
+import torch.nn.functional as F
 
 from tqdm import tqdm
 from lpips import PerceptualLoss
@@ -16,20 +17,25 @@ class Projector:
     def __init__(self,
                  g,
                  num_steps=1000,
+                 mse_strength=0.,
                  initial_learning_rate=0.1,
                  initial_noise_factor=0.05,
+                 lr_rampdown_length=0.25,
+                 lr_rampup_length=0.05,
+                 noise_ramp_length=0.75,
                  verbose=True,
                  initial_latent=None,
                  ):
 
         self.num_steps = num_steps
         self.n_mean_latent = 10000
+        self.mse_strength = mse_strength
         self.initial_lr = initial_learning_rate
         self.lr = initial_learning_rate
         self.initial_noise_factor = initial_noise_factor
-        self.lr_rampdown_length = 0.25
-        self.lr_rampup_length = 0.05
-        self.noise_ramp_length = 0.75
+        self.lr_rampdown_length = lr_rampdown_length
+        self.lr_rampup_length = lr_rampup_length
+        self.noise_ramp_length = noise_ramp_length
         self.regularize_noise_weight = 1e5
         self.verbose = verbose
 
@@ -157,6 +163,10 @@ class Projector:
         # Compute perceptual loss
         self.loss = self.lpips(self.img_gen, self.target_images).sum()
 
+        # Additional MSE loss
+        if self.mse_strength:
+            self.loss += F.mse_loss(self.img_gen, self.target_images) * self.mse_strength
+
         # Noise regularization
         # reg_loss = self.noise_regularization()
         # self.loss += reg_loss * self.regularize_noise_weight
@@ -221,5 +231,6 @@ if __name__ == "__main__":
             file.split('/')[-1].split('.')[0]
         os.makedirs('saves/projected_images/', exist_ok=True)
         print('Saving {}'.format(save_str + '_p.png'))
-        save_image(generated, save_str + '_p.png', normalize=True)
+        save_image(generated, save_str + '_p.png',
+                   normalize=True, range=(-1, 1))
         torch.save(latents.detach().cpu(), save_str + '.pt')

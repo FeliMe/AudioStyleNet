@@ -52,6 +52,6 @@ if __name__ == '__main__':
         args.target_dir, f"{appearance_name}-{expression_name}-expression.png")
     save_gen = os.path.join(
         args.target_dir, f"{appearance_name}-{expression_name}-g.png")
-    save_image(appearance_gen, save_appearance, normalize=True)
-    save_image(expression_gen, save_expression, normalize=True)
-    save_image(img_gen, save_gen, normalize=True)
+    save_image(appearance_gen, save_appearance, normalize=True, range=(-1, 1))
+    save_image(expression_gen, save_expression, normalize=True, range=(-1, 1))
+    save_image(img_gen, save_gen, normalize=True, range=(-1, 1))
