@@ -10,10 +10,20 @@ import torch
 import wandb
 
 from sklearn.metrics import confusion_matrix
+from torch import autograd
 from torch.utils.tensorboard import SummaryWriter
 from utils import datasets, utils
 
 HOME = os.path.expanduser('~')
+
+
+def r1_loss(pred, img):
+    grad, = autograd.grad(
+        outputs=pred.sum(), inputs=img, create_graph=True
+    )
+    grad_penalty = grad.pow(2).view(grad.shape[0], -1).sum(1).mean()
+
+    return grad_penalty
 
 
 class ClassificationSolver:
@@ -146,6 +156,10 @@ class ClassificationSolver:
         _, self.y_ = torch.max(self.logits, 1)
         self.epoch_acc += torch.sum(self.y_ == self.y.data,
                                     dtype=torch.float) / self.y_.numel()
+
+        # Add r1 loss
+        # loss_r1 = r1_loss(self.logits, self.x) * 1.
+        # self.loss_classifier_bce += loss_r1
 
         if phase == 'train':
             self.loss_classifier_bce.backward()

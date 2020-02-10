@@ -305,17 +305,17 @@ class Solver:
             [test_latent], input_is_latent=True, noise=self.g.noises
         )
         test_img = utils.downsample_256(test_img)
-        test_img = make_grid([test_img], normalize=True)
+        test_img_display = make_grid([test_img.clone()], normalize=True)
         t = transforms.ToPILImage(mode='RGB')
 
         # Set up plot
         fig, ax = plt.subplots()
         plt.subplots_adjust(bottom=0.25)
-        im = plt.imshow(t(test_img[0].cpu()))
+        im = plt.imshow(t(test_img_display[0].cpu()))
         plt.axis('off')
         # ax.margins(x=0)
         ax_slider1 = plt.axes([0.2, 0.1, 0.65, 0.03], facecolor='lightgoldenrodyellow')
-        slider1 = Slider(ax_slider1, 'score', 0.0, 1.0, valinit=0.0, valstep=0.1)
+        slider1 = Slider(ax_slider1, 'score', 0.0, 1.0, valinit=0.0, valstep=0.001)
 
         self.e.eval()
 
@@ -324,7 +324,8 @@ class Solver:
             # Encode
             print(f"Score: {score.item():.4f}")
             with torch.no_grad():
-                _, offset_to_x = self.e(img_n, score)
+                _, offset_to_x = self.e(test_img, score)
+                # _, offset_to_x = self.e(img_n, score)
                 latent_x = test_latent + offset_to_x
 
                 # Decode
@@ -392,7 +393,7 @@ if __name__ == '__main__':
     args.device = device
 
     # Load data
-    train_paths, val_paths, all_paths = datasets.get_paths(
+    train_paths, val_paths, all_paths = datasets.ravdess_get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
         validation_split=0.25,
         # actors=[1],

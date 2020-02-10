@@ -50,11 +50,11 @@ class Downsample(object):
 
 
 def downsample_256(img):
-        b, c, h, w = img.shape
-        factor = h // 256
-        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
-        img = img.mean([3, 5])
-        return img
+    b, c, h, w = img.shape
+    factor = h // 256
+    img = img.reshape(b, c, h // factor, factor, w // factor, factor)
+    img = img.mean([3, 5])
+    return img
 
 
 class GradPlotter:

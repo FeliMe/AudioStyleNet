@@ -5,6 +5,7 @@ File to specify dataloaders for different datasets
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 import pathlib
 import random
 import torch
@@ -367,7 +368,7 @@ class RAVDESSFlatDataset(Dataset):
         # Load image
         img = self.t(self.load_fn(frame))
 
-        return {'x': img, 'y': emotion, 'index': index, 'paths': frame}
+        return {'x': img, 'y': emotion, 'index': index, 'path': frame}
 
 
 class RAVDESSNeutralToXDataset(Dataset):
@@ -436,12 +437,18 @@ class RAVDESSNeutralToXDataset(Dataset):
 
     def _load_scores_x(self):
         print("Loading scores for {}".format(self.emotion_x))
+        if self.score_type in ['fer', 'ravdess']:
+            appendix = f'-logit_{self.score_type}.pt'
+        elif self.score_type == 'azure':
+            appendix = '-score_azure.pt'
+        else:
+            raise NotImplementedError
         scores_x = []
         for s in self.sentences_x:
             scores_x.append([])
             for f in s:
                 emotion = int(f.split('/')[-2].split('-')[2]) - 1
-                score_path = f.split('.')[0] + '-logit_{}.pt'.format(self.score_type)
+                score_path = f.split('.')[0] + appendix
                 score = torch.load(score_path)
                 score = F.softmax(score, dim=0)[emotion]
                 scores_x[-1].append(score)
@@ -560,12 +567,17 @@ class RAVDESSNeutralToAllDataset(Dataset):
 
     def _load_scores_x(self):
         print("Loading scores")
+        if self.score_type in ['fer', 'ravdess']:
+            appendix = f'-logit_{self.score_type}.pt'
+        elif self.score_type == 'azure':
+            appendix = '-score_azure.pt'
+        else:
+            raise NotImplementedError
         scores_x = []
         for s in self.sentences_x:
             scores_x.append([])
             for f in s:
-                score_path = f.split(
-                    '.')[0] + '-logit_{}.pt'.format(self.score_type)
+                score_path = f.split('.')[0] + appendix
                 score = torch.load(score_path)
                 score = F.softmax(score, dim=0)[self.emotion_inds]
                 scores_x[-1].append(score)
@@ -654,6 +666,57 @@ class RAVDESSEmoDBFlatDataset(Dataset):
         return {'x': imgs, 'index': inds}
 
 
+class OMGDataset(Dataset):
+    def __init__(self,
+                 paths,
+                 info,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256,
+                 flat=False,
+                 emotions=['calm', 'happy', 'sad', 'angry',
+                           'fearful', 'disgust', 'surprised']):
+        super().__init__()
+        self.paths = paths
+        self.info = info
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.flat = flat
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        # Select utterance
+        if self.flat:
+            frame = self.paths[index]
+        else:
+            utterance = self.paths[index]
+            frame = random.choice(utterance)
+
+        # Load image
+        img = self.t(Image.open(frame))
+
+        # Get emotion label
+        vid, utt = frame.split('/')[-3:-1]
+        idx = self.info.index[
+            (self.info['video'] == vid) & (self.info['utterance'] == utt + '.mp4')][0]
+        emotion = self.info.at[idx, 'EmotionMaxVote']
+
+        return {'x': img, 'emotion': emotion, 'index': index, 'path': frame}
+
+
 def show_pix2pix(sample, mean, std, normalize):
     """
     Plots a sample (input sequence and target sequence)
@@ -715,13 +778,13 @@ def get_data_loaders(train_ds, val_ds, batch_size, use_cuda, val_batch_size=None
     return data_loaders, dataset_sizes
 
 
-def get_paths(root_path,
-              flat,
-              shuffled=True,
-              validation_split=0.0,
-              emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
-                        'fearful', 'disgust', 'surprised'],
-              actors=[i + 1 for i in range(24)]):
+def ravdess_get_paths(root_path,
+                      flat,
+                      shuffled=True,
+                      validation_split=0.0,
+                      emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
+                                'fearful', 'disgust', 'surprised'],
+                      actors=[i + 1 for i in range(24)]):
     root_dir = pathlib.Path(root_path)
 
     # Get paths to all sentences
@@ -749,7 +812,6 @@ def get_paths(root_path,
         all_paths = [item for sublist in all_paths for item in sublist]
 
     if shuffled:
-        # Shuffle sentences
         random.shuffle(all_paths)
 
     # Count number of frames for every emotion and split in train and val
@@ -787,6 +849,25 @@ def int_to_one_hot(label):
     one_hot = torch.zeros(8)
     one_hot[label] = 1
     return one_hot
+
+
+def omg_get_paths(root_path, flat=False, shuffled=False):
+    root_dir = pathlib.Path(root_path)
+
+    info = pd.read_csv(list(root_dir.glob('*.csv'))[0])
+
+    videos = [str(v) for v in list(root_dir.glob('*/*/'))]
+
+    all_paths = [sorted([str(p) for p in list(pathlib.Path(v).glob('*.png'))])
+                 for v in videos]
+
+    if flat:
+        all_paths = [item for sublist in all_paths for item in sublist]
+
+    if shuffled:
+        random.shuffle(all_paths)
+
+    return all_paths, info
 
 
 class Downsample(object):

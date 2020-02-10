@@ -348,7 +348,7 @@ if __name__ == '__main__':
     args.device = device
 
     # Load data
-    train_paths, val_paths, all_paths = datasets.get_paths(
+    train_paths, val_paths, all_paths = datasets.ravdess_get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
         validation_split=0.25,
         actors=[1],

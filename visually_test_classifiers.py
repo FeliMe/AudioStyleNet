@@ -45,7 +45,7 @@ if __name__ == '__main__':
     t = transforms.ToTensor()
 
     # Init dataset
-    paths, _, _ = datasets.get_paths(
+    paths, _, _ = datasets.ravdess_get_paths(
         HOME + '/Datasets/RAVDESS/Aligned256/',
         flat=True,
         emotions=[args.emotion],

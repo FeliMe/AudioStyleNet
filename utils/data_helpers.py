@@ -18,6 +18,7 @@ import torch
 from azure.cognitiveservices.vision.face import FaceClient
 from msrest.authentication import CognitiveServicesCredentials
 from PIL import Image
+from scipy.ndimage.filters import gaussian_filter
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -154,6 +155,9 @@ def align_image(
         output_size=1024,
         transform_size=4096,
         enable_padding=True):
+    """
+    Source: https://github.com/NVlabs/ffhq-dataset/blob/master/download_ffhq.py
+    """
 
     # Parse landmarks.
     # pylint: disable=unused-variable
@@ -896,6 +900,78 @@ def ravdess_azure_scores(actor):
                 time.sleep(60)
 
 
+def omg_align_videos(root_path):
+    # Load landmarks model
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    splt = root_path.split('/')
+    target_path = ('/').join(splt[:-3]) + '/Aligned256/' + splt[-2] + '/'
+    print(f'Saving to {target_path}')
+    root_dir = pathlib.Path(root_path)
+    videos = [str(p) for p in list(root_dir.glob('*/'))
+              if str(p).split('/')[-1] != '.DS_Store']
+    assert len(videos) > 0
+
+    for i_video, video in enumerate(tqdm(videos)):
+        vid_name = video.split('/')[-1]
+        utterances = [str(p) for p in list(pathlib.Path(video).glob('*/'))
+                      if str(p).split('/')[-1] != '.DS_Store']
+
+        for i_utt, utterance in enumerate(utterances):
+            utt_name = utterance.split('/')[-1][:-4]
+            path_to_utt = os.path.join(target_path, vid_name, utt_name)
+            print("Video [{}/{}], Utterance [{}/{}], {}".format(
+                i_video + 1, len(videos),
+                i_utt + 1, len(utterances),
+                path_to_utt))
+            os.makedirs(path_to_utt, exist_ok=True)
+
+            # Restart frame counter
+            i_frame = 0
+
+            cap = cv2.VideoCapture(utterance)
+            while cap.isOpened():
+                # Frame shape: (720, 1280, 3)
+                ret, frame = cap.read()
+                if not ret:
+                    break
+                i_frame += 1
+                save_str = os.path.join(
+                    path_to_utt, str(i_frame).zfill(3) + '.png')
+                if os.path.exists(save_str):
+                    continue
+
+                # Convert from BGR to RGB
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                # Pre-resize to save computation
+                h_old, w_old, _ = frame.shape
+                h_new = 256
+                factor = h_new / h_old
+                w_new = int(w_old * factor)
+                frame_small = cv2.resize(frame, (w_new, h_new))
+
+                # Grayscale image
+                gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+
+                # Detect faces
+                for rect in detector(frame_small, 1):
+                    landmarks = [(int(item.x / factor), int(item.y / factor))
+                                 for item in predictor(gray_small, rect).parts()]
+                    frame = align_image(
+                        frame, landmarks, output_size=256, transform_size=1024)
+                    frame.save(save_str)
+                    # print(save_str)
+                    # frame.show()
+                    # 1 / 0
+                    break
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]
@@ -913,4 +989,5 @@ if __name__ == "__main__":
     # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
     # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
     # ravdess_get_scores(root_path=path)
-    ravdess_azure_scores(actor=path)
+    # ravdess_azure_scores(actor=path)
+    omg_align_videos(root_path=path)

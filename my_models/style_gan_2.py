@@ -711,7 +711,7 @@ class Generator(nn.Module):
         noise=None,
     ):
         if not input_is_latent:
-            styles = [self.style(s) for s in styles]
+            styles = [self.style(s).view(-1, 1, self.style_dim) for s in styles]
 
         if noise is None:
             noise = [None] * (2 * (self.log_size - 2) + 1)

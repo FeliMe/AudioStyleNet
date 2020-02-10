@@ -9,7 +9,7 @@ import torch
 from tqdm import tqdm
 from torch.utils.data import DataLoader
 from sklearn.metrics import confusion_matrix
-from utils.datasets import RAVDESSFlatDataset, get_paths
+from utils.datasets import RAVDESSFlatDataset, ravdess_get_paths
 from my_models import models
 
 
@@ -73,7 +73,7 @@ if __name__ == '__main__':
 
     # Prepare data
     ds_path = os.path.join(os.path.expanduser('~'), 'Datasets/RAVDESS/Aligned256/')
-    paths, _ = get_paths(
+    paths, _ = ravdess_get_paths(
         root_path=ds_path,
         flat=True,
         emotions=emotions
