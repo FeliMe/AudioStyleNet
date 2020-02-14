@@ -152,7 +152,12 @@ class Solver:
                 if self.global_step % self.args.save_every == 0:
                     self.save()
 
-                if self.global_step % self.args.eval_every == 0:
+                if self.global_step % self.args.val_every == 0:
+                    # Eval one batch
+                    val_loss = self.eval(data_loaders['val'], log=True)
+                    print("")
+
+                if self.global_step % self.args.log_image_every == 0:
                     # Save train sample
                     save_tensor = torch.cat(
                         (img_n.detach(), img_x.detach(), img_n_gen.detach(
@@ -167,14 +172,12 @@ class Solver:
                         nrow=min(8, self.args.batch_size)
                     )
 
-                    # Eval one batch
-                    val_loss = self.eval(data_loaders['val'])
-                    print("")
+                    val_loss = self.eval(data_loaders['val'], log_image=True)
 
         self.save()
         print('Done.')
 
-    def eval(self, val_loader):
+    def eval(self, val_loader, log=False, log_image=False):
         # Set encoder to eval
         self.e.eval()
 
@@ -210,23 +213,25 @@ class Solver:
 
             val_loss = 0.5 * (loss_x + loss_n)
 
-            if self.args.log:
-                self.writer.add_scalar(
-                    'loss/val', val_loss, self.global_step)
+            if log:
+                if self.args.log:
+                    self.writer.add_scalar(
+                        'loss/val', val_loss, self.global_step)
 
         # Save val sample
-        save_tensor = torch.cat(
-            (img_n.detach(), img_x.detach(), img_n_gen.detach(
-            ).clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
-            dim=0
-        )
-        save_image(
-            save_tensor,
-            f'{self.args.save_dir}val_gen_{self.global_step}.png',
-            normalize=True,
-            range=(-1, 1),
-            nrow=min(8, self.args.batch_size)
-        )
+        if log_image:
+            save_tensor = torch.cat(
+                (img_n.detach(), img_x.detach(), img_n_gen.detach(
+                ).clamp(-1., 1.), img_x_gen.detach().clamp(-1., 1.)),
+                dim=0
+            )
+            save_image(
+                save_tensor,
+                f'{self.args.save_dir}val_gen_{self.global_step}.png',
+                normalize=True,
+                range=(-1, 1),
+                nrow=min(8, self.args.batch_size)
+            )
 
         # Set encoder back to train
         self.e.train()
@@ -324,7 +329,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=int, default=0.01)
     parser.add_argument('--n_epochs', type=int, default=1000)
     parser.add_argument('--log_every', type=int, default=1)
-    parser.add_argument('--eval_every', type=int, default=2000)
+    parser.add_argument('--val_every', type=int, default=50)
+    parser.add_argument('--log_image_every', type=int, default=2000)
     parser.add_argument('--save_every', type=int, default=10000)
     parser.add_argument('--save_dir', type=str, default='saves/neutral_to_all/')
     args = parser.parse_args()

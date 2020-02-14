@@ -324,8 +324,8 @@ class Solver:
             # Encode
             print(f"Score: {score.item():.4f}")
             with torch.no_grad():
-                _, offset_to_x = self.e(test_img, score)
-                # _, offset_to_x = self.e(img_n, score)
+                # _, offset_to_x = self.e(test_img, score)
+                _, offset_to_x = self.e(img_n, score)
                 latent_x = test_latent + offset_to_x
 
                 # Decode
@@ -342,6 +342,43 @@ class Solver:
 
         slider1.on_changed(update)
         plt.show()
+
+        self.e.train()
+
+    def test_model3(self, test_latent_path, n_img=120):
+        test_latent = torch.load(test_latent_path).to(self.device)
+        sample = next(iter(data_loaders['train']))
+        img_n = sample['neutral'][0].unsqueeze(0).to(self.device)
+        scores = torch.tensor(np.linspace(0., 1., n_img),
+                              dtype=torch.float32, device=device)
+
+        latent_name = test_latent_path.split('/')[-1].split('.')[0]
+
+        self.e.eval()
+        save_dir = 'saves/neutral_to_x/temp/'
+        os.makedirs(save_dir, exist_ok=True)
+        for i, score in enumerate(scores):
+            # Encode
+            print(f"Score: {score.item():.4f}")
+            with torch.no_grad():
+                latent_offset, offset_to_x = self.e(img_n, score.view((1, -1)))
+                # Add mean (we only want to compute offset to mean latent)
+                latent_x = test_latent + offset_to_x
+
+                # Decode
+                img, _ = self.g(
+                    [latent_x], input_is_latent=True, noise=self.g.noises)
+
+                save_image(img, save_dir + str(i + 1).zfill(3) +
+                           '.png', normalize=True, range=(-1, 1))
+
+        # Convert output frames to video
+        os.chdir(save_dir)
+        os.system(
+            f'ffmpeg -framerate 30 -i %03d.png -c:v libx264 -r 30 -pix_fmt yuv420p {latent_name}.mp4')
+
+        # Remove generated frames and keep only video
+        os.system('rm *.png')
 
         self.e.train()
 
@@ -432,6 +469,6 @@ if __name__ == '__main__':
 
     # Train
     if args.test:
-        solver.test_model2(args.test_latent)
+        solver.test_model3(args.test_latent)
     else:
         solver.train(data_loaders, args.n_epochs)
