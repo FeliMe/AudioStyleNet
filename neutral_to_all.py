@@ -253,7 +253,7 @@ class Solver:
             [test_latent], input_is_latent=True, noise=self.g.noises
         )
         test_img = utils.downsample_256(test_img)
-        test_img = make_grid([test_img], normalize=True)
+        test_img = make_grid([test_img], normalize=True, range=(-1, 1))
         t = transforms.ToPILImage(mode='RGB')
 
         # Set up plot
@@ -284,7 +284,7 @@ class Solver:
                 img_x_gen = utils.downsample_256(img_x_gen)
 
             # Update plot
-            img_x_gen = make_grid([img_x_gen], normalize=True)
+            img_x_gen = make_grid([img_x_gen], normalize=True, range=(-1, 1))
             im.set_data(t(img_x_gen[0].cpu()))
             fig.canvas.draw_idle()
 

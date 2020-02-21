@@ -1,13 +1,19 @@
 import argparse
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import torch
 
+from matplotlib.widgets import Slider, Button
 from my_models import models
 from my_models.style_gan_2 import Generator
 from pathlib import Path
-from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
+from torchvision import transforms
 from tqdm import tqdm
+
+EMOTIONS = ['neutral', 'calm', 'happy', 'sad',
+            'angry', 'fearful', 'disgusted', 'surprised']
 
 
 def int_to_one_hot(labels):
@@ -249,6 +255,103 @@ def control_latent(args):
     os.system(f'rm -r {tmp_dir}')
 
 
+def demo():
+    """
+    Matplotlib slideshow
+    """
+
+    # Load directions
+    directions_path = 'saves/control_latent/directions/'
+    directions = np.array([
+        np.load(directions_path + 'neutral_rav_lin.npy'),
+        np.load(directions_path + 'calm_rav_lin.npy'),
+        np.load(directions_path + 'happy_rav_lin.npy'),
+        np.load(directions_path + 'sad_rav_lin.npy'),
+        np.load(directions_path + 'angry_rav_lin.npy'),
+        np.load(directions_path + 'fearful_rav_lin.npy'),
+        np.load(directions_path + 'disgusted_rav_lin.npy'),
+        np.load(directions_path + 'surprised_rav_lin.npy'),
+    ]).reshape(8, -1)
+
+    # Load input images
+    input_latents = torch.stack([
+        torch.load('saves/projected_images/obama.pt'),
+        torch.load('saves/projected_images/generated.pt'),
+        torch.load('saves/projected_images/pearl_earring.pt'),
+        torch.load('saves/projected_images/felix.pt'),
+        torch.load('saves/projected_images/neutral.pt'),
+        torch.load('saves/projected_images/einstein.pt'),
+    ])
+
+    # Select device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # To device
+    input_latents = input_latents.to(device)
+    directions = torch.tensor(directions, device=device)
+    # nrow = input_latents.shape[0] // 2
+    nrow = 3
+
+    # Init generator
+    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
+    g.noises = [n.to(device) for n in g.noises]
+
+    img, _ = g([input_latents], input_is_latent=True, noise=g.noises)
+    img = downsample_256(img)
+    img = torch.stack([make_grid(i, normalize=True, range=(-1, 1))
+                       for i in img])
+    img = make_grid(img, nrow=nrow)
+    img = transforms.ToPILImage(mode='RGB')(img.cpu())
+
+    # Set up plot
+    fig, ax = plt.subplots(figsize=(8, 8))
+    plt.subplots_adjust(bottom=0.55)
+    im = plt.imshow(img)
+    plt.axis('off')
+    ax_sliders = [plt.axes([0.2, 0.1 + 0.05 * i, 0.65, 0.03],
+                           facecolor='lightgoldenrodyellow') for i in range(len(directions))]
+    sliders = [Slider(ax_slider, emotion, 0.0, 1.0, valinit=0, valstep=0.01)
+               for emotion, ax_slider in zip(EMOTIONS, ax_sliders)]
+
+    def update(val):
+        coeffs = torch.tensor(
+            [slider.val for slider in sliders]).view(-1, 1).to(device)
+        # Encode
+        with torch.no_grad():
+            latent = input_latents.clone()
+            new_direction = (coeffs * directions).sum(dim=0, keepdim=True)
+            # print(coeffs)
+            latent[:, :8] = (latent + new_direction)[:, :8]
+
+            # Decode
+            img, _ = g([latent], input_is_latent=True, noise=g.noises)
+
+            # Downsample to 256 x 256
+            img = downsample_256(img)
+
+        # Update plot
+        img = torch.stack(
+            [make_grid(i, normalize=True, range=(-1, 1)) for i in img])
+        img = make_grid(img, nrow=nrow)
+        img = transforms.ToPILImage(mode='RGB')(img.cpu())
+        im.set_data(img)
+        fig.canvas.draw_idle()
+
+    for slider in sliders:
+        slider.on_changed(update)
+
+    resetax = plt.axes([0.8, 0.025, 0.1, 0.04])
+    button = Button(resetax, 'Reset', color='lightgoldenrodyellow',
+                    hovercolor='0.975')
+
+    def reset(event):
+        for slider in sliders:
+            slider.reset()
+
+    button.on_clicked(reset)
+    plt.show()
+
+
 if __name__ == '__main__':
 
     # Parse arguments
@@ -256,6 +359,7 @@ if __name__ == '__main__':
     parser.add_argument('--generate_data', action='store_true')
     parser.add_argument('--find_direction', action='store_true')
     parser.add_argument('--control_latent', action='store_true')
+    parser.add_argument('--demo', action='store_true')
     parser.add_argument('-i', '--input_latent', type=str,
                         default='saves/projected_images/generated.pt')
     parser.add_argument('-v', '--vec', type=str,
@@ -275,5 +379,7 @@ if __name__ == '__main__':
             control_latent_video(args)
         else:
             control_latent(args)
+    elif args.demo:
+        demo()
     else:
         raise NotImplementedError

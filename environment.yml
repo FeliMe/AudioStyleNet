@@ -18,7 +18,6 @@ dependencies:
     - pandas
     - matplotlib
     - scikit-learn
-    - wandb
     - dlib
     - seaborn
     - opencv-python

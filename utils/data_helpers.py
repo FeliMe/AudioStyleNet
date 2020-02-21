@@ -3,6 +3,17 @@ File with helper functions to modify datasets. Mostly those functions are
 only used once.
 """
 
+"""
+Download files from google drive
+
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
+
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1YItQUCr2gkoaFavZ_zfd4T3WBmGwHIKh' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=d8mH&id=1-xK6l6SKnDhdbeTpPVTGQ5Igs_DIUJW9'
+https://drive.google.com/open?id=1YItQUCr2gkoaFavZ_zfd4T3WBmGwHIKh
+"""
+
 import bz2
 import cv2
 import dlib
@@ -17,6 +28,7 @@ import torch
 
 from azure.cognitiveservices.vision.face import FaceClient
 from msrest.authentication import CognitiveServicesCredentials
+from multiprocessing import Process
 from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
 from torchvision import transforms
@@ -972,6 +984,79 @@ def omg_align_videos(root_path):
                     break
 
 
+def aff_wild2_align_videos(root_path, group):
+    # Load landmarks model
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    splt = root_path.split('/')
+    target_path = ('/').join(splt[:-3]) + '/Aligned256/' + splt[-2] + '/'
+    print(f'Saving to {target_path}')
+    root_dir = pathlib.Path(root_path)
+    videos = [str(p) for p in list(root_dir.glob('*/'))
+              if str(p).split('/')[-1].split('.')[-1] in ['mp4', 'avi']]
+    assert len(videos) > 0
+
+    groups = []
+    n = len(videos) // 7
+    for i in range(0, len(videos), n):
+        groups.append(videos[i:i + n])
+
+    videos = groups[group]
+    print(f"Group {group}, num_videos {len(videos)}")
+
+    for i_video, video in enumerate(tqdm(videos)):
+        vid_name = video.split('/')[-1].split('.')[0]
+        print("Video [{}/{}]".format(i_video + 1, len(videos)))
+        path_to_vid = os.path.join(target_path, vid_name)
+
+        os.makedirs(path_to_vid, exist_ok=True)
+
+        # Restart frame counter
+        i_frame = 0
+
+        cap = cv2.VideoCapture(video)
+        while cap.isOpened():
+            # Frame shape: (720, 1280, 3)
+            ret, frame = cap.read()
+            if not ret:
+                break
+            i_frame += 1
+            save_str = os.path.join(
+                path_to_vid, str(i_frame).zfill(3) + '.png')
+            if os.path.exists(save_str):
+                continue
+
+            # Convert from BGR to RGB
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Pre-resize to save computation
+            h_old, w_old, _ = frame.shape
+            h_new = 256
+            factor = h_new / h_old
+            w_new = int(w_old * factor)
+            frame_small = cv2.resize(frame, (w_new, h_new))
+
+            # Grayscale image
+            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+
+            # Detect faces
+            for rect in detector(frame_small, 1):
+                landmarks = [(int(item.x / factor), int(item.y / factor))
+                             for item in predictor(gray_small, rect).parts()]
+                frame = align_image(
+                    frame, landmarks, output_size=256, transform_size=1024)
+                frame.save(save_str)
+                # print(save_str)
+                # frame.show()
+                # 1 / 0
+                break
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]
@@ -990,4 +1075,4 @@ if __name__ == "__main__":
     # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
     # ravdess_get_scores(root_path=path)
     # ravdess_azure_scores(actor=path)
-    omg_align_videos(root_path=path)
+    aff_wild2_align_videos(root_path=path, group=int(sys.argv[2]))

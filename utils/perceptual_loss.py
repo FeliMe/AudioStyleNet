@@ -304,3 +304,23 @@ class FERLoss(nn.Module):
         result = ((x_feats - y_feats) ** 2).mean()
 
         return result
+
+
+class DFI(nn.Module):
+    def __init__(self):
+        super(DFI, self).__init__()
+
+        vgg = vgg19(pretrained=True)
+
+        self.conv1 = nn.Sequential(*list(vgg.features.children())[:12])
+        self.conv2 = nn.Sequential(*list(vgg.features.children())[12:21])
+        self.conv3 = nn.Sequential(*list(vgg.features.children())[21:30])
+
+    def forward(self, x):
+        feat_1 = self.conv1(x)
+        feat_2 = self.conv2(feat_1)
+        feat_3 = self.conv3(feat_2)
+        b = feat_1.size(0)
+        out = torch.cat(
+            [feat_1.view(b, -1), feat_2.view(b, -1), feat_3.view(b, -1)], dim=1)
+        return out

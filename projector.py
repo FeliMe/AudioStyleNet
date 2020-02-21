@@ -212,7 +212,7 @@ if __name__ == "__main__":
         print('Projecting {}'.format(file))
 
         # Load image
-        target_image = Image.open(file)
+        target_image = Image.open(file).convert('RGB')
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])

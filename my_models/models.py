@@ -1,10 +1,12 @@
 import os
-import torch.nn as nn
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 from torchvision import models as torch_models
 
 import my_models.model_utils as model_utils
+import my_models.vgg_face as vgg_face
 
 
 """ Image models """
@@ -20,6 +22,40 @@ MAPPING = {
     'disgust': '07',
     'surprised': '08'
 }
+
+
+class VGG_Face_VA(nn.Module):
+    def __init__(self, pretrained=False):
+        super().__init__()
+
+        vgg = vgg_face.VGG_face(pretrained=True)
+
+        self.convs = nn.Sequential(*list(vgg.children())[:-7])
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(25088, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Linear(4096, 2)
+        )
+
+        if pretrained:
+            self._load_weights()
+
+    def _load_weights(self):
+        w_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                              '../saves/pre-trained/vgg_face_va.pt')
+        w = torch.load(w_path)
+        self.load_state_dict(w)
+
+    def forward(self, x):
+        x = F.interpolate(x, 224, mode='bilinear', align_corners=False)
+        x = self.convs(x)
+        x = self.classifier(x)
+        return x
 
 
 class VGGStyleClassifier(nn.Module):

@@ -675,8 +675,8 @@ class OMGDataset(Dataset):
                  std=[0.5, 0.5, 0.5],
                  image_size=256,
                  flat=False,
-                 emotions=['calm', 'happy', 'sad', 'angry',
-                           'fearful', 'disgust', 'surprised']):
+                 use_valence=False,
+                 binary_valence=False):
         super().__init__()
         self.paths = paths
         self.info = info
@@ -684,6 +684,8 @@ class OMGDataset(Dataset):
         self.mean = mean
         self.std = std
         self.flat = flat
+        self.use_valence = use_valence
+        self.binary_valence = binary_valence
 
         # Transforms
         if int(np.log2(image_size)) - np.log2(image_size) == 0:
@@ -712,7 +714,63 @@ class OMGDataset(Dataset):
         vid, utt = frame.split('/')[-3:-1]
         idx = self.info.index[
             (self.info['video'] == vid) & (self.info['utterance'] == utt + '.mp4')][0]
-        emotion = self.info.at[idx, 'EmotionMaxVote']
+        if self.use_valence:
+            valence = self.info.at[idx, 'valence']
+            arousal = (self.info.at[idx, 'arousal'] - 0.5) * 2
+            if self.binary_valence:
+                # valence = round((valence + 1) / 2)
+                # arousal = round((arousal + 1) / 2)
+                valence = (round((valence + 1) / 2) - 0.5) * 2
+                arousal = (round((arousal + 1) / 2) - 0.5) * 2
+            emotion = torch.tensor([valence, arousal], dtype=torch.float32)
+        else:
+            emotion = self.info.at[idx, 'EmotionMaxVote']
+
+        return {'x': img, 'emotion': emotion, 'index': index, 'path': frame}
+
+
+class AffWild2Dataset(Dataset):
+    def __init__(self,
+                 paths,
+                 annotations,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256):
+        super().__init__()
+        self.paths = paths
+        self.annotations = annotations
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.flat = len(self.paths[0][0]) == 1
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        # Select utterance
+        if self.flat:
+            frame = self.paths[index]
+        else:
+            video = self.paths[index]
+            frame = random.choice(video)
+
+        # Load image
+        img = self.t(Image.open(frame))
+
+        video = frame.split('/')[-2]
+        frame_number = int(frame.split('/')[-1].split('.')[0]) - 1
+        emotion = self.annotations[video][frame_number]
 
         return {'x': img, 'emotion': emotion, 'index': index, 'path': frame}
 
@@ -868,6 +926,36 @@ def omg_get_paths(root_path, flat=False, shuffled=False):
         random.shuffle(all_paths)
 
     return all_paths, info
+
+
+def aff_wild_get_paths(root_path, flat=False, shuffled=False):
+    if root_path[-1] != '/':
+        root_path += ['/']
+    root_dir = pathlib.Path(root_path)
+
+    videos = [str(v) for v in list(root_dir.glob('*/'))
+              if str(v).split('/')[-1] != 'annotations']
+
+    all_paths = [sorted([str(p) for p in list(pathlib.Path(v).glob('*.png'))], key=lambda x: int(x.split('/')[-1].split('.')[0]))
+                 for v in videos]
+
+    annotations = {}
+    for p in all_paths:
+        filename = '/'.join(p[0].split('/')[:-2] + ['annotations'] + [p[0].split('/')[-2]]) + '.txt'
+        # annotations.append([line.rstrip('\n').split(',') for line in open(filename)])
+        anns = pd.read_csv(filename)
+        valence = torch.tensor(anns['valence'].to_numpy(), dtype=torch.float32)
+        arousal = torch.tensor(anns['arousal'].to_numpy(), dtype=torch.float32)
+        a = torch.stack((valence, arousal), dim=1)
+        annotations[p[0].split('/')[-2]] = a
+
+    if flat:
+        all_paths = [item for sublist in all_paths for item in sublist]
+
+    if shuffled:
+        random.shuffle(all_paths)
+
+    return all_paths, annotations
 
 
 class Downsample(object):
