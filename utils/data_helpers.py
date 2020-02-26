@@ -9,19 +9,21 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1YItQUCr2gkoaFavZ_zfd4T3WBmGwHIKh' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=d8mH&id=1-xK6l6SKnDhdbeTpPVTGQ5Igs_DIUJW9'
-https://drive.google.com/open?id=1YItQUCr2gkoaFavZ_zfd4T3WBmGwHIKh
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=d8mH&id=1nG6xii2FP6PPqmcp4KtNVvUADXxEeakk'
+https://drive.google.com/open?id=1nG6xii2FP6PPqmcp4KtNVvUADXxEeakk
 """
 
 import bz2
 import cv2
 import dlib
+import json
 import matplotlib.pyplot as plt
 import numpy as np
 import os
+import pandas as pd
 import pathlib
 import random
+import subprocess
 import sys
 import time
 import torch
@@ -1057,6 +1059,229 @@ def aff_wild2_align_videos(root_path, group):
                 break
 
 
+def omg_get_forced_alignment(root_path):
+    all_audios = [str(a) for a in list(pathlib.Path(root_path).glob('*/*.wav'))]
+
+    transcript_path = [str(a) for a in list(
+        pathlib.Path(root_path).glob('*_transcripts.csv'))][0]
+    transcripts = pd.read_csv(transcript_path)
+
+    print(transcripts)
+    print(len(all_audios))
+
+    for audio in tqdm(all_audios):
+        video, utterance = audio.split('/')[-2:]
+        forced_alignment_path = audio[:-4] + '.json'
+        if os.path.exists(forced_alignment_path):
+            continue
+        utterance = utterance[:-4] + '.mp4'
+        transcript = transcripts.loc[(
+            transcripts.video == video) & (transcripts.utterance == utterance)].transcript.to_list()[0]
+        transcript = str(transcript)
+        # print(transcript)
+        # print(audio)
+        # print(video, utterance)
+        # print(forced_alignment_path)
+        # 1 / 0
+        print(audio, transcript)
+        t_path = '../saves/tmp.txt'
+        with open(t_path, 'w') as f:
+            f.write(transcript)
+
+        command = f'curl -F "audio=@{audio}" -F "transcript=@{t_path}" "http://localhost:8765/transcriptions?async=false"'
+
+        proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE)
+
+        # out = proc.stdout.read()
+        out, err = proc.communicate()
+        aligmnent = json.loads(out)
+
+        with open(forced_alignment_path, 'w') as f:
+            json.dump(aligmnent, f)
+
+
+def omg_get_phoneme_timing(root_path):
+    all_aligned = [str(a)
+                   for a in list(pathlib.Path(root_path).glob('*/*.json'))]
+
+    # aligned256_root = '/'.join(root_path.split('/')[:-3] + ['Aligned256'] + root_path.split('/')[-2:])
+
+    info_path = [str(a) for a in list(
+        pathlib.Path(root_path).glob('*_info.csv'))][0]
+    info = pd.read_csv(info_path)
+
+    print(len(all_aligned))
+
+    results = {}
+    for aligned in tqdm(all_aligned):
+
+        # Get corresponding frame sequence
+        target_path = '/'.join(aligned.split('/')
+                               [:-4] + ['Aligned256'] + aligned.split('/')[-3:])[:-5] + '/'
+        target_frames = sorted([str(p) for p in list(
+            pathlib.Path(target_path).glob('*.png'))])
+        print(len(target_frames), target_path)
+        maxi = int(target_frames[-1].split('/')[-1].split('.')[0])
+
+        # Get relevant paths
+        video, utterance = aligned.split('/')[-2:]
+        utterance = utterance[:-5] + '.mp4'
+
+        # Get FPS
+        fps = float(info.loc[(info['video'] == video) & (
+            info['utterance'] == utterance)].fps.to_list()[0])
+
+        with open(aligned) as json_file:
+            data = json.load(json_file)
+        print(aligned)
+        print(data['transcript'])
+        # print("")
+        words = data['words']
+
+        # Remove failed words
+        new_words = []
+        for i_word in range(len(words)):
+            if 'start' in words[i_word].keys():
+                new_words.append(words[i_word])
+        words = new_words
+
+        # Fill missing silence words
+        words_new = []
+        for i_word in range(len(words)):
+            if i_word != 0 and words[i_word - 1]['end'] < words[i_word]['start']:
+                word = {
+                    'alignedWord': 'sil',
+                    'end': words[i_word]['start'],
+                    'phones': [
+                        {
+                            'duration': round(words[i_word]['start'] - words[i_word - 1]['end'], 2),
+                            'phone': 'sil'
+                        }],
+                    'start': words[i_word - 1]['end'],
+                    'word': 'sil'
+                }
+                words_new.append(word)
+            words_new.append(words[i_word])
+        words = words_new
+
+        # Get absolute timings for each phoneme
+        for word in words:
+            phones = word['phones']
+            for i in range(len(phones)):
+                if i == 0:
+                    phones[i]['abs_start'] = word['start']
+                    phones[i]['abs_end'] = round(
+                        phones[i]['abs_start'] + phones[i]['duration'], 2)
+                else:
+                    phones[i]['abs_start'] = phones[i - 1]['abs_end']
+                    phones[i]['abs_end'] = round(
+                        phones[i]['abs_start'] + phones[i]['duration'], 2)
+
+        # Get timings in a dict
+        timings = {}
+        timings_f = {}
+        for i_word in range(len(words)):
+            # print(words[i_word]['word'])
+            for phone in words[i_word]['phones']:
+                timings[phone['abs_start']] = phone['phone']
+                timings_f[phone['abs_start'] // (1. / fps)] = phone['phone']
+                # print(phone['abs_start'], phone['abs_start'] // (1. / fps), timings[phone['abs_start']])
+            if i_word == len(words) - 1:
+                timings[phone['abs_end']] = 'sil'
+                timings_f[phone['abs_end'] // (1. / fps)] = 'sil'
+                # print(phone['abs_end'], phone['abs_end'] // (1. / fps), timings[phone['abs_end']])
+            # print("")
+
+        # Assign Phonemes to frames
+        phone = 'sil'
+        phones = []
+        for i in range(maxi):
+            target_frame = target_path + str(i + 1).zfill(3) + '.png'
+            if i in timings_f.keys():
+                phone = timings_f[i]
+            phones.append(phone)
+            # print(target_frame, i, phone)
+            results[target_frame] = phone
+
+        print("")
+
+    with open(root_path + 'omg_mapping_phoneme.json', 'w') as f:
+        json.dump(results, f)
+
+
+def tagesschau_align_videos(root_path, group):
+    # Load landmarks model
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
+    print(f'Saving to {target_path}')
+    root_dir = pathlib.Path(root_path)
+    videos = [str(p) for p in list(root_dir.glob('*.mp4'))
+              if str(p).split('/')[-1] != '.DS_Store']
+    assert len(videos) > 0
+
+    groups = []
+    n = len(videos) // 7
+    for i in range(0, len(videos), n):
+        groups.append(videos[i:i + n])
+
+    videos = groups[group]
+    print(f"Group {group}, num_videos {len(videos)}, {len(groups)} groups in total")
+
+    for i_video, video in enumerate(tqdm(videos)):
+        vid_name = video.split('/')[-1][:-4]
+        path_to_vid = os.path.join(target_path, vid_name)
+        print("Video [{}/{}], {}".format(
+            i_video + 1, len(videos),
+            path_to_vid))
+        os.makedirs(path_to_vid, exist_ok=True)
+
+        # Restart frame counter
+        i_frame = 0
+
+        cap = cv2.VideoCapture(video)
+        while cap.isOpened():
+            # Frame shape: (720, 1280, 3)
+            ret, frame = cap.read()
+            if not ret:
+                break
+            i_frame += 1
+            save_str = os.path.join(
+                path_to_vid, str(i_frame).zfill(3) + '.png')
+            if os.path.exists(save_str):
+                continue
+
+            # Convert from BGR to RGB
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+            # Pre-resize to save computation
+            h_old, w_old, _ = frame.shape
+            h_new = 256
+            factor = h_new / h_old
+            w_new = int(w_old * factor)
+            frame_small = cv2.resize(frame, (w_new, h_new))
+
+            # Grayscale image
+            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
+
+            # Detect faces
+            for rect in detector(frame_small, 1):
+                landmarks = [(int(item.x / factor), int(item.y / factor))
+                             for item in predictor(gray_small, rect).parts()]
+                frame = align_image(
+                    frame, landmarks, output_size=256, transform_size=1024)
+                frame.save(save_str)
+                # print(save_str)
+                # frame.show()
+                # 1 / 0
+                break
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]
@@ -1075,4 +1300,7 @@ if __name__ == "__main__":
     # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
     # ravdess_get_scores(root_path=path)
     # ravdess_azure_scores(actor=path)
-    aff_wild2_align_videos(root_path=path, group=int(sys.argv[2]))
+    # aff_wild2_align_videos(root_path=path, group=int(sys.argv[2]))
+    # omg_get_forced_alignment(path)
+    # omg_get_phoneme_timing(path)
+    tagesschau_align_videos(path, group=int(sys.argv[2]))

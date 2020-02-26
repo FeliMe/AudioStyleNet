@@ -220,7 +220,7 @@ if __name__ == "__main__":
         target_image = transform(target_image).to(device)
 
         # Run projector
-        proj.run(target_image, 1000 if i == 0 else 50)
+        proj.run(target_image, 2000 if i == 0 else 50)
 
         # Collect results
         generated = proj.get_images()

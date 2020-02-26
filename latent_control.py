@@ -33,6 +33,47 @@ def downsample_256(img):
     return img
 
 
+def add_valence_arousal(args):
+
+    # Select device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Load training data
+    data = torch.load(args.training_data)
+    latents = data['latents'].to(device)
+
+    # Init generator
+    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
+    g.noises = [n.to(device) for n in g.noises]
+
+    # Load prediction network
+    model = models.VGG_Face_VA(pretrained=True).eval().to(device)
+
+    valence_arousal = []
+    for i, latent in enumerate(tqdm(latents)):
+        with torch.no_grad():
+            img, _ = g([latent], input_is_latent=True, noise=g.noises)
+            img = downsample_256(img)
+
+            score = model(img).cpu()
+            valence_arousal.append(score)
+    valence_arousal = torch.cat(valence_arousal, dim=0)
+    print(valence_arousal.shape)
+
+    # Some info
+    import matplotlib.pyplot as plt
+    fig, axs = plt.subplots(1, 2, figsize=(14, 7))
+    for i, e in enumerate(['valence', 'arousal']):
+        axs[i].hist(valence_arousal[:, i])
+        axs[i].set_title(e)
+
+    plt.savefig(
+        f'saves/control_latent/latent_training_valence_arousal_distribution_20000.png')
+
+    data['valence_arousal'] = valence_arousal
+    torch.save(data, args.training_data)
+
+
 def genereate_training_data(num_samples):
 
     # Select device
@@ -369,6 +410,8 @@ if __name__ == '__main__':
     parser.add_argument('--training_data', type=str,
                         default='saves/control_latent/latent_training_data_20000.pt')
     args = parser.parse_args()
+
+    # add_valence_arousal(args)
 
     if args.generate_data:
         genereate_training_data(20000)

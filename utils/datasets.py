@@ -775,6 +775,59 @@ class AffWild2Dataset(Dataset):
         return {'x': img, 'emotion': emotion, 'index': index, 'path': frame}
 
 
+class TagesschauDataset(Dataset):
+    def __init__(self,
+                 root_path,
+                 shuffled=False,
+                 flat=False,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256):
+        super().__init__()
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+
+        videos = [str(v) for v in list(pathlib.Path(root_path).glob('*/'))]
+        all_paths = [sorted([str(p) for p in list(pathlib.Path(v).glob('*.png'))])
+                     for v in videos]
+
+        if flat:
+            all_paths = [item for sublist in all_paths for item in sublist]
+
+        if shuffled:
+            random.shuffle(all_paths)
+
+        self.paths = all_paths
+        self.flat = len(self.paths[0][0]) == 1
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        # Select utterance
+        if self.flat:
+            frame = self.paths[index]
+        else:
+            video = self.paths[index]
+            frame = random.choice(video)
+
+        # Load image
+        img = self.t(Image.open(frame))
+
+        return {'x': img, 'index': index, 'path': frame}
+
+
 def show_pix2pix(sample, mean, std, normalize):
     """
     Plots a sample (input sequence and target sequence)
@@ -912,7 +965,7 @@ def int_to_one_hot(label):
 def omg_get_paths(root_path, flat=False, shuffled=False):
     root_dir = pathlib.Path(root_path)
 
-    info = pd.read_csv(list(root_dir.glob('*.csv'))[0])
+    info = pd.read_csv(list(root_dir.glob('*_info.csv'))[0])
 
     videos = [str(v) for v in list(root_dir.glob('*/*/'))]
 
