@@ -184,7 +184,8 @@ class AFFSystem(pl.LightningModule):
             image_size=256,
         )
         data_loader = torch.utils.data.DataLoader(
-            ds, batch_size=self.hparams.batch_size, drop_last=True, shuffle=True)
+            ds, batch_size=self.hparams.batch_size, drop_last=True,
+            shuffle=True, pin_memory=True)
         return data_loader
 
     @pl.data_loader

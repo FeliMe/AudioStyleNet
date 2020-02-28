@@ -339,3 +339,285 @@ class FaceMaskPredictor:
         mask = self._compute_face_mask(landmarks, img)
         mask = torch.tensor(mask[None, None, :] / 255., dtype=torch.float32)
         return mask
+
+
+def get_mouth_params(landmarks, frame):
+    # Select mouth landmarks only
+    mouth_lm = landmarks[48:68]
+
+    # Distance parameters
+    d_params = distance_params(mouth_lm)
+
+    # Angle parameters
+    a_params = angle_params(mouth_lm, frame)
+
+    # Surface parameters
+    s_params = surface_params(mouth_lm)
+
+    # Textural parameters
+    t_params = texture_params(mouth_lm, frame)
+
+    params = np.concatenate((
+        d_params,
+        a_params,
+        s_params,
+        t_params
+    )).astype(np.float32)
+
+    return params
+
+
+def distance_params(mouth_lm):
+
+    def euc_dist(a, b):
+        return np.linalg.norm(a - b)
+
+    """
+    1. parameters representing the distance between the successive points on
+    the outer periphery of the contour delineated on the speaker’s lips
+    relative to their sum, i.e. the circumference. 12 parameters were
+    calculated for the outer contour.
+    """
+    def distance_params_1_and_2(mouth_lm):
+        lm = np.concatenate((mouth_lm, mouth_lm[None, 0]), axis=0)
+        dists = np.array([euc_dist(a, b) for a, b in zip(lm[:-1], lm[1:])])
+        circumference = dists.sum()
+        normed_dists = dists / circumference
+        return normed_dists
+
+    dists1 = distance_params_1_and_2(mouth_lm[:12])
+
+    """
+    2. the same parameters calculated for the inner contour. 8 parameters were
+    calculated for the internal contour.
+    """
+    dists2 = distance_params_1_and_2(mouth_lm[12:20])
+
+    """
+    3. the distances of the straight lines connecting vertically the outer and
+    inner contour points on the mouth in relation to the longest straight line
+    in the horizontal plane. They depict the maximum opening of the mouth in
+    successive sections along the mouth, from left to right. The maximum
+    opening found – 1 parameter. The opening for outer lips – 5 parameters.
+    For inner lips – 3 parameters.
+    """
+    def distance_params_3(mouth_lm):
+        longest_horizontal = mouth_lm[:, 0].max() - mouth_lm[:, 0].min()
+        # Outer
+        outer = np.array([euc_dist(a, b) for a, b in zip(
+            mouth_lm[1:6], np.flip(mouth_lm[7:12], axis=0))]) / longest_horizontal
+        # Inner
+        inner = np.array([euc_dist(a, b) for a, b in zip(
+            mouth_lm[13:16], np.flip(mouth_lm[17:20], axis=0))]) / longest_horizontal
+        return np.concatenate((outer.max().reshape(-1,), outer, inner))
+
+    dists3 = distance_params_3(mouth_lm)
+
+    """
+    4. the distances representing height versus maximum width, calculated for
+    the exposure of the upper and lower lip while uttering a given viseme.
+    They show the degree of lip exposure. 5 parameters were determined for the
+    upper lip and 5 for the lower lip.
+    """
+    def distance_params_4(mouth_lm):
+        longest_horizontal = mouth_lm[:, 0].max() - mouth_lm[:, 0].min()
+        # Upper
+        upper = np.array([euc_dist(a, b) for a, b in zip(
+            mouth_lm[1:6], mouth_lm[12:17])]) / longest_horizontal
+        # Lower
+        lower = np.array([euc_dist(a, b) for a, b in zip(mouth_lm[7:12], np.concatenate(
+            (mouth_lm[16:20], mouth_lm[None, 12])))]) / longest_horizontal
+        return np.concatenate((upper, lower))
+
+    dists4 = distance_params_4(mouth_lm)
+
+    return np.concatenate((dists1, dists2, dists3, dists4))
+
+
+def angle_params(mouth_lm, frame):
+
+    def angle(a, b, c):
+        ba = a - b
+        bc = c - b
+        numerator = np.dot(ba, bc)
+        denominator = np.linalg.norm(ba) * np.linalg.norm(bc)
+        if denominator == 0:
+            print("Warning, two points in angle are equal")
+            return np.pi
+        cosine_angle = numerator / denominator
+        cosine_angle = min(1., max(-1., cosine_angle))
+        if cosine_angle < -1 or cosine_angle > 1:
+            print(a, b, c)
+            print(ba, bc)
+            print(cosine_angle)
+            1 / 0
+        return np.arccos(cosine_angle)
+
+    def angle_params_1_and_2(lm):
+        angles = np.array([angle(a, b, c)
+                           for a, b, c in zip(lm[:-2], lm[1:-1], lm[2:])])
+        return angles
+
+    """
+    1. 12 parameters calculated for the outer contour of the lips representing
+    the values of the angles between successive points delineated on the lips
+    in degrees. Two straight lines were defined, drawn through successive
+    points, which helped to calculate the angle values.
+    """
+    angle1 = angle_params_1_and_2(
+        np.concatenate((mouth_lm[:12], mouth_lm[:2])))
+
+    """
+    2. 8 parameter values defined in a similar manner for the angles of the
+    inner contour.
+    """
+    angle2 = angle_params_1_and_2(
+        np.concatenate((mouth_lm[12:20], mouth_lm[12:14])))
+
+    return np.concatenate((angle1, angle2))
+
+
+def surface_params(mouth_lm):
+    def area(x, y):
+        return 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+    upper_outer = mouth_lm[:7]
+    upper_inner = mouth_lm[12:17]
+    lower_outer = np.concatenate((mouth_lm[6:12], mouth_lm[None, 0]))
+    lower_inner = np.concatenate((mouth_lm[16:20], mouth_lm[None, 12]))
+
+    upper_nodes = np.concatenate((upper_outer, np.flip(upper_inner, axis=0)))
+    lower_nodes = np.concatenate((lower_outer, np.flip(lower_inner, axis=0)))
+    inner_nodes = mouth_lm[12:20]
+    outer_nodes = mouth_lm[:12]
+
+    upper_area = area(upper_nodes[:, 0], upper_nodes[:, 1])
+    lower_area = area(lower_nodes[:, 0], lower_nodes[:, 1])
+
+    inner_area = area(inner_nodes[:, 0], inner_nodes[:, 1])
+    outer_area = area(outer_nodes[:, 0], outer_nodes[:, 1])
+
+    """
+    1. the first parameter is the ratio of the area limited by the inner
+    contour of the lips to the total area of the mouth, calculated for the
+    outer contour.
+    """
+    surface1 = inner_area / outer_area
+
+    """
+    2. another element of the parameter vector is the ratio of the upper lip
+    and lower lip area to the total area of the mouth.
+    """
+    surface2 = (upper_area + lower_area) / outer_area
+
+    """
+    3. the next value defined is the ratio of the area limited by the inner
+    lip contour to the surface of the upper lip.
+    """
+    surface3 = inner_area / upper_area
+
+    """
+    4. similarly to the previous parameter, the following one is the ratio of
+    the inner area to the lower lip area.
+    """
+    surface4 = inner_area / lower_area
+
+    """
+    5. another parameter is the ratio of the upper lip area to the lower lip.
+    """
+    surface5 = upper_area / lower_area
+
+    """
+    6. the next parameter is the ratio of the surface of the inner contour of
+    the lips to the total surface of the lips.
+    """
+    surface6 = inner_area / (outer_area - inner_area)
+
+    """
+    7. the last two parameters are the total area of the upper lip and the
+    area inside the mouth to the surface of the lower lip and the sum of the
+    lower lip and the area inside the mouth to the surface of the upper lip.
+    """
+    surface7 = (upper_area + inner_area) / lower_area
+    surface8 = (lower_area + inner_area) / upper_area
+
+    return np.concatenate((
+        surface1.reshape(-1,),
+        surface2.reshape(-1,),
+        surface3.reshape(-1,),
+        surface4.reshape(-1,),
+        surface5.reshape(-1,),
+        surface6.reshape(-1,),
+        surface7.reshape(-1,),
+        surface8.reshape(-1,)
+    ))
+
+
+def texture_params(mouth_lm, frame):
+    roi = frame[mouth_lm[:, 1].min():mouth_lm[:, 1].max(),
+                mouth_lm[:, 0].min():mouth_lm[:, 0].max()]
+
+    """
+    1. 32 parameters representing the mouth histogram in shades of grayscale.
+    """
+    roi_gray = cv2.cvtColor(roi, cv2.COLOR_RGB2GRAY)
+    hist_gray, _ = np.histogram(roi_gray.flatten(), 32, [0, 256])
+
+    """
+    2. 32 parameters that represent the mouth histogram within the HSV colour
+    scale.
+    """
+    roi_hsv = cv2.cvtColor(roi, cv2.COLOR_RGB2HSV)
+    hist_hsv, _ = np.histogram(roi_hsv.flatten(), 32, [0, 256])
+
+    """
+    3. 32 parameters for the mouth image histogram in grayscale after applying
+    the equalization.
+    """
+    roi_gray_equ = cv2.equalizeHist(roi_gray)
+    hist_gray_equ, _ = np.histogram(roi_gray_equ, 32, [0, 256])
+
+    """
+    4. 32 parameters for the mouth image histogram in grayscale after
+    processing via the Contrast Adaptive Histogram Equalization (CLAHE).
+    """
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    roi_gray_clahe = clahe.apply(roi_gray)
+    hist_gray_clahe, _ = np.histogram(roi_gray_clahe, 32, [0, 256])
+
+    """
+    5. 32 parameters that represent the most significant values of DCT for the
+    mouth area read in accordance with the Zig-Zag curve.
+    """
+    # Convert to float
+    roi_gray_f = np.float32(roi_gray)
+    # Pad if necessary
+    height, width = roi_gray_f.shape[0:2]
+    bottom = (height % 2 == 1)
+    right = (width % 2 == 1)
+    roi_gray_f = cv2.copyMakeBorder(
+        roi_gray_f, 0, bottom, 0, right, cv2.BORDER_REFLECT101)
+    # Compute dct
+    dct = cv2.dct(roi_gray_f)
+    roi_dct = np.uint8(dct)
+    # Read 32 params in zig-zag manner
+    height, width = roi_dct.shape[0:2]
+    r, c = 0, 0
+    dct_params = []
+    for i in range(min(32, max(height, width))):
+        dct_params.append(dct[c, r])
+        if c < height - 1:
+            c += 1
+        if r < width - 1:
+            r += 1
+    dct_params = np.array(dct_params)
+
+    texture = np.concatenate((
+        hist_gray,
+        hist_hsv,
+        hist_gray_equ,
+        hist_gray_clahe,
+        dct_params
+    ))
+
+    return texture

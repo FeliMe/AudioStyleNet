@@ -5,12 +5,15 @@ import random
 import torch
 
 from datetime import datetime
+from glob import glob
 from lpips import PerceptualLoss
 from my_models.style_gan_2 import Generator
 from my_models.models import resnetEncoder
+from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from utils import datasets, utils
+from torchvision import transforms
 from torchvision.utils import save_image
 
 
@@ -42,7 +45,7 @@ class solverEncoder:
         # Define encoder model
         self.e = resnetEncoder().train().to(self.device)
 
-        if self.args.cont or self.args.test:
+        if self.args.cont or self.args.test or self.args.run:
             path = self.args.model_path
             self.e.load_state_dict(torch.load(path))
             self.global_step = int(path.split(
@@ -59,8 +62,7 @@ class solverEncoder:
         self.criterion = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
 
         # Set up tensorboard
-        if not self.args.debug and not self.args.test:
-            self.args.save_dir.split('/')[-1]
+        if not self.args.debug and not self.args.test and not self.args.run:
             tb_dir = 'tensorboard_runs/encode_stylegan/' + \
                 self.args.save_dir.split('/')[-2]
             self.writer = SummaryWriter(tb_dir)
@@ -196,19 +198,71 @@ class solverEncoder:
 
         return loss, img, img_gen
 
-    def test_model(self, data_loaders, n_samples=8):
-        iters = max(n_samples // self.args.batch_size, 1)
+    def test_model(self, val_loader):
+        # Generate image
+        with torch.no_grad():
+            # Generate random image
+            z = torch.randn(self.args.batch_size, 512, device=self.device)
+            img, _ = self.g([z], truncation=0.9, truncation_latent=self.latent_avg)
+            img = utils.downsample_256(img)
+
+            # Encoder
+            self.e.eval()
+            latent_offset = self.e(img)
+            self.e.train()
+            # Add mean (we only want to compute offset to mean latent)
+            latent = latent_offset + self.latent_avg
+
+            # Decode
+            img_gen, _ = self.g(
+                [latent], input_is_latent=True, noise=self.g.noises)
+
+            # Downsample to 256 x 256
+            img_gen = utils.downsample_256(img_gen)
+
+        img_tensor = torch.cat((img, img_gen.clamp(-1., 1.)), dim=0)
+
+        save_image(
+            img_tensor,
+            f'{self.args.save_dir}test_model_train.png',
+            normalize=True,
+            range=(-1, 1),
+            nrow=min(8, self.args.batch_size)
+        )
+
+        # Test on validation data
+        _, img_val, img_gen_val = self.eval(val_loader)
+        save_tensor = torch.cat((img_val, img_gen_val.clamp(-1., 1.)), dim=0)
+        save_image(
+            save_tensor,
+            f'{self.args.save_dir}test_model_val.png',
+            normalize=True,
+            range=(-1, 1),
+            nrow=min(8, self.args.batch_size)
+        )
+
+    def run(self, src_path):
+        if os.path.isdir(src_path):
+            image_files = sorted(glob(src_path + '*.png'))
+        else:
+            image_files = [src_path]
+
+        t = transforms.Compose([
+            transforms.ToTensor(),
+            utils.Downsample(256),
+            transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+        ])
+
+        # Set encoder to eval
         self.e.eval()
-        imgs = []
-        imgs_gen = []
-        for i in range(iters):
-            # Generate image
-            with torch.no_grad():
-                z = torch.randn(self.args.batch_size, 512, device=self.device)
-                img = self.g(z, truncation=0.9,
-                             truncation_latent=self.latent_avg)
+
+        # Project
+        for file in tqdm(image_files):
+            # Load and transform image
+            img = t(Image.open(file)).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
+                # Encoder
                 latent_offset = self.e(img)
                 # Add mean (we only want to compute offset to mean latent)
                 latent = latent_offset + self.latent_avg
@@ -217,23 +271,16 @@ class solverEncoder:
                 img_gen, _ = self.g(
                     [latent], input_is_latent=True, noise=self.g.noises)
 
-                # Downsample to 256 x 256
-                img_gen = utils.downsample_256(img_gen)
+            # Save results
+            save_str = self.args.save_dir + 'encoded/' + \
+                file.split('/')[-1].split('.')[0]
+            os.makedirs(self.args.save_dir + 'encoded/', exist_ok=True)
+            # print('Saving {}'.format(save_str + '_p.png'))
+            save_image(img_gen, save_str + '_p.png',
+                       normalize=True, range=(-1, 1))
+            torch.save(latent.detach().cpu(), save_str + '.pt')
 
-            imgs.append(img)
-            imgs_gen.append(img_gen)
-        imgs = torch.cat(imgs, dim=0)
-        imgs_gen = torch.cat(imgs_gen, dim=0)
-
-        img_tensor = torch.cat((imgs, imgs_gen), dim=0)
-
-        save_image(
-            img_tensor,
-            f'{self.args.save_dir}test_model.png',
-            normalize=True,
-            range=(-1, 1),
-            nrow=n_samples
-        )
+        # Set encoder back to train mode
         self.e.train()
 
 
@@ -252,13 +299,15 @@ if __name__ == '__main__':
     parser.add_argument('--n_iters', type=int, default=100000)
     parser.add_argument('--log_train_every', type=int, default=1)
     parser.add_argument('--log_val_every', type=int, default=10)
-    parser.add_argument('--save_img_every', type=int, default=500)
-    parser.add_argument('--save_every', type=int, default=1000)
+    parser.add_argument('--save_img_every', type=int, default=1000)
+    parser.add_argument('--save_every', type=int, default=2000)
     parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--run', action='store_true')
     parser.add_argument('--model_path', type=str, default=None)
+    parser.add_argument('--src_path', type=str, default=None)
     args = parser.parse_args()
 
     if args.cont or args.test:
@@ -269,7 +318,7 @@ if __name__ == '__main__':
         args.save_dir += '/'
     args.save_dir += datetime.now().strftime("%Y-%m-%d_%H-%M-%S/")
 
-    if args.cont or args.test:
+    if args.cont or args.test or args.run:
         args.save_dir = '/'.join(args.model_path.split('/')[:-2]) + '/'
 
     print("Saving run to {}".format(args.save_dir))
@@ -292,6 +341,8 @@ if __name__ == '__main__':
 
     # Train
     if args.test:
-        solver.test_model(n_samples=8)
+        solver.test_model(val_loader)
+    elif args.run:
+        solver.run(args.src_path)
     else:
         solver.train(args.n_iters, val_loader)

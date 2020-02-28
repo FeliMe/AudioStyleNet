@@ -36,6 +36,7 @@ from scipy.ndimage.filters import gaussian_filter
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
+from utils import get_mouth_params
 
 # from utils.dataloader import RAVDESSDataset
 
@@ -1209,6 +1210,54 @@ def omg_get_phoneme_timing(root_path):
         json.dump(results, f)
 
 
+def omg_extract_face_feats(root_path):
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    videos = [str(v) for v in list(pathlib.Path(root_path).glob('*/*/'))]
+
+    all_paths = [sorted([str(p) for p in list(pathlib.Path(v).glob('*.png'))])
+                 for v in videos]
+
+    result = {}
+
+    for v in tqdm(all_paths):
+        for f in v:
+            video, utterance = f.split('/')[-3:-1]
+            # Load image
+            frame = cv2.imread(f)
+
+            # Grayscale image
+            gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+            # Detect faces
+            for rect in detector(frame, 1):
+                landmarks = [(int(item.x), int(item.y))
+                             for item in predictor(gray, rect).parts()]
+                landmarks = np.array(landmarks)
+
+                params = get_mouth_params(landmarks, frame)
+
+                # Visualize
+                for (x, y) in landmarks:
+                    cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
+                cv2.imshow("Output", frame)
+                cv2.waitKey(0)
+                1 / 0
+
+                result[video + '/' + utterance] = params
+                break
+
+    # Save params
+    # print(result)
+    print("Done. Saving...")
+    np.save(root_path + 'mouth_features.npy', result)
+
+
 def tagesschau_align_videos(root_path, group):
     # Load landmarks model
     detector = dlib.get_frontal_face_detector()
@@ -1218,15 +1267,17 @@ def tagesschau_align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
 
-    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
+    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256_2/'
+    # target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
     root_dir = pathlib.Path(root_path)
-    videos = [str(p) for p in list(root_dir.glob('*.mp4'))
-              if str(p).split('/')[-1] != '.DS_Store']
+    videos = [str(p) for p in list(root_dir.glob('sequence*.mp4'))]
+    # videos = [str(p) for p in list(root_dir.glob('*.mp4'))]
     assert len(videos) > 0
 
     groups = []
-    n = len(videos) // 7
+    n = len(videos) // 3
+    # n = len(videos) // 7
     for i in range(0, len(videos), n):
         groups.append(videos[i:i + n])
 
@@ -1303,4 +1354,5 @@ if __name__ == "__main__":
     # aff_wild2_align_videos(root_path=path, group=int(sys.argv[2]))
     # omg_get_forced_alignment(path)
     # omg_get_phoneme_timing(path)
-    tagesschau_align_videos(path, group=int(sys.argv[2]))
+    omg_extract_face_feats(path)
+    # tagesschau_align_videos(path, group=int(sys.argv[2]))

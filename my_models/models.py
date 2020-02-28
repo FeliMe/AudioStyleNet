@@ -470,15 +470,19 @@ class SiameseConv3D(nn.Module):
 
 
 class resnetEncoder(nn.Module):
-    def __init__(self):
+    def __init__(self, net=18):
         super().__init__()
 
         def _set_requires_grad_false(layer):
             for param in layer.parameters():
                 param.requires_grad = False
 
-        from torchvision.models import resnet18
-        resnet = resnet18(pretrained=True)
+        if net == 18:
+            from torchvision.models import resnet18
+            resnet = resnet18(pretrained=True)
+        elif net == 50:
+            from torchvision.models import resnet50
+            resnet = resnet50(pretrained=True)
 
         self.layer0 = nn.Sequential(*list(resnet.children())[:4])
         _set_requires_grad_false(self.layer0)

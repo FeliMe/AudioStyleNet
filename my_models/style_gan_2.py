@@ -435,7 +435,7 @@ class ResBlock(nn.Module):
         return out
 
 
-class CycleD(nn.Module):
+class StyleGANEncoder(nn.Module):
     def __init__(self,
                  size,
                  channel_multiplier=2,
@@ -473,13 +473,18 @@ class CycleD(nn.Module):
 
         self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
         self.final_linear = nn.Sequential(
-            EqualLinear(channels[4] * 4 * 4, channels[4],
-                        activation='fused_lrelu'),
-            EqualLinear(channels[4], 1),
+            EqualLinear(channels[4] * 4 * 4, 18 * 518)
         )
 
         if pretrained:
             self.load_weights()
+
+    def load_weights(self):
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        print(w['d'].keys())
+        1 / 0
+        self.load_state_dict(w['d'])
 
     def forward(self, input):
         out = self.convs(input)

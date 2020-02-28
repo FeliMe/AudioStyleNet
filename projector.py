@@ -208,6 +208,12 @@ if __name__ == "__main__":
     else:
         image_files = [path]
 
+    # Specify save_dir
+    save_dir = sys.argv[2] if len(sys.argv) > 2 else 'saves/projected_images/'
+    if save_dir[-1] != '/':
+        save_dir = save_dir + '/'
+
+    # Project images
     for i, file in tqdm(enumerate(sorted(image_files))):
         print('Projecting {}'.format(file))
 
@@ -220,16 +226,15 @@ if __name__ == "__main__":
         target_image = transform(target_image).to(device)
 
         # Run projector
-        proj.run(target_image, 2000 if i == 0 else 50)
+        proj.run(target_image, 1000 if i == 0 else 50)
 
         # Collect results
         generated = proj.get_images()
         latents = proj.get_latents()
 
         # Save results
-        save_str = 'saves/projected_images/' + \
-            file.split('/')[-1].split('.')[0]
-        os.makedirs('saves/projected_images/', exist_ok=True)
+        save_str = save_dir + file.split('/')[-1].split('.')[0]
+        os.makedirs(save_dir, exist_ok=True)
         print('Saving {}'.format(save_str + '_p.png'))
         save_image(generated, save_str + '_p.png',
                    normalize=True, range=(-1, 1))

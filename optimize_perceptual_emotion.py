@@ -58,9 +58,8 @@ if __name__ == '__main__':
 
     emotion_classifier = EmotionClassifier(use_mask=False).to(device)
     # emotion_classifier = FERModelGitHub(pretrained=True).to(device)
-    # criterion = EmotionLoss().to(device)
-    # criterion = FERLossLpips().to(device)
     criterion = EmotionLoss().to(device)
+    # criterion = FERLossLpips().to(device)
 
     opt = torch.optim.Adam([sample], lr=args.lr)
 

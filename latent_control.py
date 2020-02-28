@@ -1,4 +1,6 @@
 import argparse
+import cv2
+import dlib
 import matplotlib.pyplot as plt
 import numpy as np
 import os
@@ -71,6 +73,64 @@ def add_valence_arousal(args):
         f'saves/control_latent/latent_training_valence_arousal_distribution_20000.png')
 
     data['valence_arousal'] = valence_arousal
+    torch.save(data, args.training_data)
+
+
+def add_mouth_features(args):
+    from utils.utils import get_mouth_params
+    # Select device
+    device = 'cuda'
+
+    # Get face detector
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        '/home/meissen/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+
+    # Load training data
+    data = torch.load(args.training_data)
+    latents = data['latents'].to(device)
+
+    # Init generator
+    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
+    g.noises = [n.to(device) for n in g.noises]
+
+    results = []
+    for i, latent in enumerate(tqdm(latents)):
+        with torch.no_grad():
+            img, _ = g([latent], input_is_latent=True, noise=g.noises)
+            img = downsample_256(img).cpu()
+            img = make_grid(img, normalize=True, range=(-1, 1)).numpy()
+
+        # Turn into a cv2 image
+        img = img.transpose((1, 2, 0))
+        img = np.uint8(img * 255)
+        # Convert from BGR to RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # Grayscale image
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+        # Detect faces
+        for rect in detector(img, 1):
+            landmarks = [(int(item.x), int(item.y))
+                         for item in predictor(gray, rect).parts()]
+            landmarks = np.array(landmarks)
+
+            params = get_mouth_params(landmarks, img)
+
+            # Visualize
+            # for (x, y) in landmarks:
+            #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
+            # cv2.imshow("Output", img)
+            # cv2.waitKey(0)
+            # 1 / 0
+
+            break
+        results.append(torch.tensor(params))
+    results = torch.cat(results, dim=0)
+    print(results.shape)
+
+    # Save
+    data['mouth_features'] = results
     torch.save(data, args.training_data)
 
 
@@ -412,6 +472,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # add_valence_arousal(args)
+    # add_mouth_features(args)
+    # print("Done.")
+    # 1 / 0
 
     if args.generate_data:
         genereate_training_data(20000)
