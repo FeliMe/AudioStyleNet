@@ -83,91 +83,97 @@ class solverEncoder:
         self.lr = self.initial_lr * lr_ramp
         self.opt.param_groups[0]['lr'] = self.lr
 
-    def train(self, n_iters, val_loader):
+    def train(self, n_iters, train_loader, val_loader):
         print("Start training")
         val_loss = 0.0
         val_img = None
         val_img_gen = None
 
-        pbar = tqdm(range(n_iters))
-        for batch in pbar:
-            # Generate image
-            with torch.no_grad():
-                z = torch.randn(self.args.batch_size, 512, device=self.device)
-                img, _ = self.g([z], truncation=0.9, truncation_latent=self.latent_avg)
-                img = utils.downsample_256(img)
+        pbar = tqdm()
+        pbar.total = n_iters
+        i_iter = 0
+        while i_iter < n_iters:
+            for batch in train_loader:
+                # Unpack batch
+                img = batch['x'].to(self.device)
 
-            # Update learning rate
-            t = self.global_step / n_iters
-            self.update_lr(t)
+                # Update learning rate
+                t = self.global_step / n_iters
+                self.update_lr(t)
 
-            # Encode
-            latent_offset = self.e(img)
-            # Add mean (we only want to compute offset to mean latent)
-            latent = latent_offset + self.latent_avg
+                # Encode
+                latent_offset = self.e(img)
+                # Add mean (we only want to compute offset to mean latent)
+                latent = latent_offset + self.latent_avg
 
-            # Decode
-            img_gen, _ = self.g([latent], input_is_latent=True, noise=self.g.noises)
+                # Decode
+                img_gen, _ = self.g([latent], input_is_latent=True, noise=self.g.noises)
 
-            # Downsample to 256 x 256
-            img_gen = utils.downsample_256(img_gen)
+                # Downsample to 256 x 256
+                img_gen = utils.downsample_256(img_gen)
 
-            # Compute perceptual loss
-            loss = self.criterion(img_gen, img).mean()
+                # Compute perceptual loss
+                loss = self.criterion(img_gen, img).mean()
 
-            # Optimize
-            self.opt.zero_grad()
-            loss.backward()
-            self.opt.step()
+                # Optimize
+                self.opt.zero_grad()
+                loss.backward()
+                self.opt.step()
 
-            self.global_step += 1
+                self.global_step += 1
+                i_iter += 1
+                pbar.update()
 
-            # Update progress bar
-            pbar.set_description('Step {gs} - '
-                                 'Train loss {tl:.4f} - '
-                                 'Val loss {vl:.4f} - '
-                                 'lr {lr:.4f}'.format(
-                                     gs=self.global_step,
-                                     tl=loss,
-                                     vl=val_loss,
-                                     lr=self.lr
-                                 ))
+                # Update progress bar
+                pbar.set_description('Step {gs} - '
+                                     'Train loss {tl:.4f} - '
+                                     'Val loss {vl:.4f} - '
+                                     'lr {lr:.4f}'.format(
+                                         gs=self.global_step,
+                                         tl=loss,
+                                         vl=val_loss,
+                                         lr=self.lr
+                                     ))
 
-            if self.global_step % self.args.log_train_every == 0:
-                if not self.args.debug:
-                    self.writer.add_scalars('loss', {'train': loss}, self.global_step)
+                if self.global_step % self.args.log_train_every == 0:
+                    if not self.args.debug:
+                        self.writer.add_scalars('loss', {'train': loss}, self.global_step)
 
-            if self.global_step % self.args.save_every == 0 and not self.args.debug:
-                self.save()
+                if self.global_step % self.args.log_val_every == 0:
+                    val_loss, val_img, val_img_gen = self.eval(val_loader)
+                    if not self.args.debug:
+                        self.writer.add_scalars('loss', {'val': val_loss}, self.global_step)
 
-            if self.global_step % self.args.log_val_every == 0:
-                val_loss, val_img, val_img_gen = self.eval(val_loader)
-                if not self.args.debug:
-                    self.writer.add_scalars('loss', {'val': val_loss}, self.global_step)
+                if self.global_step % self.args.save_every == 0 and not self.args.debug:
+                    self.save()
 
-            if self.global_step % self.args.save_img_every == 0 and not self.args.debug:
-                # Save train sample
-                save_tensor = torch.cat(
-                    (img.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
-                save_image(
-                    save_tensor,
-                    f'{self.args.save_dir}train_gen_{self.global_step}.png',
-                    normalize=True,
-                    range=(-1, 1),
-                    nrow=min(8, self.args.batch_size)
-                )
-
-                # Save validation sample
-                if val_img is not None and val_img_gen is not None:
+                if self.global_step % self.args.save_img_every == 0 and not self.args.debug:
+                    # Save train sample
                     save_tensor = torch.cat(
-                        (val_img.detach(), val_img_gen.detach().clamp(-1., 1.)), dim=0)
+                        (img.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
                     save_image(
                         save_tensor,
-                        f'{self.args.save_dir}val_gen_{self.global_step}.png',
+                        f'{self.args.save_dir}train_gen_{self.global_step}.png',
                         normalize=True,
                         range=(-1, 1),
                         nrow=min(8, self.args.batch_size)
                     )
+
+                    # Save validation sample
+                    if val_img is not None and val_img_gen is not None:
+                        save_tensor = torch.cat(
+                            (val_img.detach(), val_img_gen.detach().clamp(-1., 1.)), dim=0)
+                        save_image(
+                            save_tensor,
+                            f'{self.args.save_dir}val_gen_{self.global_step}.png',
+                            normalize=True,
+                            range=(-1, 1),
+                            nrow=min(8, self.args.batch_size)
+                        )
+
+                # Break if n_iters is reached and still in epoch
+                if i_iter == n_iters:
+                    break
 
         self.save()
         print('Done.')
@@ -296,9 +302,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=int, default=0.01)
-    parser.add_argument('--n_iters', type=int, default=100000)
+    parser.add_argument('--n_iters', type=int, default=150000)
     parser.add_argument('--log_train_every', type=int, default=1)
-    parser.add_argument('--log_val_every', type=int, default=10)
+    parser.add_argument('--log_val_every', type=int, default=1000)  # 10
     parser.add_argument('--save_img_every', type=int, default=1000)
     parser.add_argument('--save_every', type=int, default=2000)
     parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
@@ -338,6 +344,9 @@ if __name__ == '__main__':
         normalize=True
     )
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
+    # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)
+    train_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
+    print(len(val_ds))
 
     # Train
     if args.test:
@@ -345,4 +354,4 @@ if __name__ == '__main__':
     elif args.run:
         solver.run(args.src_path)
     else:
-        solver.train(args.n_iters, val_loader)
+        solver.train(args.n_iters, train_loader, val_loader)

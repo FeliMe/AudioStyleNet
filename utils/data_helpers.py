@@ -29,6 +29,7 @@ import time
 import torch
 
 from azure.cognitiveservices.vision.face import FaceClient
+from glob import glob
 from msrest.authentication import CognitiveServicesCredentials
 from multiprocessing import Process
 from PIL import Image
@@ -1217,6 +1218,7 @@ def omg_extract_face_feats(root_path):
 
     if root_path[-1] != '/':
         root_path += '/'
+    save_path = root_path + 'omg_mouth_features.npy'
 
     videos = [str(v) for v in list(pathlib.Path(root_path).glob('*/*/'))]
 
@@ -1224,10 +1226,15 @@ def omg_extract_face_feats(root_path):
                  for v in videos]
 
     result = {}
+    result = np.load(save_path, allow_pickle=True).item()
 
+    counter = 0
     for v in tqdm(all_paths):
         for f in v:
-            video, utterance = f.split('/')[-3:-1]
+            video, utterance, n_frame = f.split('/')[-3:]
+            key = f"{video}/{utterance}/{n_frame}"
+            if key in result.keys():
+                continue
             # Load image
             frame = cv2.imread(f)
 
@@ -1235,7 +1242,11 @@ def omg_extract_face_feats(root_path):
             gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
 
             # Detect faces
-            for rect in detector(frame, 1):
+            rects = detector(frame, 1)
+            if len(list(rects)) == 0:
+                print(f"WARNING. NO FACE DETECTED IN {f}")
+                counter += 1
+            for rect in rects:
                 landmarks = [(int(item.x), int(item.y))
                              for item in predictor(gray, rect).parts()]
                 landmarks = np.array(landmarks)
@@ -1243,19 +1254,20 @@ def omg_extract_face_feats(root_path):
                 params = get_mouth_params(landmarks, frame)
 
                 # Visualize
-                for (x, y) in landmarks:
-                    cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
-                cv2.imshow("Output", frame)
-                cv2.waitKey(0)
-                1 / 0
+                # for (x, y) in landmarks:
+                #     cv2.circle(frame, (x, y), 1, (0, 0, 255), -1)
+                # cv2.imshow("Output", frame)
+                # cv2.waitKey(0)
+                # print(key)
+                # 1 / 0
 
-                result[video + '/' + utterance] = params
+                result[key] = params
                 break
 
     # Save params
-    # print(result)
+    print(f"NO FACES DETECTED IN {counter} FRAMES")
     print("Done. Saving...")
-    np.save(root_path + 'mouth_features.npy', result)
+    np.save(save_path, result)
 
 
 def tagesschau_align_videos(root_path, group):
@@ -1267,17 +1279,14 @@ def tagesschau_align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
 
-    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256_2/'
-    # target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
+    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
     root_dir = pathlib.Path(root_path)
-    videos = [str(p) for p in list(root_dir.glob('sequence*.mp4'))]
-    # videos = [str(p) for p in list(root_dir.glob('*.mp4'))]
+    videos = [str(p) for p in list(root_dir.glob('*.mp4'))]
     assert len(videos) > 0
 
     groups = []
-    n = len(videos) // 3
-    # n = len(videos) // 7
+    n = len(videos) // 7
     for i in range(0, len(videos), n):
         groups.append(videos[i:i + n])
 
@@ -1333,26 +1342,72 @@ def tagesschau_align_videos(root_path, group):
                 break
 
 
+def tagesschau_encode_frames(root_path):
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    videos = sorted(glob(root_path + '*/'))
+    videos = [sorted(glob(v + '*.png')) for v in videos]
+    all_frames = [item for sublist in videos for item in sublist]
+    assert len(all_frames) > 0
+    print(len(all_frames))
+
+    # Select device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Load encoder
+    from my_models.models import resnetEncoder
+    e = resnetEncoder(net=18, pretrained=True).eval().to(device)
+
+    # Get latent avg
+    from my_models.style_gan_2 import Generator
+    g = Generator(1024, 512, 8, pretrained=True).eval()
+    latent_avg = g.latent_avg.view(1, -1).repeat(18, 1)
+
+    # transforms
+    t = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+
+    for frame in tqdm(all_frames):
+        save_path = frame.split('.')[0] + '.latent.pt'
+        # print(save_path)
+        if os.path.exists(save_path):
+            continue
+
+        # Load image
+        img = t(Image.open(frame)).unsqueeze(0).to(device)
+
+        # Encoder image
+        with torch.no_grad():
+            latent_offset = e(img)[0].cpu()
+            latent = latent_offset + latent_avg
+        print(save_path, latent.shape)
+        1 / 0
+
+        # Save
+        # torch.save(latent, save_path)
+
+
+def tagesschau_get_mean_frame(root):
+    # Load paths
+    videos = sorted(glob(root + '*/'))
+
+    for video in tqdm(videos):
+        latent_paths = sorted(glob(video + '*.latent.pt'))
+        mean_latent = []
+
+        for latent_path in latent_paths:
+            latent = torch.load(latent_path).unsqueeze(0)
+            mean_latent.append(latent)
+
+        mean_latent = torch.cat(mean_latent, dim=0).mean(dim=0, keepdim=True)
+
+        # Save
+        torch.save(mean_latent[0], video + 'mean.latent.pt')
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]
-
-    # ravdess_get_mean_std_image(IMAGE_256_PATH, True)
-    # ravdess_extract_landmarks(path_to_actor=path)
-    # ravdess_project_to_latent(path_to_actor=path)
-    # ravdess_group_by_utterance(IMAGE_256_PATH)
-    # ravdess_plot_label_distribution(IMAGE_PATH)
-    # ravdess_resize_frames(path_to_actor=path)
-    # ravdess_align_videos(VIDEO_PATH, actor=path)
-    # ravdess_convert_to_frames(VIDEO_PATH)
-    # ravdess_to_frames_center_crop(VIDEO_PATH)
-    # ravdess_landmark_to_point_image(LANDMARKS_128_PATH)
-    # ravdess_landmark_to_line_image(LANDMARKS_128_PATH)
-    # celeba_extract_landmarks(CELEBA_PATH, CELEBA_LANDMARKS_PATH, CELEBA_LANDMARKS_LINE_IMAGE_PATH)
-    # ravdess_get_scores(root_path=path)
-    # ravdess_azure_scores(actor=path)
-    # aff_wild2_align_videos(root_path=path, group=int(sys.argv[2]))
-    # omg_get_forced_alignment(path)
-    # omg_get_phoneme_timing(path)
-    omg_extract_face_feats(path)
-    # tagesschau_align_videos(path, group=int(sys.argv[2]))

@@ -24,6 +24,41 @@ MAPPING = {
 }
 
 
+class AudioExpressionNet(nn.Module):
+    def __init__(self):
+        super(AudioExpressionNet, self).__init__()
+
+        self.convs = nn.Sequential(
+            nn.Conv1d(29, 32, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(32, 32, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(32, 64, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(64, 64, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+        )
+
+        self.fcs = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64, 128),
+            nn.LeakyReLU(0.02),
+            nn.Linear(128, 256),
+            nn.LeakyReLU(0.02),
+            nn.Linear(256, 512 * 18),
+            nn.Tanh(),
+        )
+
+    def forward(self, x):
+        # input shape: [b, 16, 29]
+        x = x.transpose(2, 1)
+        # shape: [b, 29, 16]
+        x = self.convs(x)
+        x = self.fcs(x)
+        x = x.view(-1, 18, 512)
+        return x
+
+
 class VGG_Face_VA(nn.Module):
     def __init__(self, pretrained=False):
         super().__init__()
@@ -470,7 +505,7 @@ class SiameseConv3D(nn.Module):
 
 
 class resnetEncoder(nn.Module):
-    def __init__(self, net=18):
+    def __init__(self, net=18, pretrained=False):
         super().__init__()
 
         def _set_requires_grad_false(layer):
@@ -498,6 +533,13 @@ class resnetEncoder(nn.Module):
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
         self.linear_n = nn.Linear(512, 512 * 18)
+
+        if pretrained:
+            self.load_weights()
+
+    def load_weights(self):
+        state_dict = torch.load('saves/pre-trained/resNet18Tagesschau.pt')
+        self.load_state_dict(state_dict)
 
     def forward(self, x):
 

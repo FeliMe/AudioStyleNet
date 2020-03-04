@@ -11,11 +11,13 @@ import random
 import torch
 import torch.nn.functional as F
 
+from my_models.style_gan_2 import Generator
 from PIL import Image
 from torch.utils.data import DataLoader
-from torch.utils.data.dataset import Dataset
+from torch.utils.data.dataset import Dataset, IterableDataset
 from torchvision import transforms
 from torchvision.utils import make_grid
+from utils.utils import downsample_256
 
 
 MAPPING = {
@@ -778,6 +780,10 @@ class AffWild2Dataset(Dataset):
 class TagesschauDataset(Dataset):
     def __init__(self,
                  root_path,
+                 load_img=True,
+                 load_latent=False,
+                 load_audio=False,
+                 load_mean=False,
                  shuffled=False,
                  flat=False,
                  normalize=False,
@@ -785,21 +791,25 @@ class TagesschauDataset(Dataset):
                  std=[0.5, 0.5, 0.5],
                  image_size=256):
         super().__init__()
+        self.load_img = load_img
+        self.load_latent = load_latent
+        self.load_audio = load_audio
+        self.load_mean = load_mean
         self.normalize = normalize
         self.mean = mean
         self.std = std
 
         videos = [str(v) for v in list(pathlib.Path(root_path).glob('*/'))]
-        all_paths = [sorted([str(p) for p in list(pathlib.Path(v).glob('*.png'))])
-                     for v in videos]
+        paths = [sorted([str(p).split('.')[0] for p in list(pathlib.Path(v).glob('*.png'))])
+                 for v in videos]
 
         if flat:
-            all_paths = [item for sublist in all_paths for item in sublist]
+            paths = [item for sublist in paths for item in sublist]
 
         if shuffled:
-            random.shuffle(all_paths)
+            random.shuffle(paths)
 
-        self.paths = all_paths
+        self.paths = paths
         self.flat = len(self.paths[0][0]) == 1
 
         # Transforms
@@ -817,15 +827,56 @@ class TagesschauDataset(Dataset):
     def __getitem__(self, index):
         # Select utterance
         if self.flat:
-            frame = self.paths[index]
+            base_path = self.paths[index]
         else:
             video = self.paths[index]
-            frame = random.choice(video)
+            base_path = random.choice(video)
 
         # Load image
-        img = self.t(Image.open(frame))
+        img = self.t(Image.open(base_path + '.png')) if self.load_img else torch.tensor(0.)
+        latent = torch.load(base_path + '.latent.pt') if self.load_latent else torch.tensor(0.)
+        audio = torch.tensor(np.load(base_path + '.deepspeech.npy'),
+                             dtype=torch.float32) if self.load_audio else torch.tensor(0.)
+        mean = torch.load('/'.join(base_path.split('/')
+                                   [:-1]) + '/mean.latent.pt') if self.load_mean else torch.tensor(0.)
 
-        return {'x': img, 'index': index, 'path': frame}
+        return {
+            'img': img,
+            'latent': latent,
+            'audio': audio,
+            'mean': mean,
+            'index': index,
+            'path': base_path
+        }
+
+
+class StyleGANDataset(IterableDataset):
+    def __init__(self, batch_size, downsample=True, device='cuda'):
+        super(StyleGANDataset, self).__init__()
+        self.batch_size = batch_size
+        self.device = device
+        self.downsample = downsample
+
+        # Init generator
+        self.g = Generator(1024, 512, 8, pretrained=True).eval().to(self.device)
+        self.g.noises = [n.to(self.device) for n in self.g.noises]
+        self.g.latent_avg = self.g.latent_avg.to(self.device)
+        for param in self.g.parameters():
+            param.requires_grad = False
+
+    def __iter__(self):
+        # Sample random z
+        z = torch.randn(self.batch_size, 512, device=self.device)
+
+        # Generate image
+        with torch.no_grad():
+            img, _ = self.g([z], truncation=0.9, truncation_latent=self.g.latent_avg)
+
+        # Resize from 1024 to 256
+        if self.downsample:
+            img = downsample_256(img)
+
+        yield {'x': img}
 
 
 def show_pix2pix(sample, mean, std, normalize):
