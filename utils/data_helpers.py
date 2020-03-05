@@ -37,7 +37,7 @@ from scipy.ndimage.filters import gaussian_filter
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
-from utils import get_mouth_params
+from utils import get_mouth_params, VideoAligner
 
 # from utils.dataloader import RAVDESSDataset
 
@@ -260,61 +260,37 @@ def align_image(
     return img
 
 
-def ravdess_align_videos(root_path, actor):
-    print("Aligning {}".format(actor))
-    # Load landmarks model
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor(
-        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+def ravdess_align_videos(root_path, group):
+    if root_path[-1] != '/':
+        root_path += '/'
 
-    target_path = HOME + '/Datasets/RAVDESS/Aligned'
-    root_dir = pathlib.Path(os.path.join(root_path, actor))
-    sentences = [str(p) for p in list(root_dir.glob('*/'))
-                 if str(p).split('/')[-1] != '.DS_Store']
-    assert len(sentences) > 0
+    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
+    print(f'Saving to {target_path}')
 
-    for i_path, path in enumerate(tqdm(sentences)):
-        utterance = path.split('/')[-1][:-4]
-        path_to_utt = os.path.join(target_path, actor, utterance)
-        print("Utterance {} of {}, {}".format(
-            i_path + 1, len(sentences), path_to_utt))
-        os.makedirs(path_to_utt, exist_ok=True)
+    actors = sorted(glob(root_path + '*/'))
+    assert len(actors) > 0
 
-        # Restart frame counter
-        i_frame = 0
+    groups = []
+    n = len(actors) // 7
+    for i in range(0, len(actors), n):
+        groups.append(actors[i:i + n])
 
-        cap = cv2.VideoCapture(path)
-        while cap.isOpened():
-            # Frame shape: (720, 1280, 3)
-            ret, frame = cap.read()
-            if not ret:
-                break
-            i_frame += 1
-            save_str = os.path.join(path_to_utt, str(i_frame).zfill(3) + '.png')
-            if os.path.exists(save_str):
-                continue
+    actors = groups[group]
+    print(f"Group {group}, num_videos {len(actors)}, {len(groups)} groups in total")
 
-            # Convert from BGR to RGB
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    for actor in actors:
+        sentences = sorted(glob(actor + '*.mp4'))
+        target_actor = os.path.join(target_path, actor.split('/')[-2])
 
-            # Pre-resize to save computation
-            h_old, w_old, _ = frame.shape
-            h_new = 256
-            factor = h_new / h_old
-            w_new = int(w_old * factor)
-            frame_small = cv2.resize(frame, (w_new, h_new))
+        for i_path, path in enumerate(tqdm(sentences)):
+            utterance = path.split('/')[-1][:-4]
+            save_dir = os.path.join(target_actor, utterance) + '/'
+            print("Utterance {} of {}, {}".format(
+                i_path + 1, len(sentences), save_dir))
+            os.makedirs(save_dir, exist_ok=True)
 
-            # Grayscale image
-            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-
-            # Detect faces
-            for rect in detector(frame_small, 1):
-                landmarks = [(int(item.x / factor), int(item.y / factor))
-                             for item in predictor(gray_small, rect).parts()]
-                frame = align_image(
-                    frame, landmarks, output_size=256, transform_size=1024)
-                frame.save(save_str)
-                break
+            aligner = VideoAligner()
+            aligner.align_video(path, save_dir)
 
 
 def ravdess_resize_frames(path_to_actor):
@@ -917,11 +893,6 @@ def ravdess_azure_scores(actor):
 
 
 def omg_align_videos(root_path):
-    # Load landmarks model
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor(
-        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
-
     if root_path[-1] != '/':
         root_path += '/'
 
@@ -940,52 +911,14 @@ def omg_align_videos(root_path):
 
         for i_utt, utterance in enumerate(utterances):
             utt_name = utterance.split('/')[-1][:-4]
-            path_to_utt = os.path.join(target_path, vid_name, utt_name)
+            save_dir = os.path.join(target_path, vid_name, utt_name)
             print("Video [{}/{}], Utterance [{}/{}], {}".format(
                 i_video + 1, len(videos),
                 i_utt + 1, len(utterances),
-                path_to_utt))
-            os.makedirs(path_to_utt, exist_ok=True)
+                save_dir))
 
-            # Restart frame counter
-            i_frame = 0
-
-            cap = cv2.VideoCapture(utterance)
-            while cap.isOpened():
-                # Frame shape: (720, 1280, 3)
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                i_frame += 1
-                save_str = os.path.join(
-                    path_to_utt, str(i_frame).zfill(3) + '.png')
-                if os.path.exists(save_str):
-                    continue
-
-                # Convert from BGR to RGB
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-                # Pre-resize to save computation
-                h_old, w_old, _ = frame.shape
-                h_new = 256
-                factor = h_new / h_old
-                w_new = int(w_old * factor)
-                frame_small = cv2.resize(frame, (w_new, h_new))
-
-                # Grayscale image
-                gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-
-                # Detect faces
-                for rect in detector(frame_small, 1):
-                    landmarks = [(int(item.x / factor), int(item.y / factor))
-                                 for item in predictor(gray_small, rect).parts()]
-                    frame = align_image(
-                        frame, landmarks, output_size=256, transform_size=1024)
-                    frame.save(save_str)
-                    # print(save_str)
-                    # frame.show()
-                    # 1 / 0
-                    break
+            aligner = VideoAligner()
+            aligner.align_video(utterance, save_dir)
 
 
 def aff_wild2_align_videos(root_path, group):
@@ -1271,11 +1204,6 @@ def omg_extract_face_feats(root_path):
 
 
 def tagesschau_align_videos(root_path, group):
-    # Load landmarks model
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor(
-        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
-
     if root_path[-1] != '/':
         root_path += '/'
 
@@ -1295,51 +1223,13 @@ def tagesschau_align_videos(root_path, group):
 
     for i_video, video in enumerate(tqdm(videos)):
         vid_name = video.split('/')[-1][:-4]
-        path_to_vid = os.path.join(target_path, vid_name)
+        save_dir = os.path.join(target_path, vid_name)
         print("Video [{}/{}], {}".format(
             i_video + 1, len(videos),
-            path_to_vid))
-        os.makedirs(path_to_vid, exist_ok=True)
+            save_dir))
 
-        # Restart frame counter
-        i_frame = 0
-
-        cap = cv2.VideoCapture(video)
-        while cap.isOpened():
-            # Frame shape: (720, 1280, 3)
-            ret, frame = cap.read()
-            if not ret:
-                break
-            i_frame += 1
-            save_str = os.path.join(
-                path_to_vid, str(i_frame).zfill(3) + '.png')
-            if os.path.exists(save_str):
-                continue
-
-            # Convert from BGR to RGB
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-
-            # Pre-resize to save computation
-            h_old, w_old, _ = frame.shape
-            h_new = 256
-            factor = h_new / h_old
-            w_new = int(w_old * factor)
-            frame_small = cv2.resize(frame, (w_new, h_new))
-
-            # Grayscale image
-            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-
-            # Detect faces
-            for rect in detector(frame_small, 1):
-                landmarks = [(int(item.x / factor), int(item.y / factor))
-                             for item in predictor(gray_small, rect).parts()]
-                frame = align_image(
-                    frame, landmarks, output_size=256, transform_size=1024)
-                frame.save(save_str)
-                # print(save_str)
-                # frame.show()
-                # 1 / 0
-                break
+        aligner = VideoAligner()
+        aligner.align_video(video, save_dir)
 
 
 def tagesschau_encode_frames(root_path):
@@ -1390,24 +1280,24 @@ def tagesschau_encode_frames(root_path):
         # torch.save(latent, save_path)
 
 
-def tagesschau_get_mean_frame(root):
+def tagesschau_get_mean_latents(root):
     # Load paths
     videos = sorted(glob(root + '*/'))
 
     for video in tqdm(videos):
         latent_paths = sorted(glob(video + '*.latent.pt'))
-        mean_latent = []
 
+        mean_latent = []
         for latent_path in latent_paths:
             latent = torch.load(latent_path).unsqueeze(0)
             mean_latent.append(latent)
-
-        mean_latent = torch.cat(mean_latent, dim=0).mean(dim=0, keepdim=True)
+        mean_latent = torch.cat(mean_latent, dim=0).mean(dim=0)
 
         # Save
-        torch.save(mean_latent[0], video + 'mean.latent.pt')
+        torch.save(mean_latent, video + 'mean.latent.pt')
 
 
 if __name__ == "__main__":
 
     path = sys.argv[1]
+    ravdess_align_videos(path, int(sys.argv[2]))

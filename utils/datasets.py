@@ -44,7 +44,6 @@ class RAVDESSDataset(Dataset):
         normalize (bool): Normalize data before outputting
         mean (list): Dataset mean values
         std (list): Dataset standard deviations
-        seed (int): Random seed for reproducible shuffling
         image_size (int or tuple): Size of input images
         label_one_hot (bool): Choose if emotion is scalar or one_hot vector
         emotions (list of str): List of emotions to be considered
@@ -55,9 +54,8 @@ class RAVDESSDataset(Dataset):
                  use_mask=False,
                  mask_path=None,
                  normalize=True,
-                 mean=[0., 0., 0.],
-                 std=[1., 1., 1.],
-                 seed=123,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
                  image_size=64,
                  num_classes=8,
                  label_one_hot=False,
@@ -370,7 +368,7 @@ class RAVDESSFlatDataset(Dataset):
         # Load image
         img = self.t(self.load_fn(frame))
 
-        return {'x': img, 'y': emotion, 'index': index, 'path': frame}
+        return {'img': img, 'y': emotion, 'index': index, 'path': frame}
 
 
 class RAVDESSNeutralToXDataset(Dataset):
@@ -786,21 +784,27 @@ class TagesschauDataset(Dataset):
                  load_mean=False,
                  shuffled=False,
                  flat=False,
+                 overfit=False,
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
-                 image_size=256):
+                 image_size=256,
+                 max_frames_per_vid=-1):
         super().__init__()
         self.load_img = load_img
         self.load_latent = load_latent
         self.load_audio = load_audio
         self.load_mean = load_mean
+        self.overfit = overfit
         self.normalize = normalize
         self.mean = mean
         self.std = std
 
-        videos = [str(v) for v in list(pathlib.Path(root_path).glob('*/'))]
-        paths = [sorted([str(p).split('.')[0] for p in list(pathlib.Path(v).glob('*.png'))])
+        videos = sorted([str(v) for v in list(pathlib.Path(root_path).glob('*/'))])
+        if self.overfit:
+            print(f"Overfitting on {videos[0]}")
+            videos = [videos[0]]
+        paths = [sorted([str(p).split('.')[0] for p in list(pathlib.Path(v).glob('*.png'))][:max_frames_per_vid])
                  for v in videos]
 
         if flat:
@@ -827,8 +831,17 @@ class TagesschauDataset(Dataset):
     def __getitem__(self, index):
         # Select utterance
         if self.flat:
+            # if self.overfit:
+            #     base_path = '/'.join(self.paths[0].split('/')[:-1]) + '/00001'
+            # else:
+            #     base_path = self.paths[index]
             base_path = self.paths[index]
         else:
+            # if self.overfit:
+            #     base_path = self.paths[0] + '00001'
+            # else:
+            #     video = self.paths[index]
+            #     base_path = random.choice(video)
             video = self.paths[index]
             base_path = random.choice(video)
 

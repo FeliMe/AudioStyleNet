@@ -71,6 +71,28 @@ class solverEncoder:
             # Create save dir
             os.makedirs(self.args.save_dir + 'models', exist_ok=True)
 
+    def forward(self, img, evaluation=False):
+        # Encode
+        if evaluation:
+            self.e.eval()
+        latent_offset = self.e(img)
+        if evaluation:
+            self.e.train()
+        # Add mean (we only want to compute offset to mean latent)
+        latent = latent_offset + self.latent_avg
+
+        # Decode
+        img_gen, _ = self.g(
+            [latent], input_is_latent=True, noise=self.g.noises)
+
+        # Downsample to 256 x 256
+        img_gen = utils.downsample_256(img_gen)
+
+        # Compute perceptual loss
+        loss = self.criterion(img_gen, img).mean()
+
+        return loss, img_gen
+
     def save(self):
         save_path = f"{self.args.save_dir}models/model{self.global_step}.pt"
         print(f"Saving: {save_path}")
@@ -95,25 +117,13 @@ class solverEncoder:
         while i_iter < n_iters:
             for batch in train_loader:
                 # Unpack batch
-                img = batch['x'].to(self.device)
+                img = batch['img'].to(self.device)
 
                 # Update learning rate
                 t = self.global_step / n_iters
                 self.update_lr(t)
 
-                # Encode
-                latent_offset = self.e(img)
-                # Add mean (we only want to compute offset to mean latent)
-                latent = latent_offset + self.latent_avg
-
-                # Decode
-                img_gen, _ = self.g([latent], input_is_latent=True, noise=self.g.noises)
-
-                # Downsample to 256 x 256
-                img_gen = utils.downsample_256(img_gen)
-
-                # Compute perceptual loss
-                loss = self.criterion(img_gen, img).mean()
+                loss, img_gen = self.forward(img)
 
                 # Optimize
                 self.opt.zero_grad()
@@ -135,29 +145,40 @@ class solverEncoder:
                                          lr=self.lr
                                      ))
 
-                if self.global_step % self.args.log_train_every == 0:
-                    if not self.args.debug:
+                if not self.args.debug:
+                    if self.global_step % self.args.log_train_every == 0:
                         self.writer.add_scalars('loss', {'train': loss}, self.global_step)
 
-                if self.global_step % self.args.log_val_every == 0:
-                    val_loss, val_img, val_img_gen = self.eval(val_loader)
-                    if not self.args.debug:
+                    if self.global_step % self.args.log_val_every == 0:
+                        val_loss, val_img, val_img_gen = self.eval(val_loader)
                         self.writer.add_scalars('loss', {'val': val_loss}, self.global_step)
 
-                if self.global_step % self.args.save_every == 0 and not self.args.debug:
-                    self.save()
+                    if self.global_step % self.args.save_every == 0:
+                        self.save()
 
-                if self.global_step % self.args.save_img_every == 0 and not self.args.debug:
-                    # Save train sample
-                    save_tensor = torch.cat(
-                        (img.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
-                    save_image(
-                        save_tensor,
-                        f'{self.args.save_dir}train_gen_{self.global_step}.png',
-                        normalize=True,
-                        range=(-1, 1),
-                        nrow=min(8, self.args.batch_size)
-                    )
+                    if self.global_step % self.args.save_img_every == 0:
+                        # Save train sample
+                        save_tensor = torch.cat(
+                            (img.detach(), img_gen.detach().clamp(-1., 1.)), dim=0)
+                        save_image(
+                            save_tensor,
+                            f'{self.args.save_dir}train_gen_{self.global_step}.png',
+                            normalize=True,
+                            range=(-1, 1),
+                            nrow=min(8, self.args.batch_size)
+                        )
+
+                        if val_img is not None and val_img_gen is not None:
+                            # Save validation sample
+                            save_tensor = torch.cat(
+                                (val_img.detach(), val_img_gen.detach().clamp(-1., 1.)), dim=0)
+                            save_image(
+                                save_tensor,
+                                f'{self.args.save_dir}val_gen_{self.global_step}.png',
+                                normalize=True,
+                                range=(-1, 1),
+                                nrow=min(8, self.args.batch_size)
+                            )
 
                 # Break if n_iters is reached and still in epoch
                 if i_iter == n_iters:
@@ -167,28 +188,13 @@ class solverEncoder:
         print('Done.')
 
     def eval(self, val_loader):
-        # Unpack data
+        # Train_sample
         batch = next(iter(val_loader))
-        img = batch['x'].to(self.device)
+        img = batch['img'].to(self.device)
 
         with torch.no_grad():
-            # Encode
-            self.e.eval()
-            latent_offset = self.e(img)
-            self.e.train()
-
-            # Add mean (we only want to compute offset to mean latent)
-            latent = latent_offset + self.latent_avg
-
-            # Decode
-            img_gen, _ = self.g(
-                [latent], input_is_latent=True, noise=self.g.noises)
-
-            # Downsample to 256 x 256
-            img_gen = utils.downsample_256(img_gen)
-
-            # Compute perceptual loss
-            loss = self.criterion(img_gen, img).mean()
+            # Forward
+            loss, img_gen = self.forward(img, evaluation=True)
 
         return loss, img, img_gen
 
@@ -200,19 +206,8 @@ class solverEncoder:
             img, _ = self.g([z], truncation=0.9, truncation_latent=self.latent_avg)
             img = utils.downsample_256(img)
 
-            # Encoder
-            self.e.eval()
-            latent_offset = self.e(img)
-            self.e.train()
-            # Add mean (we only want to compute offset to mean latent)
-            latent = latent_offset + self.latent_avg
-
-            # Decode
-            img_gen, _ = self.g(
-                [latent], input_is_latent=True, noise=self.g.noises)
-
-            # Downsample to 256 x 256
-            img_gen = utils.downsample_256(img_gen)
+            # Forward
+            _, img_gen = self.forward(img, evaluation=True)
 
         img_tensor = torch.cat((img, img_gen.clamp(-1., 1.)), dim=0)
 
@@ -290,11 +285,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=int, default=0.01)
-    parser.add_argument('--n_iters', type=int, default=150000)
+    parser.add_argument('--n_iters', type=int, default=120000)
     parser.add_argument('--log_train_every', type=int, default=1)
-    parser.add_argument('--log_val_every', type=int, default=1000)  # 10
-    parser.add_argument('--save_img_every', type=int, default=1000)
-    parser.add_argument('--save_every', type=int, default=2000)
+    parser.add_argument('--log_val_every', type=int, default=1000)
+    parser.add_argument('--save_img_every', type=int, default=10000)
+    parser.add_argument('--save_every', type=int, default=10000)
     parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
@@ -321,20 +316,41 @@ if __name__ == '__main__':
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.device = device
 
-    # Init solver
-    solver = solverEncoder(args)
+    # Data loading
+    _, _, all_paths = datasets.ravdess_get_paths(
+        root_path=HOME + "/Datasets/RAVDESS/Aligned256/",
+        flat=True,
+        shuffled=True,
+        validation_split=0.0
+    )
+    val_ds = datasets.RAVDESSFlatDataset(
+        paths=all_paths,
+        device=device,
+        normalize=True,
+        mean=[.5, .5, .5],
+        std=[.5, .5, .5]
+    )
 
     # Validation dataset
-    val_ds = datasets.TagesschauDataset(
-        root_path=HOME + "/Datasets/Tagesschau/Aligned256/",
-        shuffled=False,
-        flat=True,
-        normalize=True
-    )
+    # val_ds = datasets.TagesschauDataset(
+    #     root_path=HOME + "/Datasets/Tagesschau/Aligned256/",
+    #     shuffled=False,
+    #     flat=True,
+    #     load_img=True,
+    #     load_audio=False,
+    #     load_latent=False,
+    #     load_mean=False,
+    #     normalize=True,
+    #     mean=[.5, .5, .5],
+    #     std=[.5, .5, .5]
+    # )
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
     # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)
     train_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
     print(len(val_ds))
+
+    # Init solver
+    solver = solverEncoder(args)
 
     # Train
     if args.test:

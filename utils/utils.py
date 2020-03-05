@@ -13,6 +13,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 
+from PIL import Image
+from scipy.ndimage.filters import gaussian_filter
+from tqdm import tqdm
+
+HOME = os.path.expanduser('~')
+
 
 class Config(dict):
     def __init__(self, *args, **kwargs):
@@ -367,6 +373,52 @@ def get_mouth_params(landmarks, frame):
     return params
 
 
+def decode_sentence(path_to_sentence, save_dir, max_frames=None):
+    # device must be cuda
+    device = 'cuda'
+
+    if save_dir[-1] != '/':
+        save_dir += '/'
+
+    tmp_dir = save_dir + '.temp/'
+    os.makedirs(tmp_dir, exist_ok=True)
+
+    # Init generator
+    from utils.utils import downsample_256
+    from my_models.style_gan_2 import Generator
+    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
+    g.noises = [n.to(device) for n in g.noises]
+
+    # Get all frames
+    frames = sorted(glob(path_to_sentence + '*.latent.pt'))
+    if max_frames is not None:
+        frames = frames[:min(max_frames, len(frames) - 1)]
+    latents = [torch.load(frame).unsqueeze(0).to(device) for frame in frames]
+
+    i_frame = 0
+    for latent in tqdm(latents):
+        i_frame += 1
+        with torch.no_grad():
+            img, _ = g([latent], input_is_latent=True, noise=g.noises)
+        img = downsample_256(img).cpu()
+        save_image(
+            img,
+            tmp_dir + str(i_frame).zfill(5) + '.png',
+            normalize=True,
+            range=(-1, 1)
+        )
+
+    # Convert output frames to video
+    original_dir = os.getcwd()
+    os.chdir(tmp_dir)
+    os.system(
+        f'ffmpeg -framerate 25 -i %05d.png -c:v libx264 -r 25 -pix_fmt yuv420p ../out.mp4')
+
+    # Remove generated frames and keep only video
+    os.chdir(original_dir)
+    os.system(f'rm -r {tmp_dir}')
+
+
 def distance_params(mouth_lm):
 
     def euc_dist(a, b):
@@ -621,3 +673,201 @@ def texture_params(mouth_lm, frame):
     ))
 
     return texture
+
+
+def get_rotation(v):
+    return np.arctan2(v[1], v[0])
+
+
+def Rotate2D(pts, c, ang=np.pi / 4):
+    '''pts = {} Rotates points(nx2) about center cnt(2) by angle ang(1) in radian'''
+    return np.dot(pts - c, np.array([[np.cos(ang), np.sin(ang)], [-np.sin(ang), np.cos(ang)]])) + c
+
+
+class VideoAligner:
+    def __init__(self):
+        # Init face tracking
+        self.detector = dlib.get_frontal_face_detector()
+        self.predictor = dlib.shape_predictor(
+            HOME + '/Datasets/shape_predictor_68_face_landmarks.dat')
+
+        # Init alignment variables
+        self.i_frame = 0
+        self.avg_rotation = 0.
+        self.qsize = None
+        self.initial_rot = None
+
+    def reset(self):
+        self.avg_rotation = 0.
+        self.qsize = None
+        self.initial_rot = None
+
+    def align_image(self,
+                    frame,
+                    landmarks,
+                    output_size=1024,
+                    transform_size=4096,
+                    enable_padding=True):
+        """
+        Source: https://github.com/NVlabs/ffhq-dataset/blob/master/download_ffhq.py
+        """
+
+        # Parse landmarks.
+        # pylint: disable=unused-variable
+        lm = np.array(landmarks)
+        # lm_chin = lm[0: 17]  # left-right
+        # lm_eyebrow_left = lm[17: 22]  # left-right
+        # lm_eyebrow_right = lm[22: 27]  # left-right
+        # lm_nose = lm[27: 31]  # top-down
+        # lm_nostrils = lm[31: 36]  # top-down
+        lm_eye_left = lm[36: 42]  # left-clockwise
+        lm_eye_right = lm[42: 48]  # left-clockwise
+        lm_mouth_outer = lm[48: 60]  # left-clockwise
+        lm_mouth_inner = lm[60: 68]  # left-clockwise
+
+        # Calculate auxiliary vectors.
+        eye_left = np.mean(lm_eye_left, axis=0)
+        eye_right = np.mean(lm_eye_right, axis=0)
+        eye_avg = (eye_left + eye_right) * 0.5
+        eye_to_eye = eye_right - eye_left
+        mouth_left = lm_mouth_outer[0]
+        mouth_right = lm_mouth_outer[6]
+        mouth_avg = (mouth_left + mouth_right) * 0.5
+        mouth_avg_top = np.array([mouth_avg[0], lm_mouth_inner[:, 1].min()])
+        # eye_to_mouth = mouth_avg - eye_avg
+        eye_to_mouth = mouth_avg_top - eye_avg
+
+        # Choose oriented crop rectangle.
+        xq = eye_to_eye - np.flipud(eye_to_mouth) * [-1, 1]
+        xq /= np.hypot(*xq)
+        xq *= max(np.hypot(*eye_to_eye) * 2.0, np.hypot(*eye_to_mouth) * 1.8)
+        yq = np.flipud(xq) * [-1, 1]
+        c = eye_avg + eye_to_mouth * 0.1
+        quad = np.stack([c - xq - yq, c - xq + yq,
+                         c + xq + yq, c + xq - yq])
+        if self.qsize is None:
+            self.qsize = np.linalg.norm(quad[1] - quad[0])
+        qsize_raw = np.linalg.norm(quad[1] - quad[0])
+        factor = ((self.qsize / qsize_raw) - 1) * 0.5
+        # Correct qsize horizontal
+        quad[0] -= (quad[3] - quad[0]) * factor
+        quad[3] += (quad[3] - quad[0]) * factor
+        quad[1] -= (quad[2] - quad[1]) * factor
+        quad[2] += (quad[2] - quad[1]) * factor
+        # Correct qsize vertical
+        quad[0] -= (quad[1] - quad[0]) * factor
+        quad[1] += (quad[1] - quad[0]) * factor
+        quad[3] -= (quad[2] - quad[3]) * factor
+        quad[2] += (quad[2] - quad[3]) * factor
+
+        rotation = get_rotation(quad[3] - quad[0])
+        if self.initial_rot is None:
+            self.initial_rot = rotation
+
+        self.avg_rotation = 0.7 * self.avg_rotation + \
+            0.3 * (self.initial_rot - rotation)
+        quad = Rotate2D(quad, c, self.initial_rot -
+                        rotation - self.avg_rotation)
+
+        # Convert image to PIL
+        img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+
+        # Shrink.
+        shrink = int(np.floor(self.qsize / output_size * 0.5))
+        if shrink > 1:
+            rsize = (int(np.rint(
+                float(img.size[0]) / shrink)), int(np.rint(float(img.size[1]) / shrink)))
+            img = img.resize(rsize, Image.ANTIALIAS)
+            quad /= shrink
+            self.qsize /= shrink
+
+        # Crop.
+        border = max(int(np.rint(self.qsize * 0.1)), 3)
+        crop = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(
+            np.ceil(max(quad[:, 0]))), int(np.ceil(max(quad[:, 1]))))
+        crop = (max(crop[0] - border, 0), max(crop[1] - border, 0),
+                min(crop[2] + border, img.size[0]), min(crop[3] + border, img.size[1]))
+        if crop[2] - crop[0] < img.size[0] or crop[3] - crop[1] < img.size[1]:
+            img = img.crop(crop)
+            quad -= crop[0:2]
+
+        # Pad.
+        pad = (int(np.floor(min(quad[:, 0]))), int(np.floor(min(quad[:, 1]))), int(
+            np.ceil(max(quad[:, 0]))), int(np.ceil(max(quad[:, 1]))))
+        pad = (max(-pad[0] + border, 0), max(-pad[1] + border, 0), max(pad[2] -
+                                                                       img.size[0] + border, 0), max(pad[3] - img.size[1] + border, 0))
+        if enable_padding and max(pad) > border - 4:
+            pad = np.maximum(pad, int(np.rint(self.qsize * 0.3)))
+            img = np.pad(np.float32(
+                img), ((pad[1], pad[3]), (pad[0], pad[2]), (0, 0)), 'reflect')
+            h, w, _ = img.shape
+            y, x, _ = np.ogrid[:h, :w, :1]
+            mask = np.maximum(1.0 - np.minimum(np.float32(x) / pad[0], np.float32(
+                w - 1 - x) / pad[2]), 1.0 - np.minimum(np.float32(y) / pad[1], np.float32(h - 1 - y) / pad[3]))
+            blur = self.qsize * 0.02
+            img += (gaussian_filter(img, [blur, blur, 0]) -
+                    img) * np.clip(mask * 3.0 + 1.0, 0.0, 1.0)
+            img += (np.median(img, axis=(0, 1)) - img) * \
+                np.clip(mask, 0.0, 1.0)
+            img = Image.fromarray(
+                np.uint8(np.clip(np.rint(img), 0, 255)), 'RGB')
+            quad += pad[:2]
+
+        # Transform.
+        img = img.transform((transform_size, transform_size),
+                            Image.QUAD, (quad + 0.5).flatten(), Image.BILINEAR)
+        if output_size < transform_size:
+            img = img.resize((output_size, output_size), Image.ANTIALIAS)
+
+        return img
+
+    def align_video(self, path_to_vid, save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+
+        cap = cv2.VideoCapture(path_to_vid)
+        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        pbar = tqdm(total=n_frames)
+        while cap.isOpened():
+            # Frame shape: (weight, width, 3)
+            ret, frame = cap.read()
+            if not ret:
+                break
+            self.i_frame += 1
+            pbar.update()
+            save_path = os.path.join(
+                save_dir, str(self.i_frame).zfill(3) + '.png')
+
+            # Pre-resize to save computation
+            h_old, w_old, _ = frame.shape
+            h_new = 256
+            factor = h_new / h_old
+            w_new = int(w_old * factor)
+            frame_small = cv2.resize(frame, (w_new, h_new))
+
+            # Grayscale image
+            gray_small = cv2.cvtColor(frame_small, cv2.COLOR_RGB2GRAY)
+
+            # Detect faces
+            rects = self.detector(frame_small, 1)
+            if len(rects) == 0:
+                print(
+                    f"Did not detect a face in {self.i_frame}, resetting aligner")
+                self.reset()
+            for rect in rects:
+                landmarks = [(int(item.x / factor), int(item.y / factor))
+                             for item in self.predictor(gray_small, rect).parts()]
+                frame = self.align_image(
+                    frame,
+                    landmarks,
+                    output_size=256,
+                    transform_size=1024
+                )
+
+                # Visualize
+                # print(save_path)
+                # frame.show()
+                # 1 / 0
+
+                # Save
+                frame.save(save_path)
+                break
