@@ -159,18 +159,6 @@ class solverEncoder:
                         nrow=min(8, self.args.batch_size)
                     )
 
-                    # Save validation sample
-                    if val_img is not None and val_img_gen is not None:
-                        save_tensor = torch.cat(
-                            (val_img.detach(), val_img_gen.detach().clamp(-1., 1.)), dim=0)
-                        save_image(
-                            save_tensor,
-                            f'{self.args.save_dir}val_gen_{self.global_step}.png',
-                            normalize=True,
-                            range=(-1, 1),
-                            nrow=min(8, self.args.batch_size)
-                        )
-
                 # Break if n_iters is reached and still in epoch
                 if i_iter == n_iters:
                     break
