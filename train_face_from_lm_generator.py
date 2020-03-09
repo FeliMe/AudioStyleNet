@@ -7,11 +7,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from datetime import datetime
+from my_models import models
 from my_models.style_gan_2 import Generator
+from PIL import ImageDraw
 from torch.utils.tensorboard import SummaryWriter
+from torchvision import transforms
+from torchvision.utils import save_image, make_grid
 from tqdm import tqdm
 from utils import datasets, utils
-from torchvision.utils import save_image, make_grid
 
 
 HOME = os.path.expanduser('~')
@@ -35,20 +38,15 @@ class solverEncoder:
         self.g.noises = [n.to(self.device) for n in self.g.noises]
         for param in self.g.parameters():
             param.requires_grad = False
-        self.latent_avg = self.g.latent_avg.unsqueeze(0).to(self.device)
 
         # Init global step
         self.global_step = 0
 
         # Define encoder model
-        self.e = nn.Sequential(
-            nn.Linear(3 * 8 * 8 + 68 * 2, 512),
-            nn.BatchNorm1d(512),
-            nn.ReLU(inplace=True),
-            nn.Linear(512, 18 * 512)
-        ).train().to(self.device)
+        self.e = models.lmToStyleGANLatent(
+            self.g.latent_avg.unsqueeze(0)).train().to(self.device)
 
-        if self.args.cont or self.args.test or self.args.run:
+        if self.args.cont or self.args.test:
             path = self.args.model_path
             self.e.load_state_dict(torch.load(path))
             self.global_step = int(path.split(
@@ -65,7 +63,7 @@ class solverEncoder:
         self.criterion = nn.MSELoss()
 
         # Set up tensorboard
-        if not self.args.debug and not self.args.test and not self.args.run:
+        if not self.args.debug and not self.args.test:
             tb_dir = self.args.save_dir
             self.writer = SummaryWriter(tb_dir)
             print(f"Logging run to {tb_dir}")
@@ -98,15 +96,16 @@ class solverEncoder:
         # img_small = F.interpolate(img, size=8, mode='nearest')
         # t(make_grid(img_small[0].cpu(), normalize=True, range=(-1, 1))).show()
         # 1 / 0
-        landmarks = landmarks.view(b, -1)
-        inp = torch.cat((img_inp, landmarks), dim=1)
+        inp = torch.cat((img_inp, landmarks.view(b, -1)), dim=1)
 
-        return inp, target
+        return inp, target, landmarks
 
-    def forward(self, inp):
-        latent_offset = self.e(inp).view(-1, 18, 512)
-        # Add mean (we only want to compute offset to mean latent)
-        prediction = latent_offset + self.latent_avg
+    def forward(self, inp, evaluate=False):
+        if evaluate:
+            self.e.eval()
+        else:
+            self.e.train()
+        prediction = self.e(inp)
         return prediction
 
     def train(self, n_iters, train_loader, val_loader):
@@ -119,13 +118,13 @@ class solverEncoder:
         while i_iter < n_iters:
             for batch in train_loader:
                 # Unpack batch
-                inp, target = self.get_inputs(batch)
+                inp, target, lm = self.get_inputs(batch)
 
                 # Update learning rate
                 t = self.global_step / n_iters
                 self.update_lr(t)
 
-                pred = self.forward(inp)
+                pred = self.forward(inp, evaluate=False)
                 loss = self.criterion(pred, target).mean()
 
                 # Optimize
@@ -155,7 +154,7 @@ class solverEncoder:
                             'loss', {'train': loss}, self.global_step)
 
                     if self.global_step % self.args.log_val_every == 0:
-                        val_loss, val_pred, val_target = self.eval(val_loader)
+                        val_loss, val_pred, val_target, val_lm = self.eval(val_loader)
                         self.writer.add_scalars(
                             'loss', {'val': val_loss}, self.global_step)
 
@@ -164,7 +163,9 @@ class solverEncoder:
 
                     if self.global_step % self.args.save_img_every == 0:
                         if val_target is not None and val_pred is not None:
-                            self.save_image(pred, target, val_pred, val_target)
+                            self.save_image(pred, target, lm, name=f'train_sample{self.global_step}.png')
+                            self.save_image(
+                                val_pred, val_target, val_lm, name=f'val_sample{self.global_step}.png')
 
                 # Break if n_iters is reached and still in epoch
                 if i_iter == n_iters:
@@ -174,46 +175,69 @@ class solverEncoder:
         print('Done.')
 
     def eval(self, val_loader):
-        # Train_sample
+        # Validation sample
         batch = next(iter(val_loader))
-        inp, target = self.get_inputs(batch)
+        inp, target, lm = self.get_inputs(batch)
 
         with torch.no_grad():
-            pred = self.forward(inp)
+            pred = self.forward(inp, evaluate=True)
             loss = self.criterion(pred, target).mean()
 
-        return loss, pred, target
+        return loss, pred, target, lm
 
-    def save_image(self, pred, target, val_pred, val_target, n_sample=4):
+    def save_image(self, pred, target, lm, name, n_sample=4):
+
+        def draw_landmarks(img, lm):
+            img = transforms.ToPILImage('RGB')(img)
+            draw = ImageDraw.Draw(img)
+            for (x, y) in lm:
+                draw.point((x, y), fill='blue')
+            img = transforms.ToTensor()(img)
+            return img
+
         # Save train sample
         with torch.no_grad():
+            # Generate image
             img = self.g([pred[:n_sample]], input_is_latent=True,
                          noise=self.g.noises)[0].cpu()
             img_target = self.g(
                 [target[:n_sample]], input_is_latent=True, noise=self.g.noises)[0].cpu()
-            img = make_grid(img, normalize=True, range=(-1, 1))
-            img_target = make_grid(img_target, normalize=True, range=(-1, 1))
-        save_tensor = torch.stack((img_target, img), dim=0)
+            # downsample to 256
+            img = utils.downsample_256(img)
+            img_target = utils.downsample_256(img_target)
+            # Normalize
+            img = torch.stack([make_grid(i, normalize=True, range=(-1, 1)) for i in img])
+            img_target = torch.stack([make_grid(i, normalize=True, range=(-1, 1)) for i in img_target])
+            # Denormalize lm
+            lm = (lm + 1.) * 127.5
+            # Draw landmarks on img
+            img = torch.stack([draw_landmarks(i, l) for i, l in zip(img, lm)])
+            img_target = torch.stack([draw_landmarks(i, l) for i, l in zip(img_target, lm)])
+        save_tensor = torch.cat((img_target, img), dim=0)
         save_image(
             save_tensor,
-            f'{self.args.save_dir}train_gen_{self.global_step}.png',
+            self.args.save_dir + name,
             nrow=min(8, n_sample)
         )
 
-        # Save validation sample
+    def test_model(self, val_loader):
+        batch = next(iter(val_loader))
+        inp, target, lm = self.get_inputs(batch)
+        lm = lm[2]
+        lm = (lm + 1.) * 127.5
+
         with torch.no_grad():
-            val_img = self.g([val_pred[:n_sample]],
-                             input_is_latent=True, noise=self.g.noises)[0].cpu()
-            val_img_target = self.g(
-                [val_target[:n_sample]], input_is_latent=True, noise=self.g.noises)[0].cpu()
-            val_img = make_grid(val_img, normalize=True, range=(-1, 1))
-            val_img_target = make_grid(val_img_target, normalize=True, range=(-1, 1))
-        save_tensor = torch.stack((val_img_target, val_img), dim=0)
-        save_image(
-            save_tensor,
-            f'{self.args.save_dir}val_gen_{self.global_step}.png',
-            nrow=min(8, n_sample)
-        )
+            pred = self.forward(inp[2].unsqueeze(0), evaluate=True)
+            img = self.g([pred],
+                         input_is_latent=True, noise=self.g.noises)[0].cpu()
+            img = utils.downsample_256(img)
+
+        img = make_grid(img, normalize=True, range=(-1, 1))
+        img = transforms.ToPILImage('RGB')(img)
+        draw = ImageDraw.Draw(img)
+        for (x, y) in lm:
+            draw.point((x, y), fill='blue')
+        img.show()
 
 
 if __name__ == '__main__':
@@ -226,10 +250,18 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
+    # Flags
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--model_path', type=str, default=None)
+
+    # Hparams
     parser.add_argument('--batch_size', type=int, default=64)
     parser.add_argument('--lr', type=int, default=0.001)
 
-    parser.add_argument('--n_iters', type=int, default=10000)
+    # Logging params
+    parser.add_argument('--n_iters', type=int, default=3000)
     parser.add_argument('--update_pbar_every', type=int, default=10)
     parser.add_argument('--log_train_every', type=int, default=10)
     parser.add_argument('--log_val_every', type=int, default=100)
@@ -237,12 +269,6 @@ if __name__ == '__main__':
     parser.add_argument('--save_every', type=int, default=1000)
     parser.add_argument('--save_dir', type=str,
                         default='saves/face_from_landmark_generator/')
-    parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--test', action='store_true')
-    parser.add_argument('--cont', action='store_true')
-    parser.add_argument('--run', action='store_true')
-    parser.add_argument('--model_path', type=str, default=None)
-    parser.add_argument('--src_path', type=str, default=None)
     args = parser.parse_args()
 
     if args.cont or args.test:
@@ -253,7 +279,7 @@ if __name__ == '__main__':
         args.save_dir += '/'
     args.save_dir += datetime.now().strftime("%Y-%m-%d_%H-%M-%S/")
 
-    if args.cont or args.test or args.run:
+    if args.cont or args.test:
         args.save_dir = '/'.join(args.model_path.split('/')[:-2]) + '/'
 
     print("Saving run to {}".format(args.save_dir))
@@ -309,7 +335,5 @@ if __name__ == '__main__':
     # Train
     if args.test:
         solver.test_model(val_loader)
-    elif args.run:
-        solver.run(args.src_path)
     else:
         solver.train(args.n_iters, train_loader, val_loader)

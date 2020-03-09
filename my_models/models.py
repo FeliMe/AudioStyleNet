@@ -817,6 +817,25 @@ class EmoDBResNet(nn.Module):
         return y
 
 
+class lmToStyleGANLatent(nn.Module):
+    def __init__(self, avg_latent=torch.randn((1, 512))):
+        super(lmToStyleGANLatent, self).__init__()
+
+        self.model = nn.Sequential(
+            nn.Linear(3 * 8 * 8 + 68 * 2, 512),
+            nn.BatchNorm1d(512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, 18 * 512)
+        )
+
+        self.register_buffer('avg_latent', avg_latent)
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        latent_offset = self.model(x).view(-1, 18, 512)
+        return latent_offset + self.avg_latent
+
+
 class EmotionDatabase(nn.Module):
     def __init__(self, len_dataset, n_latent=16):
         super(EmotionDatabase, self).__init__()

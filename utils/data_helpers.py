@@ -596,7 +596,7 @@ def ravdess_extract_landmarks(path_to_actor):
     # the facial landmark predictor
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(
-        HOME + '/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+        HOME + '/Datasets/shape_predictor_68_face_landmarks.dat')
 
     if path_to_actor[-1] == '/':
         path_to_actor = path_to_actor[:-1]

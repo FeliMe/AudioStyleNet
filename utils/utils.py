@@ -57,9 +57,10 @@ class Downsample(object):
 
 def downsample_256(img):
     b, c, h, w = img.shape
-    factor = h // 256
-    img = img.reshape(b, c, h // factor, factor, w // factor, factor)
-    img = img.mean([3, 5])
+    if h > 256:
+        factor = h // 256
+        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
+        img = img.mean([3, 5])
     return img
 
 
@@ -347,32 +348,6 @@ class FaceMaskPredictor:
         return mask
 
 
-def get_mouth_params(landmarks, frame):
-    # Select mouth landmarks only
-    mouth_lm = landmarks[48:68]
-
-    # Distance parameters
-    d_params = distance_params(mouth_lm)
-
-    # Angle parameters
-    a_params = angle_params(mouth_lm, frame)
-
-    # Surface parameters
-    s_params = surface_params(mouth_lm)
-
-    # Textural parameters
-    t_params = texture_params(mouth_lm, frame)
-
-    params = np.concatenate((
-        d_params,
-        a_params,
-        s_params,
-        t_params
-    )).astype(np.float32)
-
-    return params
-
-
 def decode_sentence(path_to_sentence, save_dir, max_frames=None):
     # device must be cuda
     device = 'cuda'
@@ -417,6 +392,33 @@ def decode_sentence(path_to_sentence, save_dir, max_frames=None):
     # Remove generated frames and keep only video
     os.chdir(original_dir)
     os.system(f'rm -r {tmp_dir}')
+
+
+
+def get_mouth_params(landmarks, frame):
+    # Select mouth landmarks only
+    mouth_lm = landmarks[48:68]
+
+    # Distance parameters
+    d_params = distance_params(mouth_lm)
+
+    # Angle parameters
+    a_params = angle_params(mouth_lm, frame)
+
+    # Surface parameters
+    s_params = surface_params(mouth_lm)
+
+    # Textural parameters
+    t_params = texture_params(mouth_lm, frame)
+
+    params = np.concatenate((
+        d_params,
+        a_params,
+        s_params,
+        t_params
+    )).astype(np.float32)
+
+    return params
 
 
 def distance_params(mouth_lm):
