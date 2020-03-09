@@ -80,7 +80,7 @@ config.update({
     ),
 
     # Discriminator
-    'discriminator': discriminators.SimpleDiscriminator(
+    'discriminator': discriminators.ConditionalDiscriminator(
         config
     ),
 

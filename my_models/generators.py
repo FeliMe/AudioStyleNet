@@ -185,6 +185,56 @@ class SPADEGenerator(nn.Module):
         return x
 
 
+class AdaINGenerator128(nn.Module):
+    def __init__(self, latent_size):
+        super().__init__()
+
+        n_features = 64
+
+        self.conv1 = nn.Conv2d(1, 8 * n_features, 3, padding=1)
+        # state size 4 x 4
+        self.up_0 = mu.AdaINResnetGeneratorBlock(8 * n_features, 4 * n_features, latent_size)
+        # state size 8 x 8
+        self.up_1 = mu.AdaINResnetGeneratorBlock(4 * n_features, 4 * n_features, latent_size)
+        # state size 16 x 16
+        self.up_2 = mu.AdaINResnetGeneratorBlock(4 * n_features, 2 * n_features, latent_size)
+        # state size 32 x 32
+        self.up_3 = mu.AdaINResnetGeneratorBlock(2 * n_features, 2 * n_features, latent_size)
+        # state size 64 x 64
+        self.up_4 = mu.AdaINResnetGeneratorBlock(2 * n_features, n_features, latent_size)
+        # state size 128 x 128
+        self.up_5 = mu.AdaINResnetGeneratorBlock(n_features, n_features, latent_size)
+        # state size 128 x 128
+        self.conv_img = nn.Conv2d(n_features, 3, kernel_size=(3, 3), padding=1)
+
+        self.up = nn.Upsample(scale_factor=2)
+
+    def forward(self, cond):
+        x = torch.randn((cond.shape[0], 1, 4, 4), device=cond.device)
+
+        # downsample segmap and run convolution
+        x = self.conv1(x)
+
+        # Generator
+        x = self.up_0(x, cond)
+        x = self.up(x)
+        x = self.up_1(x, cond)
+        x = self.up(x)
+        x = self.up_2(x, cond)
+        x = self.up(x)
+        x = self.up_3(x, cond)
+        x = self.up(x)
+        x = self.up_4(x, cond)
+        x = self.up(x)
+        x = self.up_5(x, cond)
+
+        # Create final output
+        x = self.conv_img(F.leaky_relu(x, 2e-1))
+        x = torch.tanh(x)
+
+        return x
+
+
 class MultiScaleGenerator(nn.Module):
     def __init__(self, config):
         super().__init__()

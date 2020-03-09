@@ -11,6 +11,7 @@ import random
 import torch
 import torch.nn.functional as F
 
+from glob import glob
 from my_models.style_gan_2 import Generator
 from PIL import Image
 from torch.utils.data import DataLoader
@@ -306,12 +307,16 @@ class RAVDESSFlatDataset(Dataset):
     def __init__(self,
                  paths,
                  device,
+                 load_landmarks=False,
+                 load_latent=False,
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
                  image_size=256,
                  label_one_hot=False):
 
+        self.load_landmarks = load_landmarks
+        self.load_latent = load_latent
         self.normalize = normalize
         self.mean = mean
         self.std = std
@@ -368,7 +373,27 @@ class RAVDESSFlatDataset(Dataset):
         # Load image
         img = self.t(self.load_fn(frame))
 
-        return {'img': img, 'y': emotion, 'index': index, 'path': frame}
+        # Load landmarks
+        if self.load_landmarks:
+            landmarks = torch.load(frame.split('.')[0] + '.landmarks.pt')
+            # Normalize landmarks
+            landmarks = (landmarks / 127.5) - 1.
+        else:
+            landmarks = torch.tensor(0.)
+
+        if self.load_latent:
+            latent = torch.load(frame.split('.')[0] + '.latent.pt')
+        else:
+            latent = torch.tensor(0.)
+
+        return {
+            'img': img,
+            'landmarks': landmarks,
+            'latent': latent,
+            'y': emotion,
+            'index': index,
+            'path': frame
+        }
 
 
 class RAVDESSNeutralToXDataset(Dataset):
@@ -777,7 +802,7 @@ class AffWild2Dataset(Dataset):
 
 class TagesschauDataset(Dataset):
     def __init__(self,
-                 root_path,
+                 videos,
                  load_img=True,
                  load_latent=False,
                  load_audio=False,
@@ -800,7 +825,6 @@ class TagesschauDataset(Dataset):
         self.mean = mean
         self.std = std
 
-        videos = sorted([str(v) for v in list(pathlib.Path(root_path).glob('*/'))])
         if self.overfit:
             print(f"Overfitting on {videos[0]}")
             videos = [videos[0]]
@@ -1006,6 +1030,39 @@ def ravdess_get_paths(root_path,
     return train_paths, val_paths, all_paths
 
 
+def ravdess_get_paths_actor_split(root_path,
+                                  flat,
+                                  shuffled=True,
+                                  validation_split=0.0,
+                                  actors=[i + 1 for i in range(24)]):
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    paths = glob(root_path + '*/*/')
+    split = int(len(actors) * validation_split)
+    train_actors = actors[split:]
+    val_actors = actors[:split]
+
+    train_paths = list(
+        filter(lambda s: int(s.split('/')[-3].split('_')[-1]) in train_actors, paths))
+    val_paths = list(
+        filter(lambda s: int(s.split('/')[-3].split('_')[-1]) in val_actors, paths))
+
+    train_paths = [glob(p + '*.png') for p in train_paths]
+    val_paths = [glob(p + '*.png') for p in val_paths]
+
+    if flat:
+        train_paths = [item for sublist in train_paths for item in sublist]
+        val_paths = [item for sublist in val_paths for item in sublist]
+
+    if shuffled:
+        random.shuffle(train_paths)
+        random.shuffle(val_paths)
+
+    return train_paths, val_paths
+
+
 def filter_actor(sentences, actors):
     return list(
         filter(lambda s: int(s.split('/')[-2].split('_')[-1]) in actors, sentences))
@@ -1073,6 +1130,14 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
         random.shuffle(all_paths)
 
     return all_paths, annotations
+
+
+def tagesschau_get_videos(root_path, train_split):
+    videos = sorted(glob(root_path + '*/'))
+    split = int(len(videos) * train_split)
+    train_videos = videos[:split]
+    val_videos = videos[split:]
+    return train_videos, val_videos
 
 
 class Downsample(object):

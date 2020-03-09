@@ -15,9 +15,35 @@ Shape of real and fake images:
 """
 
 
-class SimpleDiscriminator(nn.Module):
+class SimpleDiscriminator128(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        n_features = 64
+
+        self.d = nn.Sequential(
+            # input is 128
+            *mu.discriminator_block(3, n_features, normalization=False),
+            # state size 64
+            *mu.discriminator_block(n_features, n_features, normalization=True),
+            # state size 32
+            *mu.discriminator_block(n_features, 2 * n_features, normalization=True),
+            # state size 16
+            *mu.discriminator_block(n_features * 2, n_features * 4, normalization=True),
+            # state size 8
+            *mu.discriminator_block(n_features * 4, n_features * 8, normalization=True),
+            # state size 4
+            nn.Conv2d(n_features * 8, 1, 4, 1, 0, bias=False),
+        )
+
+    def forward(self, x):
+        x = self.d(x)
+        return x
+
+
+class ConditionalDiscriminator(nn.Module):
     def __init__(self, config):
-        super(SimpleDiscriminator, self).__init__()
+        super(ConditionalDiscriminator, self).__init__()
 
         self.n_classes_cond = config.n_classes_cond
         self.pair = config.pair
@@ -289,31 +315,3 @@ class StyleGANDiscriminator(nn.Module):
         out = self.linear(out)
 
         return out
-
-# class SequenceDiscriminator(nn.Module):
-#     def __init__(self, d):
-#         super(SequenceDiscriminator, self).__init__()
-
-#         self.d = d
-
-#     def forward(self, inputs):
-#         """
-#         a.shape -> [b, sequence_length, c, h, w]
-#         b.shape -> [b, sequence_length, c, h, w]
-#         img_input.shape -> [b, 2 * sequence_length * c, h, w]
-#         out.shape -> [b, sequence_length, 1]
-#         """
-#         img_a = inputs['img_a']
-#         img_b = inputs['img_b']
-#         cond = inputs['cond']
-
-#         n_seq = img_a.size(1)
-
-#         out = []
-#         for i_seq in range(n_seq):
-#             a = img_a[:, i_seq]
-#             b = img_b[i_seq] if type(img_b) is list else img_b[:, i_seq]
-#             out.append(self.d({'img_a': a, 'img_b': b, 'cond': cond}))
-#         out = torch.stack(out, 1)
-
-#         return out

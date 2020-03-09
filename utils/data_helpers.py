@@ -293,6 +293,128 @@ def ravdess_align_videos(root_path, group):
             aligner.align_video(path, save_dir)
 
 
+def ravdess_gather_info(root_path):
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    save_path = root_path + 'latent_data.pt'
+    print(f"Saving to {save_path}")
+
+    actors = sorted(glob(root_path + '*/'))
+    assert len(actors) > 0
+
+    names = []
+    latents = []
+    landmarks = []
+    logits_fer = []
+    logits_rav = []
+    emotions = []
+    for actor in tqdm(actors):
+        sentences = sorted(glob(actor + '*/'))
+        for sentence in sentences:
+            frames = sorted(glob(sentence + '*.png'))
+            for frame in frames:
+                base = frame.split('.')[0]
+
+                name = '/'.join(base.split('/')[-3:])
+                latent = torch.load(base + '.latent.pt')
+                landmark = torch.load(base + '.landmarks.pt')
+                logit_fer = torch.load(base + '-logit_fer.pt')
+                logit_rav = torch.load(base + '-logit_ravdess.pt')
+                emotion = int(base.split('/')[-2].split('-')[2]) - 1
+
+                names.append(name)
+                latents.append(latent)
+                landmarks.append(landmark)
+                logits_fer.append(logit_fer)
+                logits_rav.append(logit_rav)
+                emotions.append(emotion)
+
+                # print(name, latent.shape, landmark.shape, logit_fer.shape, logit_rav.shape, emotion)
+                # 1 / 0
+
+    names = torch.stack(names, dim=0)
+    landmarks = torch.stack(landmarks, dim=0)
+    logits_fer = torch.stack(logits_fer, dim=0)
+    logits_rav = torch.stack(logits_rav, dim=0)
+    emotions = torch.stack(emotions, dim=0)
+
+    data = {
+        'names': names,
+        'latents': latents,
+        'landmarks': landmarks,
+        'logits_fer': logits_fer,
+        'logits_rav': logits_rav,
+        'emotions': emotions
+    }
+
+    torch.save(data, save_path)
+
+
+def ravdess_encode_frames(root_path):
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    actors = sorted(glob(root_path + '*/'))
+    assert len(actors) > 0
+
+    # Select device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Load encoder
+    from my_models.models import resnetEncoder
+    e = resnetEncoder(net=18).eval()
+    state_dict = torch.load('saves/pre-trained/resNet18RAVDESS.pt')
+    e.load_state_dict(state_dict)
+    e = e.to(device)
+
+    # Get latent avg
+    from my_models.style_gan_2 import Generator
+    g = Generator(1024, 512, 8, pretrained=True).eval()
+    g.noises = [n.to(device) for n in g.noises]
+    latent_avg = g.latent_avg.view(1, -1).repeat(18, 1)
+
+    # transforms
+    t = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+
+    for actor in tqdm(actors):
+        sentences = sorted(glob(actor + '*/'))
+        for sentence in sentences:
+            frames = sorted(glob(sentence + '*.png'))
+            for frame in frames:
+                save_path = frame.split('.')[0] + '.latent.pt'
+                # print(save_path)
+                if os.path.exists(save_path):
+                    continue
+
+                # Load image
+                img = t(Image.open(frame)).unsqueeze(0).to(device)
+
+                # Encoder image
+                with torch.no_grad():
+                    latent_offset = e(img)[0].cpu()
+                    latent = latent_offset + latent_avg
+
+                # Visualize
+                from torchvision.utils import make_grid
+                from utils.utils import downsample_256
+                print(save_path, latent.shape)
+                img_gen = g.to(device)(
+                    [latent.to(device)], input_is_latent=True, noise=g.noises)[0].cpu()
+                img_gen = downsample_256(img_gen)
+                img_gen = make_grid(
+                    torch.cat((img_gen, img.cpu()), dim=0), normalize=True, range=(-1, 1))
+                img_gen = transforms.ToPILImage('RGB')(img_gen)
+                img_gen.show()
+                1 / 0
+
+                # Save
+                # torch.save(latent, save_path)
+
+
 def ravdess_resize_frames(path_to_actor):
     def downsample_img(img):
         c, h, w = img.shape
@@ -1273,7 +1395,16 @@ def tagesschau_encode_frames(root_path):
         with torch.no_grad():
             latent_offset = e(img)[0].cpu()
             latent = latent_offset + latent_avg
+        
+        # Visualize
+        from torchvision.utils import make_grid
+        from utils.utils import downsample_256
         print(save_path, latent.shape)
+        img_gen = g.to(device)([latent.to(device)], input_is_latent=True, noise=g.noises)[0].cpu()
+        img_gen = downsample_256(img_gen)
+        img_gen = make_grid(torch.cat((img_gen, img.cpu()), dim=0), normalize=True, range=(-1, 1))
+        img_gen = transforms.ToPILImage('RGB')(img_gen)
+        img_gen.show()
         1 / 0
 
         # Save

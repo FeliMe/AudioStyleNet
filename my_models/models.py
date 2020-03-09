@@ -1,3 +1,5 @@
+import FrEIA.framework as Ff
+import FrEIA.modules as Fm
 import os
 import torch
 import torch.nn as nn
@@ -22,6 +24,38 @@ MAPPING = {
     'disgust': '07',
     'surprised': '08'
 }
+
+
+class InvertibleClassifier(nn.Module):
+    def __init__(self):
+        super(InvertibleClassifier, self).__init__()
+
+        def subnet_conv(c_in, c_out):
+            return nn.Sequential(nn.Conv2d(c_in, 64, 5, padding=2), nn.ReLU(),
+                                 nn.Conv2d(64, c_out, 5, padding=2), nn.ReLU())
+
+        nodes = [Ff.InputNode(3, 256, 256, name='input')]
+        for k in range(3):
+            nodes.append(Ff.Node(nodes[-1],
+                                 Fm.GLOWCouplingBlock,
+                                 {'subnet_constructor': subnet_conv, 'clamp': 1.2},
+                                 name=f'conv{k}'))
+
+            nodes.append(Ff.Node(nodes[-1], Fm.IRevNetDownsampling, {}))
+        nodes.append(Ff.OutputNode(nodes[-1], name='output'))
+        self.conv_inn = Ff.ReversibleGraphNet(nodes)
+
+        self.classifier = nn.Linear(192 * 32 * 32, 8)
+
+    def forward(self, x):
+        z = self.conv_inn(x)
+        y = self.classifier(z.view(x.size(0), -1))
+        return y, z
+
+    def inverse(self, coeff):
+        direction = self.linear.weight * coeff
+        direction = self.inn(direction, rev=True).detach().cpu().numpy()
+        return direction
 
 
 class AudioExpressionNet(nn.Module):
@@ -505,7 +539,7 @@ class SiameseConv3D(nn.Module):
 
 
 class resnetEncoder(nn.Module):
-    def __init__(self, net=18, pretrained=False):
+    def __init__(self, net=18, out_dim=512 * 18, pretrained=False):
         super().__init__()
 
         def _set_requires_grad_false(layer):
@@ -518,6 +552,8 @@ class resnetEncoder(nn.Module):
         elif net == 50:
             from torchvision.models import resnet50
             resnet = resnet50(pretrained=True)
+
+        self.out_dim = out_dim
 
         self.layer0 = nn.Sequential(*list(resnet.children())[:4])
         _set_requires_grad_false(self.layer0)
@@ -532,7 +568,7 @@ class resnetEncoder(nn.Module):
 
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
-        self.linear_n = nn.Linear(512, 512 * 18)
+        self.linear_n = nn.Linear(512, out_dim)
 
         if pretrained:
             self.load_weights()
@@ -550,8 +586,10 @@ class resnetEncoder(nn.Module):
         y = self.layer4(y)
         y = self.avgpool(y)
         y = self.flatten(y)
+        y = self.linear_n(y)
 
-        y = self.linear_n(y).view(-1, 18, 512)
+        if self.out_dim == 18 * 512:
+            y = y.view(-1, 18, 512)
 
         return y
 

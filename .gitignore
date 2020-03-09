@@ -1,6 +1,8 @@
 /saves/
 /wandb/
 /test_images/
+/tensorboard_runs/
+/lpips/weights/
 /.vscode/
 /__pycache__/
 \.idea/
@@ -10,3 +12,4 @@
 .empty
 tester.py
 /._*
+**/._*

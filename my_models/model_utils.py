@@ -389,7 +389,7 @@ class AdaIN(nn.Module):
     def __init__(self, latent_size, channels):
         super().__init__()
         self.channels = channels
-        self.norm = nn.InstanceNorm2d(channels)
+        self.norm = nn.InstanceNorm2d(channels, affine=False)
         self.lin = nn.Linear(latent_size, channels * 2)
 
     def forward(self, x, latent):
@@ -402,6 +402,77 @@ class AdaIN(nn.Module):
         x = x * (style[:, 0] + 1.) + style[:, 1]
 
         return x
+
+
+class LinearAdaIN(nn.Module):
+    def __init__(self, latent_size, target_size):
+        super().__init__()
+        self.target_size = target_size
+        self.norm = nn.InstanceNorm1d(target_size, affine=False)
+        self.lin = nn.Linear(latent_size, target_size * 2)
+
+    def forward(self, x, latent):
+        # Normalize
+        b = x.shape[0]
+        x = self.norm(x.view(b, 1, -1)).view(b, -1)
+
+        # Apply transform
+        style = self.lin(latent)  # style => [batch_size, target_size*2]
+        style = style.view((-1, 2, self.target_size))
+        x = x * (style[:, 0] + 1.) + style[:, 1]
+
+        return x
+
+
+class AdaINResnetGeneratorBlock(nn.Module):
+    """
+    Source: https://github.com/NVlabs/SPADE/blob/77197af832fac44ba319179096f38467bac91ec9/models/networks/architecture.py
+    """
+
+    def __init__(self, in_channels, out_channels, latent_size):
+        super().__init__()
+        # Attributes
+        self.learned_shortcut = (in_channels != out_channels)
+        fmiddle = min(in_channels, out_channels)
+
+        # create conv layers
+        self.conv_0 = nn.Conv2d(in_channels, fmiddle, kernel_size=3, padding=1)
+        self.conv_1 = nn.Conv2d(fmiddle, out_channels,
+                                kernel_size=3, padding=1)
+        if self.learned_shortcut:
+            self.conv_s = nn.Conv2d(
+                in_channels, out_channels, kernel_size=1, bias=False)
+
+        # define AdaIN layers
+        self.adain_0 = AdaIN(latent_size, in_channels)
+        self.adain_1 = AdaIN(latent_size, fmiddle)
+        if self.learned_shortcut:
+            self.adain_s = AdaIN(latent_size, in_channels)
+
+    @staticmethod
+    def actvn(x):
+        return F.leaky_relu(x, 2e-1)
+
+    def shortcut(self, x, cond):
+        if self.learned_shortcut:
+            # x_s = self.conv_s(self.adain_s(x, cond))
+            x_s = self.conv_s(x)
+        else:
+            x_s = x
+        return x_s
+
+    def forward(self, x, cond):
+        x_s = self.shortcut(x, cond)
+
+        dx = self.conv_0(self.actvn(self.adain_0(x, cond)))
+        dx = self.conv_1(self.actvn(self.adain_1(dx, cond)))
+
+        # dx = self.conv_0(self.actvn(x))
+        # dx = self.conv_1(self.actvn(dx))
+
+        out = x_s + dx
+
+        return out
 
 
 def discriminator_block(in_filters, out_filters, normalization=True):

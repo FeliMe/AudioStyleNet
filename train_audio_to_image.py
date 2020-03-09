@@ -289,12 +289,12 @@ if __name__ == '__main__':
     parser.add_argument('--train_on_latent', type=bool, default=True)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--lr', type=int, default=0.0002)
-    parser.add_argument('--n_iters', type=int, default=100000)
-    parser.add_argument('--update_pbar_every', type=int, default=10)
-    parser.add_argument('--log_train_every', type=int, default=10)
-    parser.add_argument('--log_val_every', type=int, default=100)
-    parser.add_argument('--save_every', type=int, default=1000)
-    parser.add_argument('--eval_every', type=int, default=1000)
+    parser.add_argument('--n_iters', type=int, default=1000000)
+    parser.add_argument('--update_pbar_every', type=int, default=100)
+    parser.add_argument('--log_train_every', type=int, default=100)
+    parser.add_argument('--log_val_every', type=int, default=1000)
+    parser.add_argument('--save_every', type=int, default=100000)
+    parser.add_argument('--eval_every', type=int, default=100000)
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     parser.add_argument('--test_latent', type=str, default='saves/projected_images/obama.pt')
@@ -310,7 +310,6 @@ if __name__ == '__main__':
     if args.save_dir[-1] != '/':
         args.save_dir += '/'
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S/")
-    # args.tensorboard_dir = args.save_dir + 'tensorboard/' + timestamp
     args.save_dir += timestamp
 
     if args.cont or args.test:
@@ -323,8 +322,10 @@ if __name__ == '__main__':
     args.device = device
 
     # Load data
-    ds = datasets.TagesschauDataset(
-        root_path=HOME + '/Datasets/Tagesschau/Aligned256/',
+    train_videos, val_videos = datasets.tagesschau_get_videos(
+        HOME + '/Datasets/Tagesschau/Aligned256/', 0.9)
+    train_ds = datasets.TagesschauDataset(
+        videos=train_videos,
         load_img=not args.train_on_latent,
         load_latent=args.train_on_latent,
         load_audio=True,
@@ -338,14 +339,24 @@ if __name__ == '__main__':
         image_size=256,
         max_frames_per_vid=1000
     )
-    print(f"Dataset length: {len(ds)}")
+    val_ds = datasets.TagesschauDataset(
+        videos=val_videos,
+        load_img=not args.train_on_latent,
+        load_latent=args.train_on_latent,
+        load_audio=True,
+        load_mean=True,
+        shuffled=False,
+        flat=True,
+        overfit=args.overfit,
+        normalize=True,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256,
+        max_frames_per_vid=1000
+    )
+    print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
     if args.overfit:
-        train_ds = ds
-        val_ds = ds
-    else:
-        train_len = int(0.8 * len(ds))
-        val_len = len(ds) - train_len
-        train_ds, val_ds = torch.utils.data.random_split(ds, [train_len, val_len])
+        val_ds = train_ds
     data_loaders = {
         'train': torch.utils.data.DataLoader(
             train_ds,
