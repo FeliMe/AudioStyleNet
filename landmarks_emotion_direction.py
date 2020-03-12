@@ -1,4 +1,5 @@
 import argparse
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pytorch_lightning as pl
@@ -7,8 +8,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from mpl_toolkits.mplot3d import Axes3D
 from my_models import models
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 from PIL import Image, ImageDraw
 from sklearn.metrics import accuracy_score
 from torchvision import transforms
@@ -121,7 +123,20 @@ class LMClassificationSystem(pl.LightningModule):
         return dl
 
 
-def prepare_data(data_path, target_emotion):
+def plot_pointcloud(points, title=""):
+    fig = plt.figure(figsize=(5, 5))
+    x, y, z = points.unbind(1)
+    ax = Axes3D(fig)
+    ax.scatter3D(x, -z, y)
+    ax.set_xlabel('x')
+    ax.set_ylabel('y')
+    ax.set_zlabel('z')
+    ax.view_init(180, 90)
+    ax.set_title(title)
+    plt.show()
+
+
+def prepare_data(data_path, target_emotion, lm3d):
     # Load data
     data = torch.load(data_path)
 
@@ -130,7 +145,10 @@ def prepare_data(data_path, target_emotion):
 
     # Landmarks for original labels
     emotions = data['emotions'][shuffle_inds]
-    landmarks = data['landmarks'][shuffle_inds]
+    if lm3d:
+        landmarks = data['lm3d'][shuffle_inds]
+    else:
+        landmarks = data['landmarks'][shuffle_inds]
     # Get data which corresponds to emotion and other data which doesn't
     target_emo_inds = (emotions == MAPPING[target_emotion]).nonzero()
     other_emo_inds = (emotions != MAPPING[target_emotion]).nonzero()[
@@ -175,7 +193,7 @@ def gradient_ascent(lm, model, coeff=0., n_iters=100, device='cuda'):
 
 def train_direction_model(args):
     # Load and prepare data
-    X, y = prepare_data(args.data_path, args.target_emotion)
+    X, y = prepare_data(args.data_path, args.target_emotion, args.lm3d)
 
     # Train
     # system = LMClassificationSystem(X[:, 17:], y)  # Don't use chin
@@ -209,7 +227,10 @@ def train_direction_model(args):
         print(f"Test Accuracy {accuracy_score(y_test.numpy(), y_pred):.4f}")
 
     os.makedirs(args.save_dir, exist_ok=True)
-    save_path = f'{args.save_dir}model_{args.target_emotion}.pt'
+    if args.lm3d:
+        save_path = f'{args.save_dir}model_{args.target_emotion}_3d.pt'
+    else:
+        save_path = f'{args.save_dir}model_{args.target_emotion}.pt'
     print(f"Saving model to {save_path}")
     torch.save(model.state_dict(), save_path)
 
@@ -232,9 +253,10 @@ def get_landmarks_image(lm):
     return img
 
 
-def prepare_test_data(test_path):
+def prepare_test_data(test_path, lm3d):
     # Load landmarks and image
-    lm = torch.load(test_path + '.landmarks.pt').unsqueeze(0)
+    lm_path = test_path + '.landmarks3d.pt' if lm3d else test_path + '.landmarks.pt'
+    lm = torch.load(lm_path).unsqueeze(0)
     img = TO_TENSOR(Image.open(test_path + '.png')).unsqueeze(0)
     img = utils.downsample_256(img)
 
@@ -272,37 +294,46 @@ def simulate_image(lm, img_small, to_latent_model, g, device='cuda'):
 
 def test_direction(args):
     # Load and prepare data
-    lm, img, img_small = prepare_test_data(args.test_path)
+    lm, img, img_small = prepare_test_data(args.test_path, args.lm3d)
+    input_dim = 1
+    for v in lm.shape[1:]:
+        input_dim *= v
 
     # Load classification model
-    # lm_classification = LMClassificationModel(dim=(68 - 17) * 2)
-    lm_classification = LMClassificationModel(dim=68 * 2)
-    state_dict = torch.load(f'{args.save_dir}model_{args.target_emotion}.pt')
-    lm_classification.load_state_dict(state_dict)
-    lm_classification = lm_classification.to(args.device)
+    lm_classification = LMClassificationModel(dim=input_dim).to(args.device)
+    if args.lm3d:
+        model_path = f'{args.save_dir}model_{args.target_emotion}_3d.pt'
+    else:
+        model_path = f'{args.save_dir}model_{args.target_emotion}.pt'
+    print(model_path)
+    lm_classification.load_state_dict(torch.load(model_path))
 
-    # Load landmarks to latent model
-    to_latent_model = models.lmToStyleGANLatent().eval().to(device)
-    state_dict = torch.load('saves/pre-trained/lmToStyleGANLatent_ravdess.pt')
-    to_latent_model.load_state_dict(state_dict)
-
-    # Init StyleGAN generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
-
-    # Original
-    lm_img = get_landmarks_image(lm[0])
-    img = simulate_image(lm, img_small, to_latent_model, g)
     # Positive direction
     lm_pos = gradient_ascent(lm, lm_classification, 2.)
-    lm_img_pos = get_landmarks_image(lm_pos[0])
-    img_pos = simulate_image(lm_pos, img_small, to_latent_model, g)
 
-    save_tensor1 = torch.stack((TO_TENSOR(img), TO_TENSOR(img_pos)), dim=0)
-    save_tensor2 = torch.stack((TO_TENSOR(lm_img), TO_TENSOR(lm_img_pos)), dim=0)
+    if args.lm3d:
+        print(lm_pos.shape, lm.shapel)
+    else:
+        # Load landmarks to latent model
+        to_latent_model = models.lmToStyleGANLatent().eval().to(device)
+        state_dict = torch.load('saves/pre-trained/lmToStyleGANLatent_ravdess.pt')
+        to_latent_model.load_state_dict(state_dict)
 
-    save_image(save_tensor1, f"{args.save_dir}image_{args.target_emotion}.png")
-    save_image(save_tensor2, f"{args.save_dir}lm_image_{args.target_emotion}.png")
+        # Init StyleGAN generator
+        g = style_gan_2.PretrainedGenerator1024().eval().to(device)
+
+        # Original
+        lm_img = get_landmarks_image(lm[0])
+        img = simulate_image(lm, img_small, to_latent_model, g)
+        # Positive direction
+        lm_img_pos = get_landmarks_image(lm_pos[0])
+        img_pos = simulate_image(lm_pos, img_small, to_latent_model, g)
+
+        save_tensor1 = torch.stack((TO_TENSOR(img), TO_TENSOR(img_pos)), dim=0)
+        save_tensor2 = torch.stack((TO_TENSOR(lm_img), TO_TENSOR(lm_img_pos)), dim=0)
+
+        save_image(save_tensor1, f"{args.save_dir}image_{args.target_emotion}.png")
+        save_image(save_tensor2, f"{args.save_dir}lm_image_{args.target_emotion}.png")
 
 
 if __name__ == '__main__':
@@ -320,6 +351,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--target_emotion', type=str, default='happy')
     parser.add_argument('--save_dir', type=str, default='saves/landmarks_emotion_direction')
+    parser.add_argument('--lm3d', type=bool, default=True)
     parser.add_argument(
         '--test_path', type=str, default='/home/meissen/Datasets/RAVDESS/Aligned256/Actor_01/01-01-01-01-01-01-01/005')
     parser.add_argument(

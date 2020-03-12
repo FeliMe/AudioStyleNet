@@ -9,8 +9,9 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=d8mH&id=1nG6xii2FP6PPqmcp4KtNVvUADXxEeakk'
-https://drive.google.com/open?id=1nG6xii2FP6PPqmcp4KtNVvUADXxEeakk
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=Fzlh&id=1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO'
+1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO
 """
 
 import bz2
@@ -34,6 +35,7 @@ from msrest.authentication import CognitiveServicesCredentials
 from multiprocessing import Process
 from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
+from skimage import io
 from torchvision import transforms
 from torchvision.utils import save_image
 from tqdm import tqdm
@@ -168,8 +170,8 @@ def unpack_bz2(src_path):
 def align_image(
         frame,
         landmarks,
-        output_size=1024,
-        transform_size=4096,
+        output_size=256,
+        transform_size=1024,
         enable_padding=True):
     """
     Source: https://github.com/NVlabs/ffhq-dataset/blob/master/download_ffhq.py
@@ -306,6 +308,7 @@ def ravdess_gather_info(root_path):
     names = []
     latents = []
     landmarks = []
+    lm3d = []
     logits_fer = []
     logits_rav = []
     emotions = []
@@ -316,33 +319,27 @@ def ravdess_gather_info(root_path):
             for frame in frames:
                 base = frame.split('.')[0]
 
-                name = '/'.join(base.split('/')[-3:])
-                latent = torch.load(base + '.latent.pt')
-                landmark = torch.load(base + '.landmarks.pt')
-                logit_fer = torch.load(base + '-logit_fer.pt')
-                logit_rav = torch.load(base + '-logit_ravdess.pt')
-                emotion = int(base.split('/')[-2].split('-')[2]) - 1
+                names.append('/'.join(base.split('/')[-2:]))
+                emotions.append(int(base.split('/')[-2].split('-')[2]) - 1)
+                latents.append(torch.load(base + '.latent.pt'))
+                landmarks.append(torch.load(base + '.landmarks.pt'))
+                lm3d.append(torch.load(base + '.landmarks3d.pt'))
+                logits_fer.append(torch.load(base + '-logit_fer.pt'))
+                logits_rav.append(torch.load(base + '-logit_ravdess.pt'))
 
-                names.append(name)
-                latents.append(latent)
-                landmarks.append(landmark)
-                logits_fer.append(logit_fer)
-                logits_rav.append(logit_rav)
-                emotions.append(emotion)
-
-                # print(name, latent.shape, landmark.shape, logit_fer.shape, logit_rav.shape, emotion)
-                # 1 / 0
-
-    names = torch.stack(names, dim=0)
-    landmarks = torch.stack(landmarks, dim=0)
-    logits_fer = torch.stack(logits_fer, dim=0)
-    logits_rav = torch.stack(logits_rav, dim=0)
-    emotions = torch.stack(emotions, dim=0)
+    names = np.array(names)
+    latents = torch.stack(latents)
+    landmarks = torch.stack(landmarks)
+    lm3d = torch.stack(lm3d)
+    logits_fer = torch.stack(logits_fer)
+    logits_rav = torch.stack(logits_rav)
+    emotions = torch.tensor(emotions)
 
     data = {
         'names': names,
         'latents': latents,
         'landmarks': landmarks,
+        'lm3d': lm3d,
         'logits_fer': logits_fer,
         'logits_rav': logits_rav,
         'emotions': emotions
@@ -640,6 +637,51 @@ def ravdess_extract_landmarks(path_to_actor):
 
                 # Save image
                 cv2.imwrite(save_path_mask, mask)
+
+
+def ravdess_get_landmarks(root, group):
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
+
+    frames = sorted(glob(root + '*/*/*.png'))
+
+    groups = []
+    n = len(frames) // 7
+    for i in range(0, len(frames), n):
+        groups.append(frames[i:i + n])
+
+    frames = groups[group]
+    print(
+        f"Group {group}, num_frames {len(frames)}, {len(groups)} groups in total")
+
+    for frame in tqdm(frames):
+        save_path = frame.split('.')[0] + '.landmarks.pt'
+        # if os.path.exists(save_path):
+        #     continue
+        img = io.imread(frame)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+        # Detect faces
+        rects = detector(img, 1)
+        for (i, rect) in enumerate(rects):
+            # Detect landmarks in faces
+            landmarks = predictor(gray, rect)
+            landmarks = torch.tensor(shape_to_np(landmarks))
+
+            # Visualize
+            # print(save_path)
+            # for (x, y) in landmarks:
+            #     cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
+            # cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
+            # 1 / 0
+
+            # Save
+            torch.save(landmarks, save_path)
+
+            break
 
 
 def compute_face_mask(landmarks, image):
@@ -1428,7 +1470,220 @@ def tagesschau_get_mean_latents(root):
         torch.save(mean_latent, video + 'mean.latent.pt')
 
 
+def tagesschau_get_landmarks(root, group):
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
+
+    videos = sorted(glob(root + '*/'))
+    frames = [sorted(glob(v + '*.png')) for v in videos]
+    frames = [item for sublist in frames for item in sublist]
+
+    groups = []
+    n = len(frames) // 3
+    for i in range(0, len(frames), n):
+        groups.append(frames[i:i + n])
+
+    frames = groups[group]
+    print(
+        f"Group {group}, num_frames {len(frames)}, {len(groups)} groups in total")
+
+    for frame in tqdm(frames):
+        save_path = frame.split('.')[0] + '.landmarks.pt'
+        if os.path.exists(save_path):
+            continue
+        img = io.imread(frame)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+        # Detect faces
+        rects = detector(img, 1)
+        for (i, rect) in enumerate(rects):
+            # Detect landmarks in faces
+            landmarks = predictor(gray, rect)
+            landmarks = torch.tensor(shape_to_np(landmarks))
+
+            # Visualize
+            # print(save_path)
+            # for (x, y) in landmarks:
+            #     cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
+            # cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
+            # 1 / 0
+
+            # Save
+            torch.save(landmarks, save_path)
+
+            break
+
+
+def tagesschau_gather_info(root):
+    save_path = root + 'latent_data.pt'
+    frames = sorted(glob(root + '*/*.png'))
+
+    names = []
+    latents = []
+    landmarks = []
+    deepspeechs = []
+    for frame in tqdm(frames):
+        base = frame.split('.')[0]
+        name = '/'.join(base.split('/')[-2:])
+        latent = torch.load(base + '.latent.pt')
+        landmark = torch.load(base + '.landmarks.pt')
+        deepspeech = torch.tensor(
+            np.load(base + '.deepspeech.npy'), dtype=torch.float32)
+
+        names.append(name)
+        latents.append(latent)
+        landmarks.append(landmark)
+        deepspeechs.append(deepspeech)
+
+    names = np.array(names)
+    latents = torch.stack(latents)
+    landmarks = torch.stack(landmarks)
+    deepspeechs = torch.stack(deepspeechs)
+
+    data = {
+        'names': names,
+        'latents': latents,
+        'landmarks': landmarks,
+        'deepspeech': deepspeechs
+    }
+
+    torch.save(data, save_path)
+
+
+def ravdess_get_3D_landmarks(root):
+    if root[-1] != '/':
+        root += '/'
+
+    # Init face alignment
+    import face_alignment
+    fa = face_alignment.FaceAlignment(
+        face_alignment.LandmarksType._3D, flip_input=False, device='cuda')
+
+    # Get all sentences in a list
+    sentences = sorted(glob(root + '*/*/'))
+
+    for sentence in tqdm(sentences):
+        lm = fa.get_landmarks_from_directory(sentence)
+
+        for key, value in lm.items():
+            save_path = key.split('.')[0] + '.landmarks3d.pt'
+            value = torch.tensor(value, dtype=torch.float32)
+            if len(value.shape) == 3:
+                value = value[0]
+
+            # Visualize
+            # print(save_path)
+            # from mpl_toolkits.mplot3d import Axes3D
+            # fig = plt.figure(figsize=(5, 5))
+            # x, y, z = value.unbind(1)
+            # ax = Axes3D(fig)
+            # ax.scatter3D(x, -z, y)
+            # ax.set_xlabel('x')
+            # ax.set_ylabel('y')
+            # ax.set_zlabel('z')
+            # ax.view_init(180, 90)
+            # plt.show()
+            # 1 / 0
+
+            # Save
+            torch.save(value, save_path)
+
+
+def get_mouth_mask():
+    def display(mouth):
+        img = np.zeros((256, 256, 3))
+        for (x, y) in mouth:
+            cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
+        cv2.imshow("", img)
+        cv2.waitKey(0)
+
+    data = torch.load(
+        '/home/meissen/Datasets/Tagesschau/Aligned256/latent_data.pt')
+    lms = data['landmarks']
+
+    left = lms[:, 49]
+    upper_left = lms[:, 49:51]
+    top = lms[:, 51]
+    upper_right = lms[:, 52:54]
+    right = lms[:, 54]
+    lower_right = lms[:, 55:57]
+    down = lms[:, 57]
+    lower_left = lms[:, 58:60]
+
+    # Version 1 max mouth
+    # m_left = torch.tensor([[left[:, 0].min(), left[:, 1].float().mean()]], dtype=torch.long)
+    # m_upper_left = torch.stack((upper_left[:, :, 0].min(0)[0], upper_left[:, :, 1].min(0)[0])).t()
+    # m_top = torch.tensor([[top[:, 0].float().mean(), top[:, 1].min()]], dtype=torch.long)
+    # m_upper_right = torch.stack((upper_right[:, :, 0].max(0)[0], upper_right[:, :, 1].min(0)[0])).t()
+    # m_right = torch.tensor([[right[:, 0].max(), right[:, 1].float().mean()]], dtype=torch.long)
+    # m_lower_right = torch.stack((lower_right[:, :, 0].max(0)[0], lower_right[:, :, 1].max(0)[0])).t()
+    # m_down = torch.tensor([[down[:, 0].float().mean(), down[:, 1].max()]], dtype=torch.long)
+    # m_lower_left = torch.stack((lower_left[:, :, 0].min(0)[0], lower_left[:, :, 1].max(0)[0])).t()
+
+    # mouth = torch.cat((m_left, m_upper_left, m_top, m_upper_right, m_right, m_lower_right, m_down, m_lower_left))
+    # mask = compute_face_mask(mouth.numpy(), 256)
+    # mask = Image.fromarray(mask)
+    # mask = transforms.ToTensor()(mask)
+    # torch.save(mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_max_mouth.pt')
+
+    # Version 2 std mouth
+    STD = 3.
+    # Left
+    left = left.float()
+    s_leftx = left[:, 0].mean() - STD * left[:, 0].std()
+    s_lefty = left[:, 1].mean()
+    s_left = torch.tensor([[s_leftx, s_lefty]])
+    # Upper left
+    ul = upper_left.float()
+    s_ulx = ul[:, :, 0].mean(0) - STD * ul[:, :, 0].std(0)
+    s_uly = ul[:, :, 1].mean(0) - STD * ul[:, :, 1].std(0)
+    s_ul = torch.stack((s_ulx, s_uly)).t()
+    # Top
+    top = top.float()
+    s_topx = top[:, 0].mean()
+    s_topy = top[:, 1].mean() - STD * top[:, 1].std()
+    s_top = torch.tensor([[s_topx, s_topy]])
+    # Upper right
+    ur = upper_right.float()
+    s_urx = ur[:, :, 0].mean(0) + STD * ur[:, :, 0].std(0)
+    s_ury = ur[:, :, 1].mean(0) - STD * ur[:, :, 1].std(0)
+    s_ur = torch.stack((s_urx, s_ury)).t()
+    # Right
+    right = right.float()
+    s_rightx = right[:, 0].mean() + STD * right[:, 0].std()
+    s_righty = right[:, 1].mean()
+    s_right = torch.tensor([[s_rightx, s_righty]])
+    # Lower right
+    lr = lower_right.float()
+    s_lrx = lr[:, :, 0].mean(0) + STD * lr[:, :, 0].std(0)
+    s_lry = lr[:, :, 1].mean(0) + STD * lr[:, :, 1].std(0)
+    s_lr = torch.stack((s_lrx, s_lry)).t()
+    # Down
+    down = down.float()
+    s_downx = down[:, 0].mean()
+    s_downy = down[:, 1].mean() + STD * down[:, 1].std()
+    s_down = torch.tensor([[s_downx, s_downy]])
+    # Lower left
+    ll = lower_left.float()
+    s_llx = ll[:, :, 0].mean(0) - STD * ll[:, :, 0].std(0)
+    s_lly = ll[:, :, 1].mean(0) + STD * ll[:, :, 1].std(0)
+    s_ll = torch.stack((s_llx, s_lly)).t()
+
+    mouth = torch.cat((s_left, s_ul, s_top, s_ur, s_right, s_lr, s_down, s_ll))
+
+    mask = compute_face_mask(np.around(mouth.numpy()).astype('int'), 256)
+    mask = Image.fromarray(mask)
+    mask.show()
+    mask = transforms.ToTensor()(mask)
+
+    torch.save(
+        mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_3std_mouth.pt')
+
+
 if __name__ == "__main__":
 
-    path = sys.argv[1]
-    ravdess_align_videos(path, int(sys.argv[2]))
+    # path = sys.argv[1]
+    # ravdess_gather_info('/home/meissen/Datasets/RAVDESS/Aligned256/')

@@ -7,10 +7,11 @@ import torch.nn.functional as F
 
 from tqdm import tqdm
 from lpips import PerceptualLoss
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import save_image
+from utils import utils
 
 
 class Projector:
@@ -117,16 +118,9 @@ class Projector:
         if len(target_images.shape) == 3:
             target_images = target_images.unsqueeze(0)
         if target_images.shape[2] > 256:
-            target_images = self.downsample_img(target_images)
+            target_images = utils.downsample_256(target_images)
         self.target_images = target_images
         print(self.target_images.shape)
-
-    def downsample_img(self, img):
-        b, c, h, w = img.shape
-        factor = h // 256
-        img = img.reshape(b, c, h // factor, factor, w // factor, factor)
-        img = img.mean([3, 5])
-        return img
 
     def run(self, target_images, num_steps):
         self.num_steps = num_steps
@@ -158,7 +152,7 @@ class Projector:
         self.img_gen, _ = self.g_ema(
             [self.latent_expr], input_is_latent=True, noise=self.noises)
         # Downsample to 256 x 256
-        self.img_gen = self.downsample_img(self.img_gen)
+        self.img_gen = utils.downsample_256(self.img_gen)
 
         # Compute perceptual loss
         self.loss = self.lpips(self.img_gen, self.target_images).sum()
@@ -194,7 +188,8 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load model
-    g = Generator(1024, 512, 8, pretrained=True).to(device).train()
+    # g = style_gan_2.PretrainedGenerator1024().to(device).train()
+    g = style_gan_2.PretrainedGenerator256().to(device).train()
     for param in g.parameters():
         param.requires_grad = False
 
@@ -235,7 +230,7 @@ if __name__ == "__main__":
         # Save results
         save_str = save_dir + file.split('/')[-1].split('.')[0]
         os.makedirs(save_dir, exist_ok=True)
-        print('Saving {}'.format(save_str + '_p.png'))
-        save_image(generated, save_str + '_p.png',
+        print('Saving {}'.format(save_str + '.png'))
+        save_image(generated, save_str + '.png',
                    normalize=True, range=(-1, 1))
-        torch.save(latents.detach().cpu(), save_str + '.pt')
+        torch.save(latents.detach().cpu(), save_str + '.latent.pt')

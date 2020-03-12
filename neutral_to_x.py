@@ -6,7 +6,7 @@ import torch
 
 from datetime import datetime
 from lpips import PerceptualLoss
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 from my_models import models
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -30,9 +30,7 @@ class solverEncoder:
         self.lr_rampup_length = 0.1
 
         # Load generator
-        self.g = Generator(
-            1024, 512, 8, pretrained=True).eval().to(self.device)
-        self.g.noises = [n.to(self.device) for n in self.g.noises]
+        self.g = style_gan_2.PretrainedGenerator1024().eval().to(device)
         for param in self.g.parameters():
             param.requires_grad = False
         self.latent_avg = self.g.latent_avg.repeat(

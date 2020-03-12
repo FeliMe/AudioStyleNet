@@ -435,78 +435,6 @@ class ResBlock(nn.Module):
         return out
 
 
-class StyleGANEncoder(nn.Module):
-    def __init__(self,
-                 size,
-                 channel_multiplier=2,
-                 blur_kernel=[1, 3, 3, 1],
-                 pretrained=False):
-        super().__init__()
-
-        channels = {
-            4: 64,
-            8: 64,
-            16: 64,
-            32: 64,
-            64: 32 * channel_multiplier,
-            128: 16 * channel_multiplier,
-            256: 8 * channel_multiplier,
-        }
-
-        convs = [ConvLayer(3, channels[size], 1)]
-
-        log_size = int(math.log(size, 2))
-
-        in_channel = channels[size]
-
-        for i in range(log_size, 2, -1):
-            out_channel = channels[2 ** (i - 1)]
-
-            convs.append(ResBlock(in_channel, out_channel, blur_kernel))
-
-            in_channel = out_channel
-
-        self.convs = nn.Sequential(*convs)
-
-        self.stddev_group = 4
-        self.stddev_feat = 1
-
-        self.final_conv = ConvLayer(in_channel + 1, channels[4], 3)
-        self.final_linear = nn.Sequential(
-            EqualLinear(channels[4] * 4 * 4, 18 * 518)
-        )
-
-        if pretrained:
-            self.load_weights()
-
-    def load_weights(self):
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
-        print(w['d'].keys())
-        1 / 0
-        self.load_state_dict(w['d'])
-
-    def forward(self, input):
-        out = self.convs(input)
-
-        batch, channel, height, width = out.shape
-        group = min(batch, self.stddev_group)
-        stddev = out.view(
-            group, -1, self.stddev_feat, channel // self.stddev_feat, height, width
-        )
-        stddev = torch.sqrt(stddev.var(0, unbiased=False) + 1e-8)
-        stddev = stddev.mean([2, 3, 4], keepdims=True).squeeze(2)
-        stddev = stddev.repeat(group, 1, height, width)
-        out = torch.cat([out, stddev], 1)
-
-        out = self.final_conv(out)
-
-        out = out.view(batch, -1)
-        out = self.final_linear(out)
-
-        return out
-
-
 class Discriminator(nn.Module):
     def __init__(self,
                  size,
@@ -661,7 +589,6 @@ class Generator(nn.Module):
 
         self.n_latent = self.log_size * 2 - 2
 
-        self.latent_avg = torch.randn(512)
         self.noises = self.make_noise()
 
         if pretrained:
@@ -774,3 +701,51 @@ class Generator(nn.Module):
 
         else:
             return image, None
+
+
+class PretrainedGenerator1024(Generator):
+    def __init__(self):
+        super(PretrainedGenerator1024, self).__init__(
+            1024,
+            512,
+            8,
+            channel_multiplier=2,
+            blur_kernel=[1, 3, 3, 1],
+            lr_mlp=0.01
+        )
+
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        self.load_state_dict(w['g_ema'])
+        self.register_buffer('latent_avg', w['latent_avg'])
+        self.register_buffer('latent_std', w['latent_std'])
+        self.noises = w['noises']
+
+    def to(self, *args, **kwargs):
+        self = super().to(*args, **kwargs)
+        self.noises = [n.to(*args, **kwargs) for n in self.noises]
+        return self
+
+
+class PretrainedGenerator256(Generator):
+    def __init__(self):
+        super(PretrainedGenerator256, self).__init__(
+            256,
+            512,
+            8,
+            channel_multiplier=2,
+            blur_kernel=[1, 3, 3, 1],
+            lr_mlp=0.01
+        )
+
+        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
+                                    '../saves/pre-trained/stylegan2-ffhq-256.pt'))
+        self.load_state_dict(w['g_ema'])
+
+        self.register_buffer('latent_avg', w['latent_avg'])
+        self.register_buffer('latent_std', w['latent_std'])
+
+    def to(self, *args, **kwargs):
+        self = super().to(*args, **kwargs)
+        self.noises = [n.to(*args, **kwargs) for n in self.noises]
+        return self

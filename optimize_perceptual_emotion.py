@@ -4,7 +4,7 @@ import os
 import torch
 
 from tqdm import tqdm
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 # from lpips import PerceptualLoss, EmotionLoss
 from PIL import Image
 from utils.perceptual_loss import EmotionClassifier, FERLossLpips, EmotionLoss
@@ -53,8 +53,7 @@ if __name__ == '__main__':
     sample = torch.load(args.latent).to(device)
     sample.requires_grad = True
 
-    g = Generator(1024, 512, 8, pretrained=True).to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     emotion_classifier = EmotionClassifier(use_mask=False).to(device)
     # emotion_classifier = FERModelGitHub(pretrained=True).to(device)

@@ -8,7 +8,7 @@ import torch
 
 from matplotlib.widgets import Slider, Button
 from my_models import models
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 from pathlib import Path
 from torchvision.utils import save_image, make_grid
 from torchvision import transforms
@@ -45,8 +45,7 @@ def add_valence_arousal(args):
     latents = data['latents'].to(device)
 
     # Init generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     # Load prediction network
     model = models.VGG_Face_VA(pretrained=True).eval().to(device)
@@ -91,8 +90,7 @@ def add_mouth_features(args):
     latents = data['latents'].to(device)
 
     # Init generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     results = []
     for i, latent in enumerate(tqdm(latents)):
@@ -140,7 +138,7 @@ def genereate_training_data(num_samples):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Init generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     # Init Classifier
     rav = models.EmotionClassifier().eval().to(device)
@@ -272,8 +270,7 @@ def control_latent_video(args):
     paths = sorted([str(p) for p in list(Path(args.input_latent).glob('*.pt'))])
 
     # Init generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     save_dir = 'saves/control_latent/videos/'
     tmp_dir = save_dir + '.temp/'
@@ -316,8 +313,7 @@ def control_latent(args):
     vec = torch.tensor(np.load(args.vec), dtype=torch.float32).to(device)
 
     # Init Generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     if args.input_latent == 'random':
         input_latent = g.get_latent(
@@ -394,8 +390,7 @@ def demo():
     nrow = 3
 
     # Init generator
-    g = Generator(1024, 512, 8, pretrained=True).eval().to(device)
-    g.noises = [n.to(device) for n in g.noises]
+    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     img, _ = g([input_latents], input_is_latent=True, noise=g.noises)
     img = downsample_256(img)

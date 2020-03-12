@@ -232,30 +232,32 @@ class Solver:
     def test_model(self, test_latent_path, test_sentence_path):
         self.audio_encoder.eval()
         test_latent = torch.load(test_latent_path).unsqueeze(0).to(self.device)
-        audios = [torch.tensor(np.load(p), dtype=torch.float32)
-                  for p in sorted(glob(test_sentence_path + '*.deepspeech.npy'))][:100]
-        audios = torch.stack(audios).to(self.device)
+        audio_paths = sorted(glob(test_sentence_path + '*.deepspeech.npy'))[:100]
 
-        target_latents = [torch.load(p)
-                          for p in sorted(glob(test_sentence_path + '*.latent.pt'))][:100]
-        target_latents = torch.stack(target_latents).to(self.device)
+        target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:100]
 
         tmp_dir = self.args.save_dir + '.temp/'
         os.makedirs(tmp_dir, exist_ok=True)
-        for i, (audio, target_latent) in enumerate(tqdm(zip(audios, target_latents))):
-            audio = audio.unsqueeze(0)
-            target_latent = target_latent.unsqueeze(0)
+        for i, (audio_path, target_latent_path) in enumerate(tqdm(zip(audio_paths, target_latent_paths))):
+            audio = torch.tensor(np.load(audio_path), dtype=torch.float32).unsqueeze(0).to(self.device)
+            target_latent = torch.load(target_latent_path).unsqueeze(0).to(self.device)
 
             with torch.no_grad():
                 latent_offset = self.audio_encoder(audio)
                 latent = latent_offset + test_latent
+                # Generate images
                 pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
-                pred = utils.downsample_256(pred).cpu()
                 target = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
-                target = utils.downsample_256(target).cpu()
+            # Downsample
+            pred = utils.downsample_256(pred).cpu()
+            target = utils.downsample_256(target).cpu()
+            # Normalize
+            pred = make_grid(pred, normalize=True, range=(-1, 1))
+            target = make_grid(target, normalize=True, range=(-1, 1))
+            diff = (target - pred) * 5
 
-            save_tensor = torch.cat((pred, target), dim=0)
-            save_image(save_tensor, f"{tmp_dir}{str(i + 1).zfill(5)}.png", normalize=True, range=(-1, 1))
+            save_tensor = torch.stack((pred, target, diff), dim=0)
+            save_image(save_tensor, f"{tmp_dir}{str(i + 1).zfill(5)}.png")
 
         # Convert output frames to video
         original_dir = os.getcwd()
@@ -289,12 +291,12 @@ if __name__ == '__main__':
     parser.add_argument('--train_on_latent', type=bool, default=True)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--lr', type=int, default=0.0002)
-    parser.add_argument('--n_iters', type=int, default=1000000)
+    parser.add_argument('--n_iters', type=int, default=3000000)
     parser.add_argument('--update_pbar_every', type=int, default=100)
     parser.add_argument('--log_train_every', type=int, default=100)
     parser.add_argument('--log_val_every', type=int, default=1000)
-    parser.add_argument('--save_every', type=int, default=100000)
-    parser.add_argument('--eval_every', type=int, default=100000)
+    parser.add_argument('--save_every', type=int, default=300000)
+    parser.add_argument('--eval_every', type=int, default=300000)
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     parser.add_argument('--test_latent', type=str, default='saves/projected_images/obama.pt')
@@ -337,7 +339,7 @@ if __name__ == '__main__':
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        max_frames_per_vid=1000
+        # max_frames_per_vid=1000
     )
     val_ds = datasets.TagesschauDataset(
         videos=val_videos,
@@ -352,7 +354,7 @@ if __name__ == '__main__':
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256,
-        max_frames_per_vid=1000
+        # max_frames_per_vid=1000
     )
     print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
     if args.overfit:
