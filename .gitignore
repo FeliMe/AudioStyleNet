@@ -13,3 +13,4 @@
 tester.py
 /._*
 **/._*
+.ipynb_checkpoints/

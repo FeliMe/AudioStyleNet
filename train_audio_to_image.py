@@ -7,7 +7,7 @@ import torch
 from datetime import datetime
 from glob import glob
 from lpips import PerceptualLoss
-from my_models.style_gan_2 import Generator
+from my_models import style_gan_2
 from my_models import models
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.utils import save_image, make_grid
@@ -31,9 +31,7 @@ class Solver:
         self.lr_rampup_length = 0.1
 
         # Load generator
-        self.g = Generator(
-            1024, 512, 8, pretrained=True).eval().to(self.device)
-        self.g.noises = [n.to(self.device) for n in self.g.noises]
+        self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
         for param in self.g.parameters():
             param.requires_grad = False
         self.latent_avg = self.g.latent_avg.repeat(
@@ -61,12 +59,14 @@ class Solver:
         ))
 
         # Select optimizer and loss criterion
-        self.opt = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.initial_lr)
+        self.opt = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.lr)
         if self.args.train_on_latent:
             self.criterion = torch.nn.MSELoss()
         else:
             self.criterion = PerceptualLoss(
                 model='net-lin', net='vgg').to(self.device)
+            self.l1 = torch.nn.L1Loss(reduction='none')
+            self.mouth_mask = torch.load(args.data_path + 'mask_5std_mouth.pt').to(self.device)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -110,6 +110,15 @@ class Solver:
 
         return prediction
 
+    def get_loss(self, pred, target):
+        loss = self.criterion(pred, target).mean()
+
+        if not self.args.train_on_latent:
+            loss_l1 = (self.l1(pred, target) * self.mouth_mask).mean()
+            loss += self.args.lambda_l1 * loss_l1
+
+        return loss
+
     def train(self, data_loaders, n_iters):
         print("Start training")
         pbar = tqdm(total=n_iters)
@@ -129,7 +138,7 @@ class Solver:
                 pred = self.forward(audio, mean)
 
                 # Compute perceptual loss
-                loss = self.criterion(pred, target).mean()
+                loss = self.get_loss(pred, target)
 
                 # Optimize
                 self.opt.zero_grad()
@@ -185,7 +194,7 @@ class Solver:
             # Forward
             pred = self.forward(audio, mean)
 
-        val_loss = self.criterion(pred, target).mean()
+        val_loss = self.get_loss(pred, target)
         return val_loss
 
     def eval(self, data_loaders):
@@ -287,18 +296,24 @@ if __name__ == '__main__':
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--model_path', type=str, default=None)
 
+    # Hparams
     parser.add_argument('--overfit', type=bool, default=False)
     parser.add_argument('--train_on_latent', type=bool, default=True)
-    parser.add_argument('--batch_size', type=int, default=128)
-    parser.add_argument('--lr', type=int, default=0.0002)
-    parser.add_argument('--n_iters', type=int, default=3000000)
+    parser.add_argument('--lambda_l1', type=float, default=10.)
+    parser.add_argument('--batch_size', type=int, default=256)  # 128
+    parser.add_argument('--lr', type=int, default=0.002)  # 0.0002
+
+    # Logging args
+    parser.add_argument('--n_iters', type=int, default=1000000)
     parser.add_argument('--update_pbar_every', type=int, default=100)
-    parser.add_argument('--log_train_every', type=int, default=100)
+    parser.add_argument('--log_train_every', type=int, default=1000)
     parser.add_argument('--log_val_every', type=int, default=1000)
-    parser.add_argument('--save_every', type=int, default=300000)
-    parser.add_argument('--eval_every', type=int, default=300000)
+    parser.add_argument('--save_every', type=int, default=100000)
+    parser.add_argument('--eval_every', type=int, default=100000)
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
+    # Path args
+    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/Tagesschau/Aligned256/')
     parser.add_argument('--test_latent', type=str, default='saves/projected_images/obama.pt')
     parser.add_argument('--test_sentence', type=str,
                         default='/home/meissen/Datasets/Tagesschau/test_sentence_trump_deepspeech/')
@@ -325,7 +340,7 @@ if __name__ == '__main__':
 
     # Load data
     train_videos, val_videos = datasets.tagesschau_get_videos(
-        HOME + '/Datasets/Tagesschau/Aligned256/', 0.9)
+        args.data_path, 0.9)
     train_ds = datasets.TagesschauDataset(
         videos=train_videos,
         load_img=not args.train_on_latent,

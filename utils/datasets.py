@@ -916,6 +916,39 @@ class StyleGANDataset(IterableDataset):
         yield {'x': img}
 
 
+class FFHQDataset(Dataset):
+    def __init__(self,
+                 paths,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256):
+        super().__init__()
+
+        self.paths = paths
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+
+        # Transforms
+        trans = [transforms.RandomHorizontalFlip()]
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans += [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans += [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        path = self.paths[index]
+        img = self.t(Image.open(path))
+        return {'img': img, 'path': path, 'index': index}
+
+
 def show_pix2pix(sample, mean, std, normalize):
     """
     Plots a sample (input sequence and target sequence)
@@ -981,6 +1014,7 @@ def ravdess_get_paths(root_path,
                       flat,
                       shuffled=True,
                       validation_split=0.0,
+                      max_frames_per_sentence=None,
                       emotions=['neutral', 'calm', 'happy', 'sad', 'angry',
                                 'fearful', 'disgust', 'surprised'],
                       actors=[i + 1 for i in range(24)]):
@@ -1005,8 +1039,13 @@ def ravdess_get_paths(root_path,
         [list(MAPPING.keys())[list(MAPPING.values()).index(e)] for e in mapped_emotions]))
 
     # Get all frames from selected sentences
-    all_paths = sorted([sorted([str(p) for p in list(pathlib.Path(s).glob('*.png'))])
-                        for s in sentences])
+    all_paths = []
+    for s in sorted(sentences):
+        paths = glob(s + '/*.png')
+        random.shuffle(paths)
+        paths = paths[:max_frames_per_sentence] if max_frames_per_sentence else paths
+        all_paths.append(sorted(paths))
+
     if flat:
         all_paths = [item for sublist in all_paths for item in sublist]
 
@@ -1077,8 +1116,8 @@ def filter_emotion(emotions, sentences):
                     in emotions, sentences))
 
 
-def int_to_one_hot(label):
-    one_hot = torch.zeros(8)
+def int_to_one_hot(label, n_labels=8):
+    one_hot = torch.zeros(n_labels)
     one_hot[label] = 1
     return one_hot
 
@@ -1132,12 +1171,22 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
     return all_paths, annotations
 
 
-def tagesschau_get_videos(root_path, train_split):
-    videos = sorted(glob(root_path + '*/'))
+def tagesschau_get_videos(root_path, train_split=1.0):
+    videos = glob(root_path + '*/')
+    random.shuffle(videos)
     split = int(len(videos) * train_split)
     train_videos = videos[:split]
     val_videos = videos[split:]
     return train_videos, val_videos
+
+
+def ffhq_get_paths(root_path, train_split=1.0):
+    paths = glob(root_path + '*.png')
+    random.shuffle(paths)
+    split = int(len(paths) * train_split)
+    train_paths = paths[:split]
+    val_paths = paths[split:]
+    return train_paths, val_paths
 
 
 class Downsample(object):

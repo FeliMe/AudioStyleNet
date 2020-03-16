@@ -776,47 +776,6 @@ class neutralToXMLP(nn.Module):
         return y
 
 
-class EmoDBResNet(nn.Module):
-    def __init__(self, n_latent=16):
-        super().__init__()
-
-        def _set_requires_grad_false(layer):
-            for param in layer.parameters():
-                param.requires_grad = False
-
-        from torchvision.models import resnet18
-        resnet = resnet18(pretrained=True)
-
-        self.layer0 = nn.Sequential(*list(resnet.children())[:4])  # 64
-        _set_requires_grad_false(self.layer0)
-        # self.layer1 = resnet.layer1  # 64
-        self.layer1 = pretrainedResNetBlock(resnet.layer1, n_latent)
-        # self.layer2 = resnet.layer2  # 128
-        self.layer2 = pretrainedResNetBlock(resnet.layer2, n_latent)
-        # self.layer3 = resnet.layer3  # 256
-        self.layer3 = pretrainedResNetBlock(resnet.layer3, n_latent)
-        # self.layer4 = resnet.layer4  # 512
-        self.layer4 = pretrainedResNetBlock(resnet.layer4, n_latent)
-
-        self.avgpool = resnet.avgpool
-        self.flatten = nn.Flatten()
-        self.linear_n = nn.Linear(512, 512 * 18)
-
-    def forward(self, x, score):
-
-        y = self.layer0(x)
-        y = self.layer1(y, score)
-        y = self.layer2(y, score)
-        y = self.layer3(y, score)
-        y = self.layer4(y, score)
-        y = self.avgpool(y)
-        y = self.flatten(y)
-
-        y = self.linear_n(y).view(-1, 18, 512)
-
-        return y
-
-
 class lmToStyleGANLatent(nn.Module):
     def __init__(self, avg_latent=torch.randn((1, 512))):
         super(lmToStyleGANLatent, self).__init__()
@@ -834,6 +793,56 @@ class lmToStyleGANLatent(nn.Module):
         x = x.view(x.size(0), -1)
         latent_offset = self.model(x).view(-1, 18, 512)
         return latent_offset + self.avg_latent
+
+
+class resNetAdaINEncoder(nn.Module):
+    def __init__(self, n_factors, n_latent, len_dataset):
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        from torchvision.models import resnet18
+        resnet = resnet18(pretrained=True)
+
+        self.fc_factor = nn.Linear(n_factors, n_latent)
+
+        self.layer0 = nn.Sequential(*list(resnet.children())[:4])
+        _set_requires_grad_false(self.layer0)
+        self.layer1 = resnet.layer1
+        _set_requires_grad_false(self.layer1)
+        self.layer2 = resnet.layer2
+        _set_requires_grad_false(self.layer2)
+        self.layer3 = pretrainedResNetBlock(resnet.layer3, n_latent)
+        self.layer4 = pretrainedResNetBlock(resnet.layer4, n_latent)
+
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear = nn.Linear(512, 512 * 18)
+        # self.linear = nn.Linear(512, 512)
+
+        self.factors = nn.Parameter(torch.rand((len_dataset, n_factors)))
+
+    def forward(self, x, factor, index):
+
+        if factor is None:
+            factor = self.factors[index]
+
+        factor = self.fc_factor(factor)
+
+        y = self.layer0(x)
+        y = self.layer1(y)
+        y = self.layer2(y)
+        y = self.layer3(y, factor)
+        y = self.layer4(y, factor)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+
+        y = self.linear(y).view(-1, 18, 512)
+        # y = self.linear(y).view(-1, 1, 512)
+
+        return y
 
 
 class EmotionDatabase(nn.Module):

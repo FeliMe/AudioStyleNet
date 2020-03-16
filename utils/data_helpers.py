@@ -9,9 +9,9 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=Fzlh&id=1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO'
-1PQutd-JboOCOZqmd95XWxWrO8gGEvRcO
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=0B7EVK8r0v71pQy1YUGtHeUM2dUE' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=&id=0B7EVK8r0v71pQy1YUGtHeUM2dUE'
+0B7EVK8r0v71pQy1YUGtHeUM2dUE
 """
 
 import bz2
@@ -1592,7 +1592,16 @@ def ravdess_get_3D_landmarks(root):
             torch.save(value, save_path)
 
 
-def get_mouth_mask():
+def tagesschau_get_mouth_mask():
+    def get_face_mask(mouth, image_size=256):
+        mask = np.zeros((image_size, image_size, 3), dtype='uint8')
+        mask = cv2.drawContours(mask, [mouth], -1,
+                                (255, 255, 255), thickness=cv2.FILLED)
+        mask = cv2.bitwise_not(mask)
+        img2gray = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        _, mask = cv2.threshold(img2gray, 10, 255, cv2.THRESH_BINARY_INV)
+        return mask
+
     def display(mouth):
         img = np.zeros((256, 256, 3))
         for (x, y) in mouth:
@@ -1604,7 +1613,7 @@ def get_mouth_mask():
         '/home/meissen/Datasets/Tagesschau/Aligned256/latent_data.pt')
     lms = data['landmarks']
 
-    left = lms[:, 49]
+    left = lms[:, 48]
     upper_left = lms[:, 49:51]
     top = lms[:, 51]
     upper_right = lms[:, 52:54]
@@ -1624,13 +1633,14 @@ def get_mouth_mask():
     # m_lower_left = torch.stack((lower_left[:, :, 0].min(0)[0], lower_left[:, :, 1].max(0)[0])).t()
 
     # mouth = torch.cat((m_left, m_upper_left, m_top, m_upper_right, m_right, m_lower_right, m_down, m_lower_left))
-    # mask = compute_face_mask(mouth.numpy(), 256)
+    # mask = get_face_mask(mouth.numpy(), 256)
     # mask = Image.fromarray(mask)
+    # mask.show()
     # mask = transforms.ToTensor()(mask)
     # torch.save(mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_max_mouth.pt')
 
     # Version 2 std mouth
-    STD = 3.
+    STD = 5.
     # Left
     left = left.float()
     s_leftx = left[:, 0].mean() - STD * left[:, 0].std()
@@ -1674,16 +1684,19 @@ def get_mouth_mask():
 
     mouth = torch.cat((s_left, s_ul, s_top, s_ur, s_right, s_lr, s_down, s_ll))
 
-    mask = compute_face_mask(np.around(mouth.numpy()).astype('int'), 256)
+    mask = get_face_mask(np.around(mouth.numpy()).astype('int'), 256)
     mask = Image.fromarray(mask)
     mask.show()
     mask = transforms.ToTensor()(mask)
 
+    # display(mouth)
+
     torch.save(
-        mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_3std_mouth.pt')
+        mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_5std_mouth.pt')
 
 
 if __name__ == "__main__":
 
     # path = sys.argv[1]
     # ravdess_gather_info('/home/meissen/Datasets/RAVDESS/Aligned256/')
+    tagesschau_get_mouth_mask()

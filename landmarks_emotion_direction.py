@@ -123,7 +123,7 @@ class LMClassificationSystem(pl.LightningModule):
         return dl
 
 
-def plot_pointcloud(points, title=""):
+def plot_pointcloud(points, title="", block=True):
     fig = plt.figure(figsize=(5, 5))
     x, y, z = points.unbind(1)
     ax = Axes3D(fig)
@@ -133,7 +133,7 @@ def plot_pointcloud(points, title=""):
     ax.set_zlabel('z')
     ax.view_init(180, 90)
     ax.set_title(title)
-    plt.show()
+    plt.show(block=block)
 
 
 def prepare_data(data_path, target_emotion, lm3d):
@@ -309,10 +309,11 @@ def test_direction(args):
     lm_classification.load_state_dict(torch.load(model_path))
 
     # Positive direction
-    lm_pos = gradient_ascent(lm, lm_classification, 2.)
+    lm_pos = gradient_ascent(lm, lm_classification, 4., n_iters=500)
 
     if args.lm3d:
-        print(lm_pos.shape, lm.shapel)
+        plot_pointcloud(lm[0], 'Original', block=False)
+        plot_pointcloud(lm_pos[0], f'direction {args.target_emotion}')
     else:
         # Load landmarks to latent model
         to_latent_model = models.lmToStyleGANLatent().eval().to(device)
