@@ -3,13 +3,13 @@ import numpy as np
 import os
 import random
 import torch
+import torch.nn.functional as F
 
 from datetime import datetime
 from glob import glob
-from lpips import PerceptualLoss
-from my_models import style_gan_2
-from my_models import models
+from my_models import models, style_gan_2
 from torch.utils.tensorboard import SummaryWriter
+from torch.utils.data import DataLoader
 from torchvision.utils import save_image, make_grid
 from tqdm import tqdm
 from utils import datasets, utils
@@ -30,19 +30,17 @@ class Solver:
         self.lr_rampdown_length = 0.4
         self.lr_rampup_length = 0.1
 
-        # Load generator
-        self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
-        for param in self.g.parameters():
-            param.requires_grad = False
-        self.latent_avg = self.g.latent_avg.repeat(
-            18, 1).unsqueeze(0).to(self.device)
-
         # Init global step
         self.global_step = 0
         self.step_start = 0
 
+        # Init Generator
+        self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
+        for param in self.g.parameters():
+            param.requires_grad = False
+
         # Define audio encoder
-        self.audio_encoder = models.AudioExpressionNet().to(self.device).train()
+        self.audio_encoder = models.AudioExpressionNet2(args.T).to(self.device).train()
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -60,13 +58,9 @@ class Solver:
 
         # Select optimizer and loss criterion
         self.opt = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.lr)
-        if self.args.train_on_latent:
-            self.criterion = torch.nn.MSELoss()
-        else:
-            self.criterion = PerceptualLoss(
-                model='net-lin', net='vgg').to(self.device)
-            self.l1 = torch.nn.L1Loss(reduction='none')
-            self.mouth_mask = torch.load(args.data_path + 'mask_5std_mouth.pt').to(self.device)
+        self.criterion = torch.nn.MSELoss(reduction='none')
+        self.loss_coeff = 1.
+        self.beta_loss = 0.99
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -76,6 +70,7 @@ class Solver:
 
             # Create save dir
             os.makedirs(self.args.save_dir + 'models', exist_ok=True)
+            os.makedirs(self.args.save_dir + 'sample', exist_ok=True)
 
     def save(self):
         save_path = f"{self.args.save_dir}models/model{self.global_step}.pt"
@@ -90,32 +85,31 @@ class Solver:
         self.opt.param_groups[0]['lr'] = self.lr
 
     def unpack_data(self, batch):
-        target_img = batch['img'].to(self.device)
-        mean = batch['mean'].to(self.device)
-        target_latent = batch['latent'].to(self.device)
         audio = batch['audio'].to(self.device)
-        return target_img, mean, target_latent, audio
+        # audio = batch['audio'][:, self.args.T // 2].to(self.device)
+        input_latent = batch['input_latent'].to(self.device)
+        target_latent = batch['target_latent'].to(self.device)
+        return audio, input_latent, target_latent
 
-    def forward(self, audio, mean):
+    def forward(self, audio, input_latent):
         latent_offset = self.audio_encoder(audio)
         # Add mean (we only want to compute offset to mean latent)
-        prediction = latent_offset + mean
-
-        if not self.args.train_on_latent:
-            # Decode
-            prediction, _ = self.g([prediction], input_is_latent=True,
-                                   noise=self.g.noises)
-            # Downsample to 256 x 256
-            prediction = utils.downsample_256(prediction)
+        prediction = input_latent
+        prediction[:, 4:8] += latent_offset
 
         return prediction
 
-    def get_loss(self, pred, target):
-        loss = self.criterion(pred, target).mean()
+    def get_loss(self, pred, target, validate=False):
+        loss = self.criterion(pred[:, 4:8], target[:, 4:8])
 
-        if not self.args.train_on_latent:
-            loss_l1 = (self.l1(pred, target) * self.mouth_mask).mean()
-            loss += self.args.lambda_l1 * loss_l1
+        # Running average of individual loss components
+        if not validate:
+            loss = loss.mean(0)
+            self.loss_coeff = self.beta_loss * self.loss_coeff + (1 - self.beta_loss) * (1 + loss.detach())
+            loss = (loss * self.loss_coeff)
+
+        # Mean loss
+        loss = loss.mean()
 
         return loss
 
@@ -123,58 +117,71 @@ class Solver:
         print("Start training")
         pbar = tqdm(total=n_iters)
         i_iter = 0
+        avg_train_loss = 0.
+        pbar_avg_train_loss = 0.
         val_loss = 0.
+
         while i_iter < n_iters:
             for batch in data_loaders['train']:
                 # Unpack batch
-                target_img, mean, target_latent, audio = self.unpack_data(batch)
-                target = target_latent if self.args.train_on_latent else target_img
+                audio, input_latent, target = self.unpack_data(batch)
 
                 # Update learning rate
                 # t = i_iter / n_iters
                 # self.update_lr(t)
 
                 # Encode
-                pred = self.forward(audio, mean)
+                pred = self.forward(audio, input_latent)
 
                 # Compute perceptual loss
-                loss = self.get_loss(pred, target)
+                loss = self.get_loss(pred, target, validate=False)
 
                 # Optimize
                 self.opt.zero_grad()
                 loss.backward()
                 self.opt.step()
 
+                avg_train_loss += loss.item()
+                pbar_avg_train_loss += loss.item()
+
                 self.global_step += 1
                 i_iter += 1
                 pbar.update()
 
+                if self.global_step % self.args.log_val_every == 0:
+                    val_loss = self.validate(data_loaders)
+
                 if self.global_step % self.args.update_pbar_every == 0:
+                    pbar_avg_train_loss /= self.args.update_pbar_every
                     pbar.set_description('step [{gs}/{ni}] - '
                                          'train loss {tl:.4f} - '
                                          'val loss {vl:.4f} - '
                                          'lr {lr}'.format(
                                              gs=self.global_step,
                                              ni=n_iters,
-                                             tl=loss,
+                                             tl=pbar_avg_train_loss,
                                              vl=val_loss,
                                              lr=self.lr
                                          ))
+                    pbar_avg_train_loss = 0.
+                    print("")
 
                 # Logging and evaluating
                 if not self.args.debug:
                     if self.global_step % self.args.log_train_every == 0:
-                        self.writer.add_scalars('loss', {'train': loss}, self.global_step)
+                        avg_train_loss /= max(1, float(self.args.log_train_every))
+                        self.writer.add_scalars('loss', {'train': avg_train_loss}, self.global_step)
+                        avg_train_loss = 0.
 
                     if self.global_step % self.args.log_val_every == 0:
-                        val_loss = self.validate(data_loaders)
                         self.writer.add_scalars('loss', {'val': val_loss}, self.global_step)
 
                     if self.global_step % self.args.save_every == 0:
                         self.save()
 
                     if self.global_step % self.args.eval_every == 0:
-                        self.eval(data_loaders)
+                        self.eval(data_loaders['train'], f'train_gen_{self.global_step}.png')
+                        self.eval(data_loaders['val'], f'val_gen_{self.global_step}.png')
 
                 # Break if n_iters is reached and still in epoch
                 if i_iter == n_iters:
@@ -184,55 +191,52 @@ class Solver:
         print('Done.')
 
     def validate(self, data_loaders):
-        sample = next(iter(data_loaders['train']))
+        val_loss = 0.
+        for batch in data_loaders['val']:
+            # Unpack batch
+            audio, input_latent, target = self.unpack_data(batch)
 
-        # Unpack batch
-        target_img, mean, target_latent, audio = self.unpack_data(sample)
-        target = target_latent if self.args.train_on_latent else target_img
+            with torch.no_grad():
+                # Forward
+                pred = self.forward(audio, input_latent)
 
-        with torch.no_grad():
-            # Forward
-            pred = self.forward(audio, mean)
+            val_loss += self.get_loss(pred, target, validate=True)
+        return val_loss / float(len(data_loaders['val']))
 
-        val_loss = self.get_loss(pred, target)
-        return val_loss
-
-    def eval(self, data_loaders):
+    def eval(self, data_loader, sample_name):
         # Train sample
-        sample = next(iter(data_loaders['train']))
+        batch = next(iter(data_loader))
         # Unpack batch
-        target_img, mean, target_latent, audio = self.unpack_data(sample)
+        audio, input_latent, target = self.unpack_data(batch)
 
         n_display = min(4, self.args.batch_size)
-        target_img = target_img[:n_display]
         audio = audio[:n_display]
-        target_latent = target_latent[:n_display]
-        mean = mean[:n_display]
+        target = target[:n_display]
+        input_latent = input_latent[:n_display]
 
         with torch.no_grad():
             # Forward
-            pred = self.forward(audio, mean)
-            mean_img, _ = self.g([mean], input_is_latent=True, noise=self.g.noises)
-            mean_img = utils.downsample_256(mean_img)
+            pred = self.forward(audio, input_latent)
+            input_img, _ = self.g([input_latent], input_is_latent=True, noise=self.g.noises)
+            input_img = utils.downsample_256(input_img)
 
-            if self.args.train_on_latent:
-                pred, _ = self.g(
-                    [pred], input_is_latent=True, noise=self.g.noises)
-                pred = utils.downsample_256(pred)
-                target_img, _ = self.g(
-                    [target_latent], input_is_latent=True, noise=self.g.noises)
-                target_img = utils.downsample_256(target_img)
+            pred, _ = self.g(
+                [pred], input_is_latent=True, noise=self.g.noises)
+            pred = utils.downsample_256(pred)
+            target_img, _ = self.g(
+                [target], input_is_latent=True, noise=self.g.noises)
+            target_img = utils.downsample_256(target_img)
 
         # Normalize images to display
-        mean_img = make_grid(mean_img, normalize=True, range=(-1, 1))
+        input_img = make_grid(input_img, normalize=True, range=(-1, 1))
         pred = make_grid(pred, normalize=True, range=(-1, 1))
         target_img = make_grid(target_img, normalize=True, range=(-1, 1))
         diff = (target_img - pred) * 5
 
-        img_tensor = torch.stack((pred, target_img, diff, mean_img), dim=0)
+        img_tensor = torch.stack((pred, target_img, diff, input_img), dim=0)
         save_image(
             img_tensor,
-            f'{self.args.save_dir}train_gen_{self.global_step}.png',
+            f'{self.args.save_dir}sample/{sample_name}',
             nrow=1
         )
 
@@ -241,19 +245,24 @@ class Solver:
     def test_model(self, test_latent_path, test_sentence_path):
         self.audio_encoder.eval()
         test_latent = torch.load(test_latent_path).unsqueeze(0).to(self.device)
+
         audio_paths = sorted(glob(test_sentence_path + '*.deepspeech.npy'))[:100]
+        audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32) for p in audio_paths]).to(self.device)
+        pad = self.args.T // 2
+        audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
+        audios = audios.unfold(0, self.args.T, 1).permute(0, 3, 1, 2)
 
         target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:100]
+        target_latents = torch.stack([torch.load(p) for p in target_latent_paths]).to(self.device)
 
         tmp_dir = self.args.save_dir + '.temp/'
         os.makedirs(tmp_dir, exist_ok=True)
-        for i, (audio_path, target_latent_path) in enumerate(tqdm(zip(audio_paths, target_latent_paths))):
-            audio = torch.tensor(np.load(audio_path), dtype=torch.float32).unsqueeze(0).to(self.device)
-            target_latent = torch.load(target_latent_path).unsqueeze(0).to(self.device)
-
+        for i, (audio, target_latent) in enumerate(tqdm(zip(audios, target_latents))):
+            audio = audio.unsqueeze(0)
+            target_latent = target_latent.unsqueeze(0)
             with torch.no_grad():
-                latent_offset = self.audio_encoder(audio)
-                latent = latent_offset + test_latent
+                input_latent = test_latent.clone()
+                latent = self.forward(audio, input_latent)
                 # Generate images
                 pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
                 target = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
@@ -294,14 +303,14 @@ if __name__ == '__main__':
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--overfit', action='store_true')
     parser.add_argument('--model_path', type=str, default=None)
 
     # Hparams
-    parser.add_argument('--overfit', type=bool, default=False)
-    parser.add_argument('--train_on_latent', type=bool, default=True)
     parser.add_argument('--lambda_l1', type=float, default=10.)
-    parser.add_argument('--batch_size', type=int, default=256)  # 128
-    parser.add_argument('--lr', type=int, default=0.002)  # 0.0002
+    parser.add_argument('--batch_size', type=int, default=32)  # 128
+    parser.add_argument('--lr', type=int, default=0.0002)  # 0.0002
+    parser.add_argument('--T', type=int, default=8)
 
     # Logging args
     parser.add_argument('--n_iters', type=int, default=1000000)
@@ -332,62 +341,67 @@ if __name__ == '__main__':
     if args.cont or args.test:
         args.save_dir = '/'.join(args.model_path.split('/')[:-2]) + '/'
 
-    print("Saving run to {}".format(args.save_dir))
+    if args.debug:
+        print("DEBUG MODE. NO LOGGING")
+    else:
+        print("Saving run to {}".format(args.save_dir))
 
     # Select device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.device = device
 
     # Load data
-    train_videos, val_videos = datasets.tagesschau_get_videos(
-        args.data_path, 0.9)
-    train_ds = datasets.TagesschauDataset(
-        videos=train_videos,
-        load_img=not args.train_on_latent,
-        load_latent=args.train_on_latent,
-        load_audio=True,
-        load_mean=True,
-        shuffled=False,
-        flat=True,
-        overfit=args.overfit,
-        normalize=True,
-        mean=[0.5, 0.5, 0.5],
-        std=[0.5, 0.5, 0.5],
-        image_size=256,
-        # max_frames_per_vid=1000
-    )
-    val_ds = datasets.TagesschauDataset(
-        videos=val_videos,
-        load_img=not args.train_on_latent,
-        load_latent=args.train_on_latent,
-        load_audio=True,
-        load_mean=True,
-        shuffled=False,
-        flat=True,
-        overfit=args.overfit,
-        normalize=True,
-        mean=[0.5, 0.5, 0.5],
-        std=[0.5, 0.5, 0.5],
-        image_size=256,
-        # max_frames_per_vid=1000
-    )
-    print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
+    train_paths, val_paths = datasets.tagesschau_get_paths(
+        args.data_path, 0.9, max_frames_per_vid=-1)
+
     if args.overfit:
-        val_ds = train_ds
+        train_paths = [train_paths[0]]
+        val_paths = train_paths
+        print(f"OVERFITTING ON {train_paths[0][0]}")
+
+    print(f"Sample path training {train_paths[0][0]}")
+    print(f"Sample path validation {val_paths[0][0]}")
+
+    train_ds = datasets.TagesschauAudioDataset(
+        paths=train_paths,
+        load_img=False,
+        load_latent=True,
+        T=args.T,
+        normalize=True,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256,
+    )
+    val_ds = datasets.TagesschauAudioDataset(
+        paths=val_paths,
+        load_img=False,
+        load_latent=True,
+        T=args.T,
+        normalize=True,
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256,
+    )
+    train_sampler = datasets.RandomTagesschauAudioSampler(
+        train_paths, args.T, args.batch_size, 10000)
+    val_sampler = datasets.RandomTagesschauAudioSampler(
+        val_paths, args.T, args.batch_size, 20)
+
+    print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
     data_loaders = {
-        'train': torch.utils.data.DataLoader(
+        'train': DataLoader(
             train_ds,
             batch_size=args.batch_size,
+            sampler=train_sampler,
             num_workers=4,
-            shuffle=True,
             drop_last=False,
             pin_memory=True
         ),
-        'val': torch.utils.data.DataLoader(
+        'val': DataLoader(
             val_ds,
             batch_size=args.batch_size,
+            sampler=val_sampler,
             num_workers=4,
-            shuffle=True,
             drop_last=False,
             pin_memory=True
         )

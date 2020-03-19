@@ -79,7 +79,8 @@ class AudioExpressionNet(nn.Module):
             nn.LeakyReLU(0.02),
             nn.Linear(128, 256),
             nn.LeakyReLU(0.02),
-            nn.Linear(256, 512 * 18),
+            # nn.Linear(256, 512 * 18),
+            nn.Linear(256, 512 * 4),
             nn.Tanh(),
         )
 
@@ -89,8 +90,74 @@ class AudioExpressionNet(nn.Module):
         # shape: [b, 29, 16]
         x = self.convs(x)
         x = self.fcs(x)
-        x = x.view(-1, 18, 512)
+        # x = x.view(-1, 18, 512)
+        x = x.view(-1, 4, 512)
         return x
+
+
+class AudioExpressionNet2(nn.Module):
+    def __init__(self, T):
+        super(AudioExpressionNet2, self).__init__()
+
+        self.T = T
+
+        self.convs = nn.Sequential(
+            nn.Conv1d(29, 32, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(32, 32, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(32, 64, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(64, 64, 3, stride=2, padding=1),
+            nn.LeakyReLU(0.02),
+        )
+
+        self.fcs = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64, 128),
+            nn.LeakyReLU(0.02),
+            nn.Linear(128, 256),
+            nn.LeakyReLU(0.02),
+            nn.Linear(256, 512 * 4),
+        )
+
+        self.filter = nn.Sequential(
+            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
+            nn.LeakyReLU(0.02),
+            nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
+            nn.LeakyReLU(0.02),
+            nn.Flatten(),
+            nn.Linear(T, T),
+            nn.Sigmoid()
+        )
+
+    def forward(self, audio):
+        # input shape: [b, T, 16, 29]
+        x = audio.permute(1, 0, 3, 2)  # shape: [T, b, 29, 16]
+
+        # Per frame expression estimation
+        z = []
+        for window in x:
+            z.append(self.fcs(self.convs(window)))
+        z = torch.stack(z, dim=1)  # shape: [b, 8, 2048]
+
+        # Filtering
+        if z.shape[1] > 1:
+            f = self.filter(z).unsqueeze(2)  # shape: [b, 8, 1]
+            y = torch.mul(z, f)  # shape: [b, 8, 2048]
+            y = y.sum(1)  # shape: [b, 2048]
+        else:
+            y = z[:, 0]
+
+        return y.view(-1, 4, 512)  # shape: [b, 4, 512]
 
 
 class VGG_Face_VA(nn.Module):

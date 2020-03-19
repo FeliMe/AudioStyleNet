@@ -14,7 +14,7 @@ import torch.nn.functional as F
 from glob import glob
 from my_models.style_gan_2 import Generator
 from PIL import Image
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Sampler
 from torch.utils.data.dataset import Dataset, IterableDataset
 from torchvision import transforms
 from torchvision.utils import make_grid
@@ -802,34 +802,25 @@ class AffWild2Dataset(Dataset):
 
 class TagesschauDataset(Dataset):
     def __init__(self,
-                 videos,
+                 paths,
                  load_img=True,
                  load_latent=False,
                  load_audio=False,
                  load_mean=False,
                  shuffled=False,
                  flat=False,
-                 overfit=False,
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
-                 image_size=256,
-                 max_frames_per_vid=-1):
+                 image_size=256):
         super().__init__()
         self.load_img = load_img
         self.load_latent = load_latent
         self.load_audio = load_audio
         self.load_mean = load_mean
-        self.overfit = overfit
         self.normalize = normalize
         self.mean = mean
         self.std = std
-
-        if self.overfit:
-            print(f"Overfitting on {videos[0]}")
-            videos = [videos[0]]
-        paths = [sorted([str(p).split('.')[0] for p in list(pathlib.Path(v).glob('*.png'))][:max_frames_per_vid])
-                 for v in videos]
 
         if flat:
             paths = [item for sublist in paths for item in sublist]
@@ -874,16 +865,94 @@ class TagesschauDataset(Dataset):
         latent = torch.load(base_path + '.latent.pt') if self.load_latent else torch.tensor(0.)
         audio = torch.tensor(np.load(base_path + '.deepspeech.npy'),
                              dtype=torch.float32) if self.load_audio else torch.tensor(0.)
-        mean = torch.load('/'.join(base_path.split('/')
-                                   [:-1]) + '/mean.latent.pt') if self.load_mean else torch.tensor(0.)
+
+        # Load input image
+        # r_idx = random.randrange(1413)
+        # mean_path = '/'.join(base_path.split('/')[:-1]) + f'/{str(r_idx).zfill(5)}.latent.pt'
+        mean_path = '/'.join(base_path.split('/')[:-1]) + '/mean.latent.pt'
+        mean = torch.load(mean_path) if self.load_mean else torch.tensor(0.)
 
         return {
-            'img': img,
-            'latent': latent,
             'audio': audio,
-            'mean': mean,
+            'img': img,
+            'target_latent': latent,
+            'input_latent': mean,
             'index': index,
             'path': base_path
+        }
+
+
+class TagesschauAudioDataset(Dataset):
+    def __init__(self,
+                 paths,
+                 load_img=True,
+                 load_latent=False,
+                 T=8,
+                 normalize=False,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256):
+        super().__init__()
+        self.load_img = load_img
+        self.load_latent = load_latent
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+        self.T = T
+
+        self.paths = [item for sublist in paths for item in sublist]
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, indices):
+        audio_inds = indices[:-1]
+        input_ind = indices[-1]
+        target_ind = indices[self.T // 2]
+
+        video = '/'.join(self.paths[input_ind].split('/')[:-1]) + '/'
+
+        # Load audio
+        audio = []
+        for i in audio_inds:
+            audio.append(torch.tensor(
+                np.load(self.paths[i] + '.deepspeech.npy'), dtype=torch.float32))
+        audio = torch.stack(audio, dim=0)
+
+        # Load images
+        if self.load_img:
+            input_img = self.t(Image.open(self.paths[input_ind] + '.png'))
+            target_img = self.t(Image.open(self.paths[target_ind] + '.png'))
+        else:
+            target_img = torch.tensor(0.)
+            input_img = torch.tensor(0.)
+
+        # Load latents
+        if self.load_latent:
+            input_latent = torch.load(video + 'mean.latent.pt')
+            # input_latent = torch.load(self.paths[input_ind] + ".latent.pt")
+            target_latent = torch.load(self.paths[target_ind] + ".latent.pt")
+        else:
+            target_latent = torch.tensor(0.)
+            input_latent = torch.tensor(0.)
+
+        return {
+            'audio': audio,
+            'input_img': input_img,
+            'target_img': target_img,
+            'input_latent': input_latent,
+            'target_latent': target_latent,
+            'indices': indices,
+            'path': video + str(target_ind).zfill(5)
         }
 
 
@@ -1171,13 +1240,20 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
     return all_paths, annotations
 
 
-def tagesschau_get_videos(root_path, train_split=1.0):
-    videos = glob(root_path + '*/')
+def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
+    if root_path[-1] != '/':
+        root_path += '/'
+    videos = glob(root_path + 'TV*/')
+    # videos = glob(root_path + '*/')
     random.shuffle(videos)
     split = int(len(videos) * train_split)
     train_videos = videos[:split]
     val_videos = videos[split:]
-    return train_videos, val_videos
+    train_paths = [sorted([p.split('.')[0] for p in glob(v + '*.png')])[:max_frames_per_vid]
+                   for v in train_videos]
+    val_paths = [sorted([p.split('.')[0] for p in glob(v + '*.png')])[:max_frames_per_vid]
+                 for v in val_videos]
+    return train_paths, val_paths
 
 
 def ffhq_get_paths(root_path, train_split=1.0):
@@ -1203,3 +1279,72 @@ class Downsample(object):
                 c, h // factor, factor, w // factor, factor)
             sample = sample.mean([2, 4])
         return sample
+
+
+class RandomSequenceSampler(Sampler):
+    """
+    Samples sequences of indices
+
+    example usage:
+        sampler = RandomSequenceSampler(range(len(ds)), 4)
+
+    args:
+        data_source: iterable
+        sequence_length: int
+    """
+
+    def __init__(self, data_source, sequence_length):
+        l_batched = []
+        for i in range(0, len(data_source) - sequence_length + 1):
+            l_batched.append(data_source[i:i + sequence_length])
+
+        self.l_batched = torch.tensor(l_batched)
+        print(self.l_batched)
+
+    def __iter__(self):
+        l_batched = self.l_batched[torch.randperm(
+            len(self.l_batched))].tolist()
+        return iter([item for sublist in l_batched for item in sublist])
+
+    def __len__(self):
+        return len(self.data_source)
+
+
+class RandomTagesschauAudioSampler(Sampler):
+    """
+    Samples batches of sequential indices of length T + 1 (last index is for
+    random input frame)
+
+    example usage:
+        sampler = RandomTagesschauAudioSampler(paths, T=8, batch_size=args.batch_size)
+
+    args:
+        paths: list of lists
+        T: int
+        batch_size: int
+    """
+    def __init__(self, paths, T, batch_size, num_batches):
+        indices = []
+        i = 0
+        for path in paths:
+            indices.append([])
+            for p in path:
+                indices[-1].append(i)
+                i += 1
+        self.indices = indices
+        self.T = T
+        self.batch_size = batch_size
+        self.num_batches = num_batches
+
+    def __iter__(self):
+        batch = []
+        for i in range(len(self)):
+            video = random.choice(self.indices)
+            start = random.randint(0, len(video) - self.T)
+            inp_idx = random.choice(video)
+            sample = video[start: start + self.T] + [inp_idx]
+            batch.append(sample)
+        return iter(batch)
+
+    def __len__(self):
+        return self.batch_size * self.num_batches

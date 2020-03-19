@@ -188,8 +188,8 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # Load model
-    # g = style_gan_2.PretrainedGenerator1024().to(device).train()
-    g = style_gan_2.PretrainedGenerator256().to(device).train()
+    g = style_gan_2.PretrainedGenerator1024().to(device).train()
+    # g = style_gan_2.PretrainedGenerator256().to(device).train()
     for param in g.parameters():
         param.requires_grad = False
 
@@ -226,6 +226,7 @@ if __name__ == "__main__":
         # Collect results
         generated = proj.get_images()
         latents = proj.get_latents()
+        print(latents.shape)
 
         # Save results
         save_str = save_dir + file.split('/')[-1].split('.')[0]

@@ -1453,6 +1453,67 @@ def tagesschau_encode_frames(root_path):
         # torch.save(latent, save_path)
 
 
+def tagesschau_encode_frames_center(root_path):
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    videos = sorted(glob(root_path + '*/'))
+    videos = [sorted(glob(v + '*.png')) for v in videos]
+    all_frames = [item for sublist in videos for item in sublist]
+    assert len(all_frames) > 0
+    print(len(all_frames))
+
+    # Select device
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # Load encoder
+    from my_models.models import resnetEncoder
+    e = resnetEncoder(net=18, pretrained=True).eval().to(device)
+
+    # Get latent avg
+    from my_models.style_gan_2 import PretrainedGenerator1024
+    g = PretrainedGenerator1024().eval().to(device)
+
+    # transforms
+    t_load = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
+    ])
+    t_flip = transforms.RandomHorizontalFlip(1.0)
+
+    for frame in tqdm(all_frames):
+        save_path = frame.split('.')[0] + '.center_latent.pt'
+        # print(save_path)
+        if os.path.exists(save_path):
+            continue
+
+        # Load image
+        pil_img = Image.open(frame)
+        img = t_load(pil_img).to(device)
+        img_flip = t_load(t_flip(pil_img)).to(device)
+
+        # Encoder image
+        with torch.no_grad():
+            enc = e(img.unsqueeze(0))[0] + g.latent_avg
+            enc_flip = e(img_flip.unsqueeze(0))[0] + g.latent_avg
+            latent = 0.5 * (enc + enc_flip)
+            latent = latent.cpu()
+
+        # Visualize
+        from torchvision.utils import make_grid
+        print(save_path, latent.shape)
+        img_gen = g.to(device)([latent.to(device)],
+                               input_is_latent=True, noise=g.noises)[0].cpu()
+        img_gen = make_grid(torch.cat((img_gen, img.cpu()),
+                                      dim=0), normalize=True, range=(-1, 1))
+        img_gen = transforms.ToPILImage('RGB')(img_gen)
+        img_gen.show()
+        1 / 0
+
+        # Save
+        # torch.save(latent, save_path)
+
+
 def tagesschau_get_mean_latents(root):
     # Load paths
     videos = sorted(glob(root + '*/'))
@@ -1697,6 +1758,5 @@ def tagesschau_get_mouth_mask():
 
 if __name__ == "__main__":
 
-    # path = sys.argv[1]
-    # ravdess_gather_info('/home/meissen/Datasets/RAVDESS/Aligned256/')
-    tagesschau_get_mouth_mask()
+    path = sys.argv[1]
+    tagesschau_encode_frames_center(path)
