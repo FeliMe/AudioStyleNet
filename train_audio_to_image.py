@@ -40,7 +40,7 @@ class Solver:
             param.requires_grad = False
 
         # Define audio encoder
-        self.audio_encoder = models.AudioExpressionNet2(args.T).to(self.device).train()
+        self.audio_encoder = models.AudioExpressionNet3(args.T).to(self.device).train()
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -59,8 +59,10 @@ class Solver:
         # Select optimizer and loss criterion
         self.opt = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.lr)
         self.criterion = torch.nn.MSELoss(reduction='none')
-        self.loss_coeff = 1.
-        self.beta_loss = 0.99
+
+        # Loss weighting vector
+        self.loss_weight = torch.load(
+            'saves/pre-trained/latent_4to8_std_avg.pt').unsqueeze(0).to(self.device)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -92,21 +94,21 @@ class Solver:
         return audio, input_latent, target_latent
 
     def forward(self, audio, input_latent):
-        latent_offset = self.audio_encoder(audio)
+        latent_offset = self.audio_encoder(audio, input_latent[:, 4:8])
+        # latent_offset = self.audio_encoder(audio, input_latent)
         # Add mean (we only want to compute offset to mean latent)
         prediction = input_latent
         prediction[:, 4:8] += latent_offset
+        # prediction = input_latent + latent_offset
 
         return prediction
 
     def get_loss(self, pred, target, validate=False):
         loss = self.criterion(pred[:, 4:8], target[:, 4:8])
+        # loss = self.criterion(pred, target)
 
-        # Running average of individual loss components
-        if not validate:
-            loss = loss.mean(0)
-            self.loss_coeff = self.beta_loss * self.loss_coeff + (1 - self.beta_loss) * (1 + loss.detach())
-            loss = (loss * self.loss_coeff)
+        # Weight individual loss components
+        loss = loss * self.loss_weight
 
         # Mean loss
         loss = loss.mean()
@@ -216,7 +218,7 @@ class Solver:
 
         with torch.no_grad():
             # Forward
-            pred = self.forward(audio, input_latent)
+            pred = self.forward(audio, input_latent.clone())
             input_img, _ = self.g([input_latent], input_is_latent=True, noise=self.g.noises)
             input_img = utils.downsample_256(input_img)
 
@@ -255,9 +257,12 @@ class Solver:
         target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:100]
         target_latents = torch.stack([torch.load(p) for p in target_latent_paths]).to(self.device)
 
+        pbar = tqdm(total=len(target_latents))
+        avg_loss = 0.
+
         tmp_dir = self.args.save_dir + '.temp/'
         os.makedirs(tmp_dir, exist_ok=True)
-        for i, (audio, target_latent) in enumerate(tqdm(zip(audios, target_latents))):
+        for i, (audio, target_latent) in enumerate(zip(audios, target_latents)):
             audio = audio.unsqueeze(0)
             target_latent = target_latent.unsqueeze(0)
             with torch.no_grad():
@@ -266,6 +271,11 @@ class Solver:
                 # Generate images
                 pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
                 target = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
+                # Get loss
+                loss = self.get_loss(latent, target_latent, validate=True)
+                avg_loss += loss.item()
+            pbar.update()
+            pbar.set_description(f"Loss {loss.item():.4f}")
             # Downsample
             pred = utils.downsample_256(pred).cpu()
             target = utils.downsample_256(target).cpu()
@@ -286,6 +296,8 @@ class Solver:
         # Remove generated frames and keep only video
         os.chdir(original_dir)
         os.system(f'rm -r {tmp_dir}')
+
+        print(f"Average loss {avg_loss / len(target_latents):.4f}")
 
         self.audio_encoder.train()
 
@@ -313,8 +325,8 @@ if __name__ == '__main__':
     parser.add_argument('--T', type=int, default=8)
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=1000000)
-    parser.add_argument('--update_pbar_every', type=int, default=100)
+    parser.add_argument('--n_iters', type=int, default=100000)
+    parser.add_argument('--update_pbar_every', type=int, default=1000)
     parser.add_argument('--log_train_every', type=int, default=1000)
     parser.add_argument('--log_val_every', type=int, default=1000)
     parser.add_argument('--save_every', type=int, default=100000)
@@ -322,7 +334,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
-    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/Tagesschau/Aligned256/')
+    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256/')
     parser.add_argument('--test_latent', type=str, default='saves/projected_images/obama.pt')
     parser.add_argument('--test_sentence', type=str,
                         default='/home/meissen/Datasets/Tagesschau/test_sentence_trump_deepspeech/')
@@ -352,7 +364,7 @@ if __name__ == '__main__':
 
     # Load data
     train_paths, val_paths = datasets.tagesschau_get_paths(
-        args.data_path, 0.9, max_frames_per_vid=-1)
+        args.data_path, 0.9, max_frames_per_vid=1000)
 
     if args.overfit:
         train_paths = [train_paths[0]]
@@ -383,9 +395,9 @@ if __name__ == '__main__':
         image_size=256,
     )
     train_sampler = datasets.RandomTagesschauAudioSampler(
-        train_paths, args.T, args.batch_size, 10000)
+        train_paths, args.T, args.batch_size, 10000, weighted=True)
     val_sampler = datasets.RandomTagesschauAudioSampler(
-        val_paths, args.T, args.batch_size, 20)
+        val_paths, args.T, args.batch_size, 20, weighted=True)
 
     print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
     data_loaders = {

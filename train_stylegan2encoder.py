@@ -284,7 +284,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)
     parser.add_argument('--lr', type=int, default=0.01)
-    parser.add_argument('--n_iters', type=int, default=120000)
+    parser.add_argument('--n_iters', type=int, default=150000)
     parser.add_argument('--log_train_every', type=int, default=1)
     parser.add_argument('--log_val_every', type=int, default=1000)
     parser.add_argument('--save_img_every', type=int, default=10000)
@@ -309,29 +309,39 @@ if __name__ == '__main__':
     if args.cont or args.test or args.run:
         args.save_dir = '/'.join(args.model_path.split('/')[:-2]) + '/'
 
-    print("Saving run to {}".format(args.save_dir))
+    if not args.debug:
+        print("Saving run to {}".format(args.save_dir))
+    else:
+        print("DEBUG MODE")
 
     # Select device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     args.device = device
 
     # Data loading
-    _, _, all_paths = datasets.ravdess_get_paths(
-        root_path=HOME + "/Datasets/RAVDESS/Aligned256/",
-        flat=True,
-        shuffled=True,
-        validation_split=0.0
-    )
-    val_ds = datasets.RAVDESSFlatDataset(
-        paths=all_paths,
-        device=device,
+    ds = datasets.ImageDataset(
+        root_path=HOME + "/Datasets/YouTubeDataset/Aligned256/",
+        # root_path="/home/meissen/workspace/Emotion-Aware-Facial-Animation/saves/test_video/",
         normalize=True,
-        mean=[.5, .5, .5],
-        std=[.5, .5, .5]
+        mean=[0.5, 0.5, 0.5],
+        std=[0.5, 0.5, 0.5],
+        image_size=256
     )
+    # _, _, all_paths = datasets.ravdess_get_paths(
+    #     root_path=HOME + "/Datasets/RAVDESS/Aligned256/",
+    #     flat=True,
+    #     shuffled=True,
+    #     validation_split=0.0
+    # )
+    # ds = datasets.RAVDESSFlatDataset(
+    #     paths=all_paths,
+    #     device=device,
+    #     normalize=True,
+    #     mean=[.5, .5, .5],
+    #     std=[.5, .5, .5]
+    # )
 
-    # Validation dataset
-    # val_ds = datasets.TagesschauDataset(
+    # ds = datasets.TagesschauDataset(
     #     root_path=HOME + "/Datasets/Tagesschau/Aligned256/",
     #     shuffled=False,
     #     flat=True,
@@ -343,10 +353,12 @@ if __name__ == '__main__':
     #     mean=[.5, .5, .5],
     #     std=[.5, .5, .5]
     # )
-    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
+    train_loader = torch.utils.data.DataLoader(
+        ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
     # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)
-    train_loader = torch.utils.data.DataLoader(val_ds, batch_size=args.batch_size, shuffle=True)
-    print(len(val_ds))
+    val_loader = torch.utils.data.DataLoader(
+        ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+    print(len(ds))
 
     # Init solver
     solver = solverEncoder(args)

@@ -692,13 +692,14 @@ class VideoAligner:
         # Init face tracking
         self.detector = dlib.get_frontal_face_detector()
         self.predictor = dlib.shape_predictor(
-            HOME + '/Datasets/shape_predictor_68_face_landmarks.dat')
+            '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
 
         # Init alignment variables
         self.i_frame = 0
         self.avg_rotation = 0.
         self.qsize = None
         self.initial_rot = None
+        self.prev_qsize = None
 
     def reset(self):
         self.avg_rotation = 0.
@@ -749,7 +750,12 @@ class VideoAligner:
         quad = np.stack([c - xq - yq, c - xq + yq,
                          c + xq + yq, c + xq - yq])
         if self.qsize is None:
-            self.qsize = np.linalg.norm(quad[1] - quad[0])
+            self.prev_qsize = np.linalg.norm(quad[1] - quad[0])
+
+        self.qsize = 0.01 * \
+            np.linalg.norm(quad[1] - quad[0]) + 0.99 * self.prev_qsize
+        self.prev_qsize = self.qsize
+
         qsize_raw = np.linalg.norm(quad[1] - quad[0])
         factor = ((self.qsize / qsize_raw) - 1) * 0.5
         # Correct qsize horizontal
@@ -838,7 +844,7 @@ class VideoAligner:
             self.i_frame += 1
             pbar.update()
             save_path = os.path.join(
-                save_dir, str(self.i_frame).zfill(3) + '.png')
+                save_dir, str(self.i_frame).zfill(5) + '.png')
 
             # Pre-resize to save computation
             h_old, w_old, _ = frame.shape

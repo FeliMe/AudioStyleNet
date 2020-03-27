@@ -475,6 +475,29 @@ class AdaINResnetGeneratorBlock(nn.Module):
         return out
 
 
+class MultiplicativeGaussianNoise1d(nn.Module):
+    """
+    Multiplies each input channel with random noise with base and gaussian
+    noise as exponent.
+
+    args:
+        base (float, required): base for the pow operation
+    """
+
+    def __init__(self, base):
+        super().__init__()
+        self.base = base
+        self.register_buffer('noise', torch.zeros((1, 1, 1)))
+
+    def forward(self, x):
+        if self.training and self.base != 0:
+            b, c = x.shape[:2]
+            sampled_noise = torch.pow(
+                self.base, self.noise.repeat(b, c, 1).normal_())
+            x = x * sampled_noise
+        return x
+
+
 def discriminator_block(in_filters, out_filters, normalization=True):
     """
     Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py

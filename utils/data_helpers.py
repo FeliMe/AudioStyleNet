@@ -1373,8 +1373,7 @@ def tagesschau_align_videos(root_path, group):
 
     target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
-    root_dir = pathlib.Path(root_path)
-    videos = [str(p) for p in list(root_dir.glob('*.mp4'))]
+    videos = sorted(glob(root_path + '*.mp4'))
     assert len(videos) > 0
 
     groups = []
@@ -1414,8 +1413,8 @@ def tagesschau_encode_frames(root_path):
     e = resnetEncoder(net=18, pretrained=True).eval().to(device)
 
     # Get latent avg
-    from my_models.style_gan_2 import Generator
-    g = Generator(1024, 512, 8, pretrained=True).eval()
+    from my_models.style_gan_2 import PretrainedGenerator1024
+    g = PretrainedGenerator1024().eval()
     latent_avg = g.latent_avg.view(1, -1).repeat(18, 1)
 
     # transforms
@@ -1437,7 +1436,7 @@ def tagesschau_encode_frames(root_path):
         with torch.no_grad():
             latent_offset = e(img)[0].cpu()
             latent = latent_offset + latent_avg
-        
+
         # Visualize
         from torchvision.utils import make_grid
         from utils.utils import downsample_256

@@ -33,6 +33,40 @@ MAPPING = {
 }
 
 
+class ImageDataset(Dataset):
+    def __init__(self,
+                 root_path,
+                 normalize=True,
+                 mean=[0.5, 0.5, 0.5],
+                 std=[0.5, 0.5, 0.5],
+                 image_size=256):
+        super().__init__()
+        self.normalize = normalize
+        self.mean = mean
+        self.std = std
+
+        self.paths = sorted(glob(root_path + '*/*.png'))
+        assert len(self.paths) > 0, "ImageDataset is empty"
+
+        random.shuffle(self.paths)
+
+        # Transforms
+        if int(np.log2(image_size)) - np.log2(image_size) == 0:
+            trans = [transforms.ToTensor(), Downsample(image_size)]
+        else:
+            trans = [transforms.Resize(image_size), transforms.ToTensor()]
+        if self.normalize:
+            trans.append(transforms.Normalize(mean=self.mean, std=self.std))
+        self.t = transforms.Compose(trans)
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, index):
+        img = self.t(Image.open(self.paths[index]))
+        return {'img': img}
+
+
 class RAVDESSDataset(Dataset):
     """
     Dataset class for loading RAVDESS sentences
@@ -939,6 +973,7 @@ class TagesschauAudioDataset(Dataset):
         # Load latents
         if self.load_latent:
             input_latent = torch.load(video + 'mean.latent.pt')
+            # input_latent = torch.load(video + '00001.latent.pt')
             # input_latent = torch.load(self.paths[input_ind] + ".latent.pt")
             target_latent = torch.load(self.paths[target_ind] + ".latent.pt")
         else:
@@ -1243,8 +1278,9 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
 def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
     if root_path[-1] != '/':
         root_path += '/'
-    videos = glob(root_path + 'TV*/')
-    # videos = glob(root_path + '*/')
+    # videos = glob(root_path + 'TV*/')
+    # videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/')
+    videos = glob(root_path + '*/')
     random.shuffle(videos)
     split = int(len(videos) * train_split)
     train_videos = videos[:split]
@@ -1313,17 +1349,21 @@ class RandomSequenceSampler(Sampler):
 class RandomTagesschauAudioSampler(Sampler):
     """
     Samples batches of sequential indices of length T + 1 (last index is for
-    random input frame)
+    random input frame). 
+    If weighted, the probability a video is chosen depends on its length.
 
     example usage:
         sampler = RandomTagesschauAudioSampler(paths, T=8, batch_size=args.batch_size)
 
     args:
-        paths: list of lists
-        T: int
-        batch_size: int
+        paths (list of lists):
+        T (int):
+        batch_size (int):
+        num_batches (int):
+        weighted (bool):
     """
-    def __init__(self, paths, T, batch_size, num_batches):
+
+    def __init__(self, paths, T, batch_size, num_batches, weighted=False):
         indices = []
         i = 0
         for path in paths:
@@ -1335,11 +1375,17 @@ class RandomTagesschauAudioSampler(Sampler):
         self.T = T
         self.batch_size = batch_size
         self.num_batches = num_batches
+        if weighted:
+            len_videos = [len(v) for v in indices]
+            self.prob_video = [float(length) / sum(len_videos)
+                               for length in len_videos]
+        else:
+            self.prob_video = [1. / len(self.indices) for _ in self.indices]
 
     def __iter__(self):
         batch = []
-        for i in range(len(self)):
-            video = random.choice(self.indices)
+        videos = np.random.choice(self.indices, len(self), p=self.prob_video)
+        for video in videos:
             start = random.randint(0, len(video) - self.T)
             inp_idx = random.choice(video)
             sample = video[start: start + self.T] + [inp_idx]
