@@ -45,6 +45,7 @@ class ImageDataset(Dataset):
         self.mean = mean
         self.std = std
 
+        print(f"Searching data in {root_path}")
         self.paths = sorted(glob(root_path + '*/*.png'))
         assert len(self.paths) > 0, "ImageDataset is empty"
 
@@ -925,7 +926,8 @@ class TagesschauAudioDataset(Dataset):
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
                  std=[0.5, 0.5, 0.5],
-                 image_size=256):
+                 image_size=256,
+                 len_dataset=None):
         super().__init__()
         self.load_img = load_img
         self.load_latent = load_latent
@@ -933,6 +935,7 @@ class TagesschauAudioDataset(Dataset):
         self.mean = mean
         self.std = std
         self.T = T
+        self.len_dataset = len_dataset
 
         self.paths = [item for sublist in paths for item in sublist]
 
@@ -946,7 +949,7 @@ class TagesschauAudioDataset(Dataset):
         self.t = transforms.Compose(trans)
 
     def __len__(self):
-        return len(self.paths)
+        return self.len_dataset if self.len_dataset else len(self.paths)
 
     def __getitem__(self, indices):
         audio_inds = indices[:-1]
@@ -1279,8 +1282,10 @@ def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
     if root_path[-1] != '/':
         root_path += '/'
     # videos = glob(root_path + 'TV*/')
-    # videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/')
-    videos = glob(root_path + '*/')
+    videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/')
+    # videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/') + glob(root_path + 'yt*/')
+    # videos = glob(root_path + 'yt*/')
+    # videos = glob(root_path + '*/')
     random.shuffle(videos)
     split = int(len(videos) * train_split)
     train_videos = videos[:split]
@@ -1384,7 +1389,7 @@ class RandomTagesschauAudioSampler(Sampler):
 
     def __iter__(self):
         batch = []
-        videos = np.random.choice(self.indices, len(self), p=self.prob_video)
+        videos = random.choices(self.indices, weights=self.prob_video, k=len(self))
         for video in videos:
             start = random.randint(0, len(video) - self.T)
             inp_idx = random.choice(video)

@@ -79,8 +79,10 @@ def resample_video(video, fps, output):
 def process_video(info, args):
     tmp_dir = args.output_dir + 'full_videos/'
     trim_dir = args.output_dir + 'trimmed_videos/'
+    final_dir = args.output_dir + 'resampled_videos/'
     os.makedirs(tmp_dir, exist_ok=True)
     os.makedirs(trim_dir, exist_ok=True)
+    os.makedirs(final_dir, exist_ok=True)
 
     for video in tqdm(info):
         url = video['url']
@@ -91,7 +93,6 @@ def process_video(info, args):
         # Download Video
         print(f"Downloading {url}")
         download_video(url, full_path)
-        1 / 0
 
         for i, timing in enumerate(timings):
             # Trim video
@@ -102,7 +103,7 @@ def process_video(info, args):
 
             # Resample to 25 fps
             print(f"Resampling to {args.fps}fps")
-            final_path = f"{args.output_dir}{video_id}_{i + 1}.mp4"
+            final_path = f"{final_dir}{video_id}_{i + 1}.mp4"
             resample_video(trim_path, args.fps, final_path)
 
 
@@ -138,10 +139,10 @@ if __name__ == '__main__':
     parser.add_argument('--fps', type=int, default=25)
     args = parser.parse_args()
 
-    args.output_dir = '/mnt/sdb1/meissen/Datasets/YouTubeDataset/'
-    args.download_list = '/mnt/sdb1/meissen/Datasets/YouTubeDataset/youtube_download.txt'
+    args.output_dir = '/mnt/sdb1/meissen/Datasets/YouTubeDataset2/'
+    args.download_list = '/mnt/sdb1/meissen/Datasets/YouTubeDataset2/youtube_download2.txt'
 
     info = parse_files(args.download_list)
 
-    process_video(info, args)
+    # process_video(info, args)
     process_audio(info, args)

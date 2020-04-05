@@ -1755,6 +1755,60 @@ def tagesschau_get_mouth_mask():
         mask, '/home/meissen/Datasets/Tagesschau/Aligned256/mask_5std_mouth.pt')
 
 
+def get_landmarks(root_path, group):
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(
+        '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
+
+    if root_path[-1] != '/':
+        root_path += '/'
+
+    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
+    print(f'Saving to {target_path}')
+    videos = sorted(glob(root_path + '*/'))
+    assert len(videos) > 0
+
+    groups = []
+    n = len(videos) // 6
+    for i in range(0, len(videos), n):
+        groups.append(videos[i:i + n])
+
+    videos = groups[group]
+    print(
+        f"Group {group}, num_videos {len(videos)}, {len(groups)} groups in total")
+
+    for video in tqdm(videos):
+        print(video)
+        frames = sorted(glob(video + '*.png'))
+
+        for frame in frames:
+            save_path = frame.split('.')[0] + '.landmarks.pt'
+            img = io.imread(frame)
+
+            # Grayscale image
+            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+
+            # Detect faces
+            rects = detector(img, 1)
+            if len(rects) == 0:
+                print(f"Did not detect a face in {frame}")
+            for rect in rects:
+                landmarks = torch.tensor([(item.x, item.y) for item in predictor(
+                    gray, rect).parts()], dtype=torch.float32)
+
+                # Visualize
+                # print(save_path)
+                # print(landmarks.shape)
+                # for (x, y) in landmarks:
+                #     cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
+                # cv2.imshow("", img)
+                # cv2.waitKey(0)
+                # 1 / 0
+
+                # Save
+                torch.save(landmarks, save_path)
+
+
 if __name__ == "__main__":
 
     path = sys.argv[1]

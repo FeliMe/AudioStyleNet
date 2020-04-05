@@ -114,13 +114,13 @@ class Projector:
             std = noise.std()
             noise.data.add_(-mean).div_(std)
 
-    def prepare_input(self, target_images):
-        if len(target_images.shape) == 3:
-            target_images = target_images.unsqueeze(0)
-        if target_images.shape[2] > 256:
-            target_images = utils.downsample_256(target_images)
-        self.target_images = target_images
-        print(self.target_images.shape)
+    def prepare_input(self, target_image):
+        if len(target_image.shape) == 3:
+            target_image = target_image.unsqueeze(0)
+        if target_image.shape[2] > 256:
+            target_image = utils.downsample_256(target_image)
+        self.target_image = target_image
+        print(self.target_image.shape)
 
     def run(self, target_images, num_steps):
         self.num_steps = num_steps
@@ -151,15 +151,16 @@ class Projector:
         # Train
         self.img_gen, _ = self.g_ema(
             [self.latent_expr], input_is_latent=True, noise=self.noises)
+
         # Downsample to 256 x 256
         self.img_gen = utils.downsample_256(self.img_gen)
 
         # Compute perceptual loss
-        self.loss = self.lpips(self.img_gen, self.target_images).sum()
+        self.loss = self.lpips(self.img_gen, self.target_image).sum()
 
         # Additional MSE loss
         if self.mse_strength:
-            self.loss += F.mse_loss(self.img_gen, self.target_images) * self.mse_strength
+            self.loss += F.mse_loss(self.img_gen, self.target_image) * self.mse_strength
 
         # Noise regularization
         # reg_loss = self.noise_regularization()

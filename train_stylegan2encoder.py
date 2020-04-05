@@ -282,13 +282,13 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--batch_size', type=int, default=4)
-    parser.add_argument('--lr', type=int, default=0.01)
-    parser.add_argument('--n_iters', type=int, default=150000)
-    parser.add_argument('--log_train_every', type=int, default=1)
-    parser.add_argument('--log_val_every', type=int, default=1000)
-    parser.add_argument('--save_img_every', type=int, default=10000)
-    parser.add_argument('--save_every', type=int, default=10000)
+    parser.add_argument('--batch_size', type=int, default=4)  # 4
+    parser.add_argument('--lr', type=int, default=0.01)  # 0.01
+    parser.add_argument('--n_iters', type=int, default=150000)  # 150000
+    parser.add_argument('--log_train_every', type=int, default=1)  # 1
+    parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
+    parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
+    parser.add_argument('--save_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
@@ -320,7 +320,7 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path=HOME + "/Datasets/YouTubeDataset/Aligned256/",
+        root_path=HOME + "/Datasets/YouTubeDataset2/Aligned256/",
         # root_path="/home/meissen/workspace/Emotion-Aware-Facial-Animation/saves/test_video/",
         normalize=True,
         mean=[0.5, 0.5, 0.5],

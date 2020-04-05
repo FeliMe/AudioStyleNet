@@ -14,9 +14,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision.transforms as transforms
 
+from argparse import Namespace
 from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
 from tqdm import tqdm
+from typing import Union, Optional, Dict, Iterable, Any, Callable, List
 
 HOME = os.path.expanduser('~')
 
@@ -395,7 +397,6 @@ def decode_sentence(path_to_sentence, save_dir, max_frames=None):
     os.system(f'rm -r {tmp_dir}')
 
 
-
 def get_mouth_params(landmarks, frame):
     # Select mouth landmarks only
     mouth_lm = landmarks[48:68]
@@ -678,15 +679,6 @@ def texture_params(mouth_lm, frame):
     return texture
 
 
-def get_rotation(v):
-    return np.arctan2(v[1], v[0])
-
-
-def Rotate2D(pts, c, ang=np.pi / 4):
-    '''pts = {} Rotates points(nx2) about center cnt(2) by angle ang(1) in radian'''
-    return np.dot(pts - c, np.array([[np.cos(ang), np.sin(ang)], [-np.sin(ang), np.cos(ang)]])) + c
-
-
 class VideoAligner:
     def __init__(self):
         # Init face tracking
@@ -705,6 +697,15 @@ class VideoAligner:
         self.avg_rotation = 0.
         self.qsize = None
         self.initial_rot = None
+
+    @staticmethod
+    def get_rotation(v):
+        return np.arctan2(v[1], v[0])
+
+    @staticmethod
+    def Rotate2D(pts, c, ang=np.pi / 4):
+        '''pts = {} Rotates points(nx2) about center cnt(2) by angle ang(1) in radian'''
+        return np.dot(pts - c, np.array([[np.cos(ang), np.sin(ang)], [-np.sin(ang), np.cos(ang)]])) + c
 
     def align_image(self,
                     frame,
@@ -749,14 +750,20 @@ class VideoAligner:
         c = eye_avg + eye_to_mouth * 0.1
         quad = np.stack([c - xq - yq, c - xq + yq,
                          c + xq + yq, c + xq - yq])
-        if self.qsize is None:
-            self.prev_qsize = np.linalg.norm(quad[1] - quad[0])
-
-        self.qsize = 0.01 * \
-            np.linalg.norm(quad[1] - quad[0]) + 0.99 * self.prev_qsize
-        self.prev_qsize = self.qsize
 
         qsize_raw = np.linalg.norm(quad[1] - quad[0])
+        if self.qsize is None:
+            self.prev_qsize = qsize_raw
+
+        # Reset if cut in Video (qsize makes a jump)
+        if max(qsize_raw / self.prev_qsize, self.prev_qsize / qsize_raw) > 1.1:
+            self.prev_qsize = qsize_raw
+            self.avg_rotation = 0.
+            self.initial_rot = None
+
+        self.qsize = 0.01 * qsize_raw + 0.99 * self.prev_qsize
+        self.prev_qsize = self.qsize
+
         factor = ((self.qsize / qsize_raw) - 1) * 0.5
         # Correct qsize horizontal
         quad[0] -= (quad[3] - quad[0]) * factor
@@ -769,14 +776,14 @@ class VideoAligner:
         quad[3] -= (quad[2] - quad[3]) * factor
         quad[2] += (quad[2] - quad[3]) * factor
 
-        rotation = get_rotation(quad[3] - quad[0])
+        rotation = self.get_rotation(quad[3] - quad[0])
         if self.initial_rot is None:
             self.initial_rot = rotation
 
         self.avg_rotation = 0.7 * self.avg_rotation + \
             0.3 * (self.initial_rot - rotation)
-        quad = Rotate2D(quad, c, self.initial_rot -
-                        rotation - self.avg_rotation)
+        quad = self.Rotate2D(quad, c, self.initial_rot -
+                             rotation - self.avg_rotation)
 
         # Convert image to PIL
         img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -915,3 +922,84 @@ def download_file_from_google_drive(id, destination):
         save_response_content(response, destination)
     else:
         print("Failed. No token")
+
+
+class HparamWriter(torch.utils.tensorboard.SummaryWriter):
+    def __init__(self, logdir):
+        super(HparamWriter, self).__init__(logdir)
+
+    @staticmethod
+    def _convert_params(params: Union[Dict[str, Any], Namespace]) -> Dict[str, Any]:
+        # in case converting from namespace
+        if isinstance(params, Namespace):
+            params = vars(params)
+
+        if params is None:
+            params = {}
+
+        return params
+
+    @staticmethod
+    def _flatten_dict(params: Dict[str, Any], delimiter: str = '/') -> Dict[str, Any]:
+        """Flatten hierarchical dict e.g. {'a': {'b': 'c'}} -> {'a/b': 'c'}.
+        Args:
+            params: Dictionary contains hparams
+            delimiter: Delimiter to express the hierarchy. Defaults to '/'.
+        Returns:
+            Flatten dict.
+        Examples:
+            >>> LightningLoggerBase._flatten_dict({'a': {'b': 'c'}})
+            {'a/b': 'c'}
+            >>> LightningLoggerBase._flatten_dict({'a': {'b': 123}})
+            {'a/b': 123}
+        """
+
+        def _dict_generator(input_dict, prefixes=None):
+            prefixes = prefixes[:] if prefixes else []
+            if isinstance(input_dict, dict):
+                for key, value in input_dict.items():
+                    if isinstance(value, (dict, Namespace)):
+                        value = vars(value) if isinstance(
+                            value, Namespace) else value
+                        for d in _dict_generator(value, prefixes + [key]):
+                            yield d
+                    else:
+                        yield prefixes + [key, value if value is not None else str(None)]
+            else:
+                yield prefixes + [input_dict if input_dict is None else str(input_dict)]
+
+        return {delimiter.join(keys): val for *keys, val in _dict_generator(params)}
+
+    @staticmethod
+    def _sanitize_params(params: Dict[str, Any]) -> Dict[str, Any]:
+        """Returns params with non-primitvies converted to strings for logging
+        >>> params = {"float": 0.3,
+        ...           "int": 1,
+        ...           "string": "abc",
+        ...           "bool": True,
+        ...           "list": [1, 2, 3],
+        ...           "namespace": Namespace(foo=3),
+        ...           "layer": torch.nn.BatchNorm1d}
+        >>> import pprint
+        >>> pprint.pprint(LightningLoggerBase._sanitize_params(params))  # doctest: +NORMALIZE_WHITESPACE
+        {'bool': True,
+         'float': 0.3,
+         'int': 1,
+         'layer': "<class 'torch.nn.modules.batchnorm.BatchNorm1d'>",
+         'list': '[1, 2, 3]',
+         'namespace': 'Namespace(foo=3)',
+         'string': 'abc'}
+        """
+        return {k: v if type(v) in [bool, int, float, str, torch.Tensor] else str(v) for k, v in params.items()}
+
+    def log_hyperparams(self, params: Union[Dict[str, Any], Namespace]) -> None:
+        params = self._convert_params(params)
+        params = self._flatten_dict(params)
+        sanitized_params = self._sanitize_params(params)
+
+        from torch.utils.tensorboard.summary import hparams
+        exp, ssi, sei = hparams(sanitized_params, {})
+        writer = self._get_file_writer()
+        writer.add_summary(exp)
+        writer.add_summary(ssi)
+        writer.add_summary(sei)
