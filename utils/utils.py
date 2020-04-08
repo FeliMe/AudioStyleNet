@@ -17,6 +17,7 @@ import torchvision.transforms as transforms
 from argparse import Namespace
 from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from typing import Union, Optional, Dict, Iterable, Any, Callable, List
 
@@ -924,7 +925,7 @@ def download_file_from_google_drive(id, destination):
         print("Failed. No token")
 
 
-class HparamWriter(torch.utils.tensorboard.SummaryWriter):
+class HparamWriter(SummaryWriter):
     def __init__(self, logdir):
         super(HparamWriter, self).__init__(logdir)
 

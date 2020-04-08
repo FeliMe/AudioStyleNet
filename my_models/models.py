@@ -114,19 +114,24 @@ class AudioExpressionNet(nn.Module):
 
         # Fully connected
         expression = F.leaky_relu(self.fc1(conv_res), 0.02)
-        expression = self.fc2(expression)
-        expression = self.fc_out(expression)
+        expression = self.fc2(expression)  # [b, pca_dim]
+        expression = self.fc_out(expression)  # [b, expression_dim]
 
-        return expression
+        return expression.view(b, 4, 512)
 
 
 class AudioExpressionNet2(nn.Module):
     def __init__(self, T):
         super(AudioExpressionNet2, self).__init__()
 
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        self.expression_dim = 4 * 512
         self.T = T
 
-        self.convs = nn.Sequential(
+        self.convNet = nn.Sequential(
             # model_utils.MultiplicativeGaussianNoise1d(base=1.4),
             nn.Conv1d(29, 32, 3, stride=2, padding=1),  # [b, 32, 8]
             nn.LeakyReLU(0.02),
@@ -161,47 +166,46 @@ class AudioExpressionNet2(nn.Module):
         # _set_requires_grad_false(self.fc_out)
 
         # attention
-        # self.attentionConvNet = nn.Sequential(
-        #     # b x expression_dim x T => b x 256 x T
-        #     nn.Conv1d(self.expression_dim, 256, 3,
-        #               stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 256 x T => b x 64 x T
-        #     nn.Conv1d(256, 64, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 64 x T => b x 16 x T
-        #     nn.Conv1d(64, 16, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 16 x T => b x 4 x T
-        #     nn.Conv1d(16, 4, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 4 x T => b x 1 x T
-        #     nn.Conv1d(4, 1, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True)
-        # )
+        self.attentionNet = nn.Sequential(
+            # b x expression_dim x T => b x 256 x T
+            nn.Conv1d(self.expression_dim, 256, 3,
+                      stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 256 x T => b x 64 x T
+            nn.Conv1d(256, 64, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 64 x T => b x 16 x T
+            nn.Conv1d(64, 16, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 16 x T => b x 4 x T
+            nn.Conv1d(16, 4, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 4 x T => b x 1 x T
+            nn.Conv1d(4, 1, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            nn.Flatten(),
+            nn.Linear(self.T, self.T, bias=True),
+            nn.Softmax(dim=1)
+        )
+
         # self.attentionNet = nn.Sequential(
-        #     nn.Linear(self.T, self.T, bias=True),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
+        #     nn.LeakyReLU(0.02),
+        #     # nn.AdaptiveAvgPool1d(1),
+        #     nn.Flatten(),
+        #     nn.Linear(T, T),
         #     nn.Softmax(dim=1)
         # )
-
-        self.filter = nn.Sequential(
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
-            nn.LeakyReLU(0.02),
-            # nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(T, T),
-            nn.Sigmoid()
-        )
 
     def forward(self, audio, latent):
         # input shape: [b, T, 16, 29]
@@ -224,7 +228,8 @@ class AudioExpressionNet2(nn.Module):
         expression = torch.stack(expression, dim=1)  # [b, T, expression_dim]
 
         expression_T = expression.transpose(1, 2)  # [b, expression_dim, T]
-        attention = self.attentionNet(expression).unsqueeze(-1)  # [b, T, 1]
+        attention = self.attentionNet(expression_T).unsqueeze(-1)  # [b, T, 1]
+        # attention = self.attentionNet(expression).unsqueeze(-1)  # [b, T, 1]
         expression = torch.bmm(expression_T, attention)
 
         return expression.view(b, 4, 512)  # shape: [b, 4, 512]
@@ -278,47 +283,46 @@ class AudioExpressionNet3(nn.Module):
         # _set_requires_grad_false(self.fc_out)
 
         # attention
-        # self.attentionConvNet = nn.Sequential(
-        #     # b x expression_dim x T => b x 256 x T
-        #     nn.Conv1d(self.expression_dim, 256, 3,
-        #               stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 256 x T => b x 64 x T
-        #     nn.Conv1d(256, 64, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 64 x T => b x 16 x T
-        #     nn.Conv1d(64, 16, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 16 x T => b x 4 x T
-        #     nn.Conv1d(16, 4, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True),
-        #     # b x 4 x T => b x 1 x T
-        #     nn.Conv1d(4, 1, 3, stride=1, padding=1, bias=True),
-        #     nn.LeakyReLU(0.02, True)
-        # )
+        self.attentionNet = nn.Sequential(
+            # b x expression_dim x T => b x 256 x T
+            nn.Conv1d(self.expression_dim, 256, 3,
+                      stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 256 x T => b x 64 x T
+            nn.Conv1d(256, 64, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 64 x T => b x 16 x T
+            nn.Conv1d(64, 16, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 16 x T => b x 4 x T
+            nn.Conv1d(16, 4, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            # b x 4 x T => b x 1 x T
+            nn.Conv1d(4, 1, 3, stride=1, padding=1, bias=True),
+            nn.LeakyReLU(0.02, True),
+            nn.Flatten(),
+            nn.Linear(self.T, self.T, bias=True),
+            nn.Softmax(dim=1)
+        )
+
         # self.attentionNet = nn.Sequential(
-        #     nn.Linear(self.T, self.T, bias=True),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
+        #     nn.LeakyReLU(0.02),
+        #     nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
+        #     nn.LeakyReLU(0.02),
+        #     # nn.AdaptiveAvgPool1d(1),
+        #     nn.Flatten(),
+        #     nn.Linear(T, T),
         #     nn.Softmax(dim=1)
         # )
-
-        self.attentionNet = nn.Sequential(
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
-            nn.LeakyReLU(0.02),
-            nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
-            nn.LeakyReLU(0.02),
-            # nn.AdaptiveAvgPool1d(1),
-            nn.Flatten(),
-            nn.Linear(T, T),
-            nn.Sigmoid()
-        )
 
     def load_convNet_weights(self):
         self.convNet.load_state_dict(torch.load(
@@ -334,8 +338,6 @@ class AudioExpressionNet3(nn.Module):
         conv_res = self.convNet(audio)
         conv_res = conv_res.view(b * self.T, 1, -1)  # [b * T, 1, 64]
 
-        latent = latent.clone().view(b, -1).repeat(self.T, 1)  # [b * T, expression_dim]
-        latent = self.latent_in(latent)  # [b * T, latent_dim]
         latent = self.latent_in(latent.clone().view(b, -1))
 
         # Fully connected
@@ -351,7 +353,8 @@ class AudioExpressionNet3(nn.Module):
         # expression = expression[:, (self.T // 2):(self.T // 2) + 1]
 
         expression_T = expression.transpose(1, 2)  # [b, expression_dim, T]
-        attention = self.attentionNet(expression).unsqueeze(-1)  # [b, T, 1]
+        attention = self.attentionNet(expression_T).unsqueeze(-1)  # [b, T, 1]
+        # attention = self.attentionNet(expression).unsqueeze(-1)  # [b, T, 1]
         expression = torch.bmm(expression_T, attention)
 
         return expression.view(b, 4, 512)  # shape: [b, 4, 512]

@@ -922,6 +922,7 @@ class TagesschauAudioDataset(Dataset):
                  paths,
                  load_img=True,
                  load_latent=False,
+                 load_3ddfa=False,
                  T=8,
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
@@ -931,6 +932,7 @@ class TagesschauAudioDataset(Dataset):
         super().__init__()
         self.load_img = load_img
         self.load_latent = load_latent
+        self.load_3ddfa = load_3ddfa
         self.normalize = normalize
         self.mean = mean
         self.std = std
@@ -952,45 +954,49 @@ class TagesschauAudioDataset(Dataset):
         return self.len_dataset if self.len_dataset else len(self.paths)
 
     def __getitem__(self, indices):
-        audio_inds = indices[:-1]
-        input_ind = indices[-1]
-        target_ind = indices[self.T // 2]
+        paths = [self.paths[i] for i in indices]
+        audio_paths = paths[:-1]
+        input_path = paths[-1]
+        target_path = paths[self.T // 2]
 
-        video = '/'.join(self.paths[input_ind].split('/')[:-1]) + '/'
+        video = '/'.join(input_path.split('/')[:-1]) + '/'
 
         # Load audio
         audio = []
-        for i in audio_inds:
+        for p in audio_paths:
             audio.append(torch.tensor(
-                np.load(self.paths[i] + '.deepspeech.npy'), dtype=torch.float32))
+                np.load(p + '.deepspeech.npy'), dtype=torch.float32))
         audio = torch.stack(audio, dim=0)
 
         # Load images
         if self.load_img:
-            input_img = self.t(Image.open(self.paths[input_ind] + '.png'))
-            target_img = self.t(Image.open(self.paths[target_ind] + '.png'))
+            target_img = self.t(Image.open(target_path + '.png'))
         else:
             target_img = torch.tensor(0.)
-            input_img = torch.tensor(0.)
 
         # Load latents
         if self.load_latent:
             input_latent = torch.load(video + 'mean.latent.pt')
             # input_latent = torch.load(video + '00001.latent.pt')
-            # input_latent = torch.load(self.paths[input_ind] + ".latent.pt")
-            target_latent = torch.load(self.paths[target_ind] + ".latent.pt")
+            # input_latent = torch.load(input_path + ".latent.pt")
+            target_latent = torch.load(target_path + ".latent.pt")
         else:
             target_latent = torch.tensor(0.)
             input_latent = torch.tensor(0.)
 
+        if self.load_3ddfa:
+            target_param = torch.load(target_path + '.3ddfa.pt')
+        else:
+            target_param = torch.tensor(0.)
+
         return {
             'audio': audio,
-            'input_img': input_img,
             'target_img': target_img,
             'input_latent': input_latent,
             'target_latent': target_latent,
+            'target_param': target_param,
             'indices': indices,
-            'path': video + str(target_ind).zfill(5)
+            'paths': paths
         }
 
 
@@ -1354,7 +1360,7 @@ class RandomSequenceSampler(Sampler):
 class RandomTagesschauAudioSampler(Sampler):
     """
     Samples batches of sequential indices of length T + 1 (last index is for
-    random input frame). 
+    random input frame).
     If weighted, the probability a video is chosen depends on its length.
 
     example usage:

@@ -30,6 +30,7 @@ import time
 import torch
 
 from azure.cognitiveservices.vision.face import FaceClient
+from dreiDDFA.model import dreiDDFA
 from glob import glob
 from msrest.authentication import CognitiveServicesCredentials
 from multiprocessing import Process
@@ -1807,6 +1808,46 @@ def get_landmarks(root_path, group):
 
                 # Save
                 torch.save(landmarks, save_path)
+
+
+def get_3ddfa_params(root_path):
+    device = 'cuda'
+
+    model = dreiDDFA().to(device)
+
+    videos = sorted(glob(root_path + '*/'))
+    frames = [sorted(glob(v + '*.png')) for v in videos]
+    frames = [item for sublist in frames for item in sublist]
+
+    t = transforms.ToTensor()
+
+    for frame in tqdm(frames):
+        save_path = frame.split('.')[0] + '.3ddfa.pt'
+        if os.path.exists(save_path):
+            continue
+
+        img = t(Image.open(frame)).unsqueeze(0).to(device)
+        res = model.predict_param(img)
+        if res is None:
+            print(f"No face detected in {frame}")
+            continue
+
+        params = {
+            'param': res['param'][0].cpu(),
+            'roi_box': res['roi_boxes']
+        }
+
+        # Visualize
+        # print(params['param'].shape)
+        # print(params['roi_box'])
+        # print(save_path)
+        # from dreiDDFA.ddfa_utils import draw_landmarks
+        # landmarks = model.reconstruct_vertices(res['param'], res['roi_boxes'], dense=False)
+        # draw_landmarks(img[0].cpu(), landmarks[0].cpu(), show_flg=True)
+        # 1 / 0
+
+        # Save
+        torch.save(params, save_path)
 
 
 if __name__ == "__main__":
