@@ -1287,10 +1287,10 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
 def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
     if root_path[-1] != '/':
         root_path += '/'
-    # videos = glob(root_path + 'TV*/')
     videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/')
     # videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/') + glob(root_path + 'yt*/')
     # videos = glob(root_path + 'yt*/')
+    # videos = glob(root_path + 'ff*/')
     # videos = glob(root_path + '*/')
     random.shuffle(videos)
     split = int(len(videos) * train_split)

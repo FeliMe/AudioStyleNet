@@ -46,7 +46,7 @@ def crop_img(img, roi_box):
 
     sx, sy, ex, ey = [int(round(_)) for _ in roi_box]
     dh, dw = ey - sy, ex - sx
-    res = torch.zeros((3, dh, dw), dtype=torch.float32)
+    res = torch.zeros((3, dh, dw), dtype=torch.float32, device=img.device)
     if sx < 0:
         sx, dsx = 0, -sx
     else:
@@ -76,11 +76,11 @@ def predict_vertices(param, roi_bbox, dense):
     sx, sy, ex, ey = roi_bbox
     scale_x = (ex - sx) / 120
     scale_y = (ey - sy) / 120
-    vertex[:, 0, :] = vertex[:, 0, :] * scale_x + sx
-    vertex[:, 1, :] = vertex[:, 1, :] * scale_y + sy
+    vertex[:, :, 0] = vertex[:, :, 0] * scale_x + sx
+    vertex[:, :, 1] = vertex[:, :, 1] * scale_y + sy
 
     s = (scale_x + scale_y) / 2
-    vertex[:, 2, :] *= s
+    vertex[:, :, 2] *= s
 
     return vertex
 
@@ -115,7 +115,7 @@ def reconstruct_vertex(param, whitening=True, dense=False, transform=True):
             # transform to image coordinate space
             vertex[:, 1, :] = std_size + 1 - vertex[:, 1, :]
 
-    return vertex
+    return vertex.transpose(2, 1)
 
 
 def _parse_param(param):
@@ -151,8 +151,9 @@ def P2sRt(P):
     t3d = P[:, :, 3]
     R1 = P[:, 0:1, :3]
     R2 = P[:, 1:2, :3]
-    norm_R1 = torch.norm(R1, dim=(1, 2))
-    norm_R2 = torch.norm(R2, dim=(1, 2))
+    # pass p=2 because of bug https://github.com/pytorch/pytorch/issues/30704#issuecomment-594299501
+    norm_R1 = torch.norm(R1, dim=(1, 2), keepdim=True, p=2)
+    norm_R2 = torch.norm(R2, dim=(1, 2), keepdim=True, p=2)
     s = (norm_R1 + norm_R2) / 2.0
     r1 = R1 / norm_R1
     r2 = R2 / norm_R2
@@ -184,18 +185,24 @@ def matrix2angle(R):
     return x, y, z
 
 
-def plot_pointcloud(points, title=""):
+def plot_pointclouds(points, title=""):
     import matplotlib.pyplot as plt
     from mpl_toolkits.mplot3d import Axes3D
-    x, y, z = points.unbind(0)
+    if not type(points) is list:
+        points = [points]
+    coords = [point.unbind(1) for point in points]
     fig = plt.figure(figsize=(5, 5))
     ax = Axes3D(fig)
-    ax.scatter3D(x, -z, y)
+    for (x, y, z) in coords:
+        ax.scatter3D(x, -z, y)
     ax.set_xlabel('x')
     ax.set_ylabel('z')
     ax.set_zlabel('y')
     ax.set_title(title)
     ax.view_init(180, 90)
+    ax.set_xlim(0, 256)
+    ax.set_ylim(0, 256)
+    ax.set_zlim(0, 256)
     plt.show()
 
 
@@ -203,14 +210,14 @@ def plot_vertices(image, vertices):
     import cv2
     image = (image.numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
     vertices = np.round(vertices.numpy()).astype(np.int32)
-    for i in range(0, vertices.shape[1], 2):
-        st = vertices[:2, i]
+    for i in range(0, vertices.shape[0], 2):
+        st = vertices[i, :2]
         image = cv2.circle(image, (st[0], st[1]), 1, (255, 0, 0), -1)
     cv2.imshow("", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
     cv2.waitKey(0)
 
 
-def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=False, **kwargs):
+def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=True, **kwargs):
     """Draw landmarks using matplotlib"""
     import matplotlib.pyplot as plt
     # To numpy image
@@ -224,7 +231,7 @@ def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=False, **kwargs):
     plt.axis('off')
 
     if style == 'simple':
-        plt.plot(pts[0, :], pts[1, :], 'o', markersize=4, color='g')
+        plt.plot(pts[:, 0], pts[:, 1], 'o', markersize=4, color='g')
 
     elif style == 'fancy':
         alpha = 0.8
@@ -236,7 +243,7 @@ def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=False, **kwargs):
         nums = [0, 17, 22, 27, 31, 36, 42, 48, 60, 68]
 
         # close eyes and mouths
-        def plot_close(i1, i2): return plt.plot([pts[0, i1], pts[0, i2]], [pts[1, i1], pts[1, i2]],
+        def plot_close(i1, i2): return plt.plot([pts[i1, 0], pts[i2, 0]], [pts[i1, 1], pts[i2, 1]],
                                                 color=color, lw=lw, alpha=alpha - 0.1)
         plot_close(41, 36)
         plot_close(47, 42)
@@ -245,10 +252,10 @@ def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=False, **kwargs):
 
         for ind in range(len(nums) - 1):
             l, r = nums[ind], nums[ind + 1]
-            plt.plot(pts[0, l:r], pts[1, l:r],
+            plt.plot(pts[l:r, 0], pts[l:r, 1],
                      color=color, lw=lw, alpha=alpha - 0.1)
 
-            plt.plot(pts[0, l:r], pts[1, l:r], marker='o', linestyle='None', markersize=markersize,
+            plt.plot(pts[l:r, 0], pts[l:r, 1], marker='o', linestyle='None', markersize=markersize,
                      color=color,
                      markeredgecolor=markeredgecolor, alpha=alpha)
 

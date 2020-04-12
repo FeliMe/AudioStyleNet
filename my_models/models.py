@@ -188,25 +188,6 @@ class AudioExpressionNet2(nn.Module):
             nn.Softmax(dim=1)
         )
 
-        # self.attentionNet = nn.Sequential(
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
-        #     nn.LeakyReLU(0.02),
-        #     # nn.AdaptiveAvgPool1d(1),
-        #     nn.Flatten(),
-        #     nn.Linear(T, T),
-        #     nn.Softmax(dim=1)
-        # )
-
     def forward(self, audio, latent):
         # input shape: [b, T, 16, 29]
         b = audio.shape[0]
@@ -243,26 +224,27 @@ class AudioExpressionNet3(nn.Module):
             for param in layer.parameters():
                 param.requires_grad = False
 
-        self.T = T
         self.expression_dim = 4 * 512
+        self.T = T
 
         self.convNet = nn.Sequential(
             # model_utils.MultiplicativeGaussianNoise1d(base=1.4),
-            nn.Conv1d(29, 32, 3, stride=2, padding=1),  # 29 x 16 => 32 x 8
-            nn.LeakyReLU(0.02, True),
+            nn.Conv1d(29, 32, 3, stride=2, padding=1),  # [b, 32, 8]
+            nn.LeakyReLU(0.02),
             # model_utils.MultiplicativeGaussianNoise1d(base=1.4),
-            nn.Conv1d(32, 32, 3, stride=2, padding=1),  # 32 x 8 => 32 x 4
-            nn.LeakyReLU(0.02, True),
+            nn.Conv1d(32, 32, 3, stride=2, padding=1),  # [b, 32, 4]
+            nn.LeakyReLU(0.02),
             # model_utils.MultiplicativeGaussianNoise1d(base=1.4),
-            nn.Conv1d(32, 64, 3, stride=2, padding=1),  # 32 x 4 => 64 x 2
-            nn.LeakyReLU(0.2, True),
+            nn.Conv1d(32, 64, 3, stride=2, padding=1),  # [b, 64, 2]
+            nn.LeakyReLU(0.02),
             # model_utils.MultiplicativeGaussianNoise1d(base=1.4),
-            nn.Conv1d(64, 64, 3, stride=2, padding=1),  # 64 x 2 => 64 x 1
-            nn.LeakyReLU(0.2, True),
+            nn.Conv1d(64, 64, 3, stride=2, padding=1),  # [b, 64, 1]
+            nn.LeakyReLU(0.02),
         )
 
         # Load pre-trained convNet
-        self.load_convNet_weights()
+        self.convNet.load_state_dict(torch.load(
+            'saves/pre-trained/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
@@ -272,7 +254,8 @@ class AudioExpressionNet3(nn.Module):
 
         self.fc1 = nn.Linear(64, 128)
         self.adain1 = model_utils.LinearAdaIN(latent_dim, 128)
-        self.fc2 = nn.Linear(128, pca_dim)
+        self.fc2 = nn.Linear(128, 256)
+        self.fc3 = nn.Linear(256, pca_dim)
         self.fc_out = nn.Linear(pca_dim, self.expression_dim)
 
         # Init fc_out with 512 precomputed pac components
@@ -305,25 +288,6 @@ class AudioExpressionNet3(nn.Module):
             nn.Softmax(dim=1)
         )
 
-        # self.attentionNet = nn.Sequential(
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 512]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 128]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 32]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 8]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 5, stride=4, padding=2),  # [b, 8, 2]
-        #     nn.LeakyReLU(0.02),
-        #     nn.Conv1d(T, T, 2, stride=1, padding=0),  # [b, 8, 1]
-        #     nn.LeakyReLU(0.02),
-        #     # nn.AdaptiveAvgPool1d(1),
-        #     nn.Flatten(),
-        #     nn.Linear(T, T),
-        #     nn.Softmax(dim=1)
-        # )
-
     def load_convNet_weights(self):
         self.convNet.load_state_dict(torch.load(
             'saves/pre-trained/audio2expression_convNet_justus.pt'))
@@ -346,7 +310,8 @@ class AudioExpressionNet3(nn.Module):
         conv_res = conv_res.transpose(0, 1)  # [T, b, 1, 64]
         for t in conv_res:
             z_ = F.leaky_relu(self.adain1(self.fc1(t), latent), 0.02)
-            z_ = self.fc2(z_)
+            z_ = F.leaky_relu(self.fc2(z_))
+            z_ = self.fc3(z_)
             expression.append(self.fc_out(z_))
         expression = torch.stack(expression, dim=1)  # [b, T, expression_dim]
 

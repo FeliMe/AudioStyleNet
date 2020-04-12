@@ -1,3 +1,4 @@
+import dreiDDFA.ddfa_utils as d_utils
 import dlib
 import numpy as np
 import pickle
@@ -7,13 +8,14 @@ import torch.nn.functional as F
 
 from dreiDDFA.mobilenet_v1 import pretrained_model
 from math import sqrt
-from torchvision import transforms
 from os import path as osp
 
 
 class dreiDDFA(nn.Module):
-    def __init__(self):
+    def __init__(self, dense):
         super(dreiDDFA, self).__init__()
+
+        self.dense = dense
 
         # 1. load pre-tained model
         self.model = pretrained_model()
@@ -29,6 +31,9 @@ class dreiDDFA(nn.Module):
 
         # 3. Init params
         self.init_params()
+
+        # Select plot_fn
+        self.plot_fn = d_utils.plot_vertices if dense else d_utils.draw_landmarks
 
     def init_params(self):
         def _get_suffix(filename):
@@ -65,71 +70,6 @@ class dreiDDFA(nn.Module):
         self.register_buffer('w_exp_base', self.w_exp[:, self.keypoints])
         self.std_size = 120
 
-    @staticmethod
-    def parse_roi_box_from_landmark(pts):
-        """calc roi box from landmark"""
-        bbox = [min(pts[0, :]), min(pts[1, :]), max(pts[0, :]), max(pts[1, :])]
-        center = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2]
-        radius = max(bbox[2] - bbox[0], bbox[3] - bbox[1]) / 2
-        bbox = [center[0] - radius, center[1] - radius,
-                center[0] + radius, center[1] + radius]
-
-        llength = sqrt((bbox[2] - bbox[0]) ** 2 + (bbox[3] - bbox[1]) ** 2)
-        center_x = (bbox[2] + bbox[0]) / 2
-        center_y = (bbox[3] + bbox[1]) / 2
-
-        roi_box = [0] * 4
-        roi_box[0] = center_x - llength / 2
-        roi_box[1] = center_y - llength / 2
-        roi_box[2] = roi_box[0] + llength
-        roi_box[3] = roi_box[1] + llength
-
-        return roi_box
-
-    @staticmethod
-    def parse_roi_box_from_bbox(bbox):
-        left, top, right, bottom = bbox
-        old_size = (right - left + bottom - top) / 2
-        center_x = right - (right - left) / 2.0
-        center_y = bottom - (bottom - top) / 2.0 + old_size * 0.14
-        size = int(old_size * 1.58)
-        roi_box = [0] * 4
-        roi_box[0] = center_x - size / 2
-        roi_box[1] = center_y - size / 2
-        roi_box[2] = roi_box[0] + size
-        roi_box[3] = roi_box[1] + size
-        return roi_box
-
-    @staticmethod
-    def crop_img(img, roi_box):
-        h, w = img.shape[1:]
-
-        sx, sy, ex, ey = [int(round(_)) for _ in roi_box]
-        dh, dw = ey - sy, ex - sx
-        res = torch.zeros((3, dh, dw), dtype=torch.float32, device=img.device)
-        if sx < 0:
-            sx, dsx = 0, -sx
-        else:
-            dsx = 0
-
-        if ex > w:
-            ex, dex = w, dw - (ex - w)
-        else:
-            dex = dw
-
-        if sy < 0:
-            sy, dsy = 0, -sy
-        else:
-            dsy = 0
-
-        if ey > h:
-            ey, dey = h, dh - (ey - h)
-        else:
-            dey = dh
-
-        res[:, dsy:dey, dsx:dex] = img[:, sy:ey, sx:ex]
-        return res
-
     def get_roi(self, img_torch):
         img_np = (img_torch.detach().cpu().numpy().transpose(0, 2, 3, 1) * 255).astype(np.uint8)
 
@@ -144,7 +84,7 @@ class dreiDDFA(nn.Module):
             # Get region of interest
             pts = self.face_regressor(img, rect).parts()
             pts = np.array([[pt.x, pt.y] for pt in pts]).T
-            roi_box = self.parse_roi_box_from_landmark(pts)
+            roi_box = d_utils.parse_roi_box_from_landmark(pts)
             roi_boxes.append(roi_box)
 
         return roi_boxes
@@ -155,11 +95,11 @@ class dreiDDFA(nn.Module):
             sx, sy, ex, ey = roi_bbox[i]
             scale_x = (ex - sx) / 120
             scale_y = (ey - sy) / 120
-            vertex[i, 0, :] = vertex[i, 0, :] * scale_x + sx
-            vertex[i, 1, :] = vertex[i, 1, :] * scale_y + sy
+            vertex[i, :, 0] = vertex[i, :, 0] * scale_x + sx
+            vertex[i, :, 1] = vertex[i, :, 1] * scale_y + sy
 
             s = (scale_x + scale_y) / 2
-            vertex[i, 2, :] *= s
+            vertex[i, :, 2] *= s
 
         return vertex
 
@@ -175,7 +115,7 @@ class dreiDDFA(nn.Module):
         if whitening:
             param = param * self.param_std + self.param_mean
 
-        p, offset, alpha_shp, alpha_exp = self._parse_param(param)
+        p, offset, alpha_shp, alpha_exp = d_utils._parse_param(param)
 
         if dense:
             vertex = p @ (self.u + self.w_shp @ alpha_shp + self.w_exp @
@@ -187,33 +127,23 @@ class dreiDDFA(nn.Module):
         else:
             """For 68 pts"""
             vertex = p @ (self.u_base + self.w_shp_base @ alpha_shp + self.w_exp_base @
-                          alpha_exp).view(-1, 3).transpose(1, 0) + offset
+                          alpha_exp).view(b, -1, 3).transpose(2, 1) + offset
 
             if transform:
                 # transform to image coordinate space
                 vertex[:, 1, :] = self.std_size + 1 - vertex[:, 1, :]
 
-        return vertex
-
-    @staticmethod
-    def _parse_param(param):
-        b = param.shape[0]
-        p_ = param[:, :12].view(b, 3, -1)
-        p = p_[:, :, :3]
-        offset = p_[:, :, -1].view(b, 3, 1)
-        alpha_shp = param[:, 12:52].view(b, -1, 1)
-        alpha_exp = param[:, 52:].view(b, -1, 1)
-        return p, offset, alpha_shp, alpha_exp
+        return vertex.transpose(2, 1)
 
     def parse_pose(self, param):
         b = param.shape[0]
         param = param * self.param_std + self.param_mean
         Ps = param[:, :12].view(b, 3, -1)  # camera matrix
-        s, R, t3d = self.P2sRt(Ps)
-        P = torch.cat((R, t3d.view(b, 3, -1)), dim=2)  # without scale
+        s, R, t3d = d_utils.P2sRt(Ps)
+        # P = torch.cat((R, t3d.view(b, 3, -1)), dim=2)  # without scale
         # P = Ps / s
-        pose = self.matrix2angle(R)  # yaw, pitch, roll
-        return P, pose
+        # pose = d_utils.matrix2angle(R)  # yaw, pitch, roll
+        return R.transpose(2, 1), t3d.view(b, 1, 3)
 
     def predict_param(self, image):
         assert len(image.shape) == 4, "3DDFA model accepts only input of shape NCHW"
@@ -224,7 +154,7 @@ class dreiDDFA(nn.Module):
             return None
 
         # Crop images
-        img_crop = [self.crop_img(img, box) for img, box in zip(image, roi_boxes)]
+        img_crop = [d_utils.crop_img(img, box) for img, box in zip(image, roi_boxes)]
 
         # Resize images
         img_crop = torch.cat([F.interpolate(img.unsqueeze(
@@ -243,13 +173,12 @@ class dreiDDFA(nn.Module):
 
         # Forward
         vertices = self.reconstruct_vertices(
-            param_dict['param'], param_dict['roi_box'], dense=True)
+            param_dict['param'], param_dict['roi_box'], dense=self.dense)
 
         param_dict['vertices'] = vertices
 
-        # from dreiDDFA.ddfa_utils import plot_vertices, draw_landmarks
-        # plot_vertices(image[0].detach().cpu(), vertices[0].detach().cpu())
-        # draw_landmarks(image[0].detach().cpu(),
-        #                landmarks[0].detach().cpu(), show_flg=True)
+        # Visualize
+        # self.plot_fn(image[0].detach().cpu(), vertices[0].detach().cpu())
+        # 1 / 0
 
         return param_dict

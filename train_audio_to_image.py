@@ -10,7 +10,6 @@ from dreiDDFA.landmarks_loss import LandmarksLoss
 from glob import glob
 from lpips import PerceptualLoss
 from my_models import models, style_gan_2
-from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image, make_grid
 from tqdm import tqdm
@@ -39,7 +38,7 @@ class Solver:
             param.requires_grad = False
 
         # Define audio encoder
-        self.audio_encoder = models.AudioExpressionNet2(args.T).to(self.device).train()
+        self.audio_encoder = models.AudioExpressionNet3(args.T).to(self.device).train()
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -60,7 +59,8 @@ class Solver:
         # self.lpips = PerceptualLoss(model='net-lin', net='vgg')
 
         if args.landmarks_loss_weight:
-            self.lm_loss_fn = LandmarksLoss(dense=False, mean=0.5, std=0.5).to(self.device)
+            self.lm_loss_fn = LandmarksLoss(
+                dense=True, img_mean=0.5, img_std=0.5).to(self.device)
 
         # Loss weighting vector
         # self.latent_loss_mask = torch.load(
@@ -111,7 +111,7 @@ class Solver:
         target_param = {}
         if type(batch['target_param']) is dict:
             target_param['param'] = batch['target_param']['param'].to(self.device)
-            target_param['roi_box'] = [l.tolist() for l in batch['target_param']['roi_box'][0]]
+            target_param['roi_box'] = torch.stack(batch['target_param']['roi_box'][0]).T
         return audio, input_latent, target_latent, target_img, target_param
 
     def forward(self, audio, input_latent):
@@ -123,9 +123,9 @@ class Solver:
         return prediction
 
     def get_loss(self, pred, target_latent, target_image, target_param, validate=False):
-        mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
-        # mse = mse * self.latent_loss_mask
-        mse = mse.mean()
+        latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
+        # latent_mse = latent_mse * self.latent_loss_mask
+        latent_mse = latent_mse.mean()
 
         if self.args.train_mode == 'image':
             # Reconstruct image
@@ -133,9 +133,9 @@ class Solver:
             img_pred = utils.downsample_256(img_pred)
 
             # L1 loss
-            p_loss = F.l1_loss(img_pred, target_image, reduction='none')
-            p_loss *= self.image_mask
-            p_loss = p_loss.sum() / self.image_mask.sum()
+            l1_loss = F.l1_loss(img_pred, target_image, reduction='none')
+            l1_loss *= self.image_mask
+            l1_loss = l1_loss.sum() / self.image_mask.sum()
 
             # from torchvision import transforms
             # transforms.ToPILImage('RGB')(make_grid(img_pred.cpu(), normalize=True, range=(-1, 1))).show()
@@ -148,13 +148,14 @@ class Solver:
             else:
                 lm_loss = torch.tensor(0.)
         else:
-            p_loss = torch.tensor(0.)
+            l1_loss = torch.tensor(0.)
             lm_loss = torch.tensor(0.)
 
-        loss = self.args.latent_loss_weight * mse + self.args.photometric_loss_weight * \
-            p_loss + self.args.landmarks_loss_weight * lm_loss
+        loss = self.args.latent_loss_weight * latent_mse + self.args.photometric_loss_weight * \
+            l1_loss + self.args.landmarks_loss_weight * lm_loss
 
-        return {'loss': loss, 'mse': mse, 'photometric': p_loss, 'landmarks': lm_loss}
+        # print(f"Loss {loss.item():.4f}, latent_mse {latent_mse.item() * self.args.latent_loss_weight:.4f}, image_l1 {l1_loss.item() * self.args.photometric_loss_weight:.4f}, lm {lm_loss.item() * self.args.landmarks_loss_weight:.4f}")
+        return {'loss': loss, 'latent_mse': latent_mse, 'image_l1': l1_loss, 'landmarks': lm_loss}
 
     @staticmethod
     def _reset_loss_dict(loss_dict):
@@ -167,9 +168,10 @@ class Solver:
         pbar = tqdm(total=n_iters)
         i_iter = 0
         pbar_avg_train_loss = 0.
+        val_loss = 0.
         loss_dict_train = {
-            'mse': 0.,
-            'photometric': 0.,
+            'latent_mse': 0.,
+            'image_l1': 0.,
             'loss': 0.,
             'landmarks': 0.
         }
@@ -251,8 +253,8 @@ class Solver:
     def validate(self, data_loaders):
         loss_dict = {
             'loss': 0.,
-            'mse': 0.,
-            'photometric': 0.,
+            'latent_mse': 0.,
+            'image_l1': 0.,
             'landmarks': 0.
         }
         for batch in data_loaders['val']:
@@ -321,7 +323,7 @@ class Solver:
         target_latents = torch.stack([torch.load(p) for p in target_latent_paths]).to(self.device)
 
         pbar = tqdm(total=len(target_latents))
-        avg_loss = 0.
+        # avg_loss = 0.
 
         tmp_dir = self.args.save_dir + '.temp/'
         os.makedirs(tmp_dir, exist_ok=True)
@@ -390,15 +392,15 @@ if __name__ == '__main__':
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)
     parser.add_argument('--photometric_loss_weight', type=float, default=2.)
-    parser.add_argument('--landmarks_loss_weight', type=float, default=.25)
+    parser.add_argument('--landmarks_loss_weight', type=float, default=0.)  # .02
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=100000)
-    parser.add_argument('--update_pbar_every', type=int, default=10)  # 1000
+    parser.add_argument('--n_iters', type=int, default=20000)
+    parser.add_argument('--update_pbar_every', type=int, default=100)  # 1000
     parser.add_argument('--log_train_every', type=int, default=100)  # 1000
     parser.add_argument('--log_val_every', type=int, default=100)  # 1000
-    parser.add_argument('--save_every', type=int, default=1000)  # 100000
-    parser.add_argument('--eval_every', type=int, default=1000)  # 10000
+    parser.add_argument('--save_every', type=int, default=5000)  # 100000
+    parser.add_argument('--eval_every', type=int, default=5000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
