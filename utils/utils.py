@@ -19,7 +19,7 @@ from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
-from typing import Union, Optional, Dict, Iterable, Any, Callable, List
+from typing import Union, Dict, Any
 
 HOME = os.path.expanduser('~')
 
@@ -353,6 +353,8 @@ class FaceMaskPredictor:
 
 
 def decode_sentence(path_to_sentence, save_dir, max_frames=None):
+    from glob import glob
+    from torchvision.utils import save_image
     # device must be cuda
     device = 'cuda'
 
@@ -851,8 +853,8 @@ class VideoAligner:
                 break
             self.i_frame += 1
             pbar.update()
-            save_path = os.path.join(
-                save_dir, str(self.i_frame).zfill(5) + '.png')
+            name = str(self.i_frame).zfill(5) + '.png'
+            save_path = os.path.join(save_dir, name)
 
             # Pre-resize to save computation
             h_old, w_old, _ = frame.shape
@@ -870,24 +872,24 @@ class VideoAligner:
                 print(
                     f"Did not detect a face in {self.i_frame}, resetting aligner")
                 self.reset()
-            for rect in rects:
-                landmarks = [(int(item.x / factor), int(item.y / factor))
-                             for item in self.predictor(gray_small, rect).parts()]
-                frame = self.align_image(
-                    frame,
-                    landmarks,
-                    output_size=256,
-                    transform_size=1024
-                )
+                continue
+            rect = rects[0]
+            landmarks = [(int(item.x / factor), int(item.y / factor))
+                         for item in self.predictor(gray_small, rect).parts()]
+            frame = self.align_image(
+                frame,
+                landmarks,
+                output_size=256,
+                transform_size=1024
+            )
 
-                # Visualize
-                # print(save_path)
-                # frame.show()
-                # 1 / 0
+            # Visualize
+            # print(save_path)
+            # frame.show()
+            # 1 / 0
 
-                # Save
-                frame.save(save_path)
-                break
+            # Save
+            frame.save(save_path)
 
 
 def download_file_from_google_drive(id, destination):

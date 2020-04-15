@@ -399,7 +399,7 @@ class AdaIN(nn.Module):
         # Apply transform
         style = self.lin(latent)  # style => [batch_size, n_channels*2]
         style = style.view((-1, 2, self.channels, 1, 1))
-        x = x * (style[:, 0] + 1.) + style[:, 1]
+        x.mul_(style[:, 0] + 1.).add_(style[:, 1])
 
         return x
 
@@ -494,6 +494,29 @@ class MultiplicativeGaussianNoise1d(nn.Module):
             b, c = x.shape[:2]
             sampled_noise = torch.pow(
                 self.base, self.noise.repeat(b, c, 1).normal_())
+            x = x * sampled_noise
+        return x
+
+
+class MultiplicativeGaussianNoise2d(nn.Module):
+    """
+    Multiplies each input channel with random noise with base and gaussian
+    noise as exponent.
+
+    args:
+        base (float, required): base for the pow operation
+    """
+
+    def __init__(self, base):
+        super().__init__()
+        self.base = base
+        self.register_buffer('noise', torch.zeros((1, 1, 1, 1)))
+
+    def forward(self, x):
+        if self.training and self.base != 0:
+            b, c = x.shape[:2]
+            sampled_noise = torch.pow(
+                self.base, self.noise.repeat(b, c, 1, 1).normal_())
             x = x * sampled_noise
         return x
 

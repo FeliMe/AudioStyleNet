@@ -288,10 +288,6 @@ class AudioExpressionNet3(nn.Module):
             nn.Softmax(dim=1)
         )
 
-    def load_convNet_weights(self):
-        self.convNet.load_state_dict(torch.load(
-            'saves/pre-trained/audio2expression_convNet_justus.pt'))
-
     def forward(self, audio, latent):
         # input shape: [b, T, 16, 29]
         b = audio.shape[0]
@@ -317,10 +313,105 @@ class AudioExpressionNet3(nn.Module):
 
         # expression = expression[:, (self.T // 2):(self.T // 2) + 1]
 
-        expression_T = expression.transpose(1, 2)  # [b, expression_dim, T]
-        attention = self.attentionNet(expression_T).unsqueeze(-1)  # [b, T, 1]
-        # attention = self.attentionNet(expression).unsqueeze(-1)  # [b, T, 1]
-        expression = torch.bmm(expression_T, attention)
+        if self.T > 1:
+            expression_T = expression.transpose(1, 2)  # [b, expression_dim, T]
+            attention = self.attentionNet(expression_T).unsqueeze(-1)  # [b, T, 1]
+            expression = torch.bmm(expression_T, attention)
+
+        return expression.view(b, 4, 512)  # shape: [b, 4, 512]
+
+
+class AudioExpressionNet4(nn.Module):
+    def __init__(self, T):
+        super(AudioExpressionNet4, self).__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        self.expression_dim = 4 * 512
+        self.T = 1
+
+        self.formantNet = nn.Sequential(
+            model_utils.MultiplicativeGaussianNoise2d(base=1.4),
+            nn.Conv2d(1, 72, (1, 3), stride=(1, 2), padding=(0, 1)),  # [b, 72, 64, 16]
+            nn.ReLU(),
+            model_utils.MultiplicativeGaussianNoise2d(base=1.4),
+            nn.Conv2d(72, 108, (1, 3), stride=(1, 2), padding=(0, 1)),  # [b, 108, 64, 8]
+            nn.ReLU(),
+            model_utils.MultiplicativeGaussianNoise2d(base=1.4),
+            nn.Conv2d(108, 162, (1, 3), stride=(1, 2), padding=(0, 1)),  # [b, 162, 64, 4]
+            nn.ReLU(),
+            model_utils.MultiplicativeGaussianNoise2d(base=1.4),
+            nn.Conv2d(162, 243, (1, 3), stride=(1, 2), padding=(0, 1)),  # [b, 243, 64, 2]
+            nn.ReLU(),
+            model_utils.MultiplicativeGaussianNoise2d(base=1.4),
+            nn.Conv2d(243, 256, (1, 3), stride=(1, 2), padding=(0, 1)),  # [b, 256, 64, 1]
+            nn.ReLU(),
+        )
+
+        latent_dim = 128
+        self.latent_in = nn.Linear(4 * 512, latent_dim)
+
+        # Articulation Network
+        self.artinoise1 = model_utils.MultiplicativeGaussianNoise2d(base=1.4)
+        self.articonv1 = nn.Conv2d(256, 256, (3, 1), stride=(2, 1), padding=(1, 0))  # [b, 256, 32, 1]
+        self.artinorm1 = model_utils.AdaIN(latent_dim, 256)
+        self.artinoise2 = model_utils.MultiplicativeGaussianNoise2d(base=1.4)
+        self.articonv2 = nn.Conv2d(256, 256, (3, 1), stride=(2, 1), padding=(1, 0))  # [b, 256, 16, 1]
+        self.artinorm2 = model_utils.AdaIN(latent_dim, 256)
+        self.artinoise3 = model_utils.MultiplicativeGaussianNoise2d(base=1.4)
+        self.articonv3 = nn.Conv2d(256, 256, (3, 1), stride=(2, 1), padding=(1, 0))  # [b, 256, 8, 1]
+        self.artinorm3 = model_utils.AdaIN(latent_dim, 256)
+        self.artinoise4 = model_utils.MultiplicativeGaussianNoise2d(base=1.4)
+        self.articonv4 = nn.Conv2d(256, 256, (3, 1), stride=(2, 1), padding=(1, 0))  # [b, 256, 4, 1]
+        self.artinorm4 = model_utils.AdaIN(latent_dim, 256)
+        self.artinoise5 = model_utils.MultiplicativeGaussianNoise2d(base=1.4)
+        self.articonv5 = nn.Conv2d(256, 256, (3, 1), stride=(4, 1), padding=(1, 0))  # [b, 256, 1, 1]
+        self.artinorm5 = model_utils.AdaIN(latent_dim, 256)
+
+        pca_dim = 512
+        self.fc1 = nn.Linear(256, pca_dim)
+        self.fc_out = nn.Linear(pca_dim, self.expression_dim)
+
+        # Init fc_out with 512 precomputed pac components
+        weight = torch.load(
+            'saves/pre-trained/audio_dataset_offset_to_mean_pca512.pt')[:pca_dim].T
+        with torch.no_grad():
+            self.fc_out.weight = nn.Parameter(weight)
+        # _set_requires_grad_false(self.fc_out)
+
+    def forward(self, audio, latent):
+        # input shape: [b, T, 64, 32]
+        b = audio.shape[0]
+        audio = audio.view(b * self.T, 1, 64, 32)  # [b, 1, 64, 32]
+
+        # Formant analysis network
+        conv_res = self.formantNet(audio)  # [b, 256, 64, 1]
+
+        # Articulation network
+        latent = self.latent_in(latent.clone().view(b, -1))
+        conv_res = self.artinoise1(conv_res)
+        conv_res = self.articonv1(conv_res)
+        conv_res = F.relu(self.artinorm1(conv_res, latent), inplace=True)
+        conv_res = self.artinoise2(conv_res)
+        conv_res = self.articonv2(conv_res)
+        conv_res = F.relu(self.artinorm2(conv_res, latent), inplace=True)
+        conv_res = self.artinoise3(conv_res)
+        conv_res = self.articonv3(conv_res)
+        conv_res = F.relu(self.artinorm3(conv_res, latent), inplace=True)
+        conv_res = self.artinoise4(conv_res)
+        conv_res = self.articonv4(conv_res)
+        conv_res = F.relu(self.artinorm4(conv_res, latent), inplace=True)
+        conv_res = self.artinoise5(conv_res)
+        conv_res = self.articonv5(conv_res)
+        conv_res = F.relu(self.artinorm5(conv_res, latent), inplace=True)
+        # [b, 256, 1, 1]
+
+        # Fully connected
+        conv_res = conv_res.view(b, -1)  # [b, 256]
+        expression = self.fc1(conv_res)
+        expression = self.fc_out(expression)
 
         return expression.view(b, 4, 512)  # shape: [b, 4, 512]
 

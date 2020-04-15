@@ -70,9 +70,10 @@ if __name__ == '__main__':
                                winstep=0.01, winlen=0.02, audio_window_size=0.64, fps=fps)
 
         # Visualize
-        # print(f"{save_dir} Audio length {(len(audio) / sr) * fps:.2f} frames")
-        # plot_mfcc(windows[32])
-        # break
+        print(f"{save_dir} Audio length {(len(audio) / sr) * fps:.2f} frames")
+        print(windows.shape, windows.min(), windows.max(), windows.mean())
+        plot_mfcc(windows[32])
+        break
 
         for i in range(len(windows)):
             save_path = save_dir + f"{str(i + 1).zfill(5)}.mfcc.npy"

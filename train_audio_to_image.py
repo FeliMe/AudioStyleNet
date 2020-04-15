@@ -38,7 +38,15 @@ class Solver:
             param.requires_grad = False
 
         # Define audio encoder
-        self.audio_encoder = models.AudioExpressionNet3(args.T).to(self.device).train()
+        if args.model_type == 'net2':
+            self.audio_encoder = models.AudioExpressionNet2(args.T).to(self.device).train()
+        elif args.model_type == 'net3':
+            self.audio_encoder = models.AudioExpressionNet3(args.T).to(self.device).train()
+        else:
+            raise NotImplementedError
+
+        if args.audio_type in ['mfcc', 'lpc']:
+            self.audio_encoder = models.AudioExpressionNet4(1).to(self.device).train()
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -62,18 +70,12 @@ class Solver:
             self.lm_loss_fn = LandmarksLoss(
                 dense=True, img_mean=0.5, img_std=0.5).to(self.device)
 
-        # Loss weighting vector
-        # self.latent_loss_mask = torch.load(
-        #     'saves/pre-trained/latent_4to8_std_avg.pt').unsqueeze(0).to(self.device)
-        d_wide = torch.load('saves/control_latent/directions/mouth_wide_4to8_sparse_c0_01.pt')
-        d_open = torch.load('saves/control_latent/directions/mouth_open_4to8_sparse_c0_01.pt')
-        d_mouth = (0.5 * (d_wide + d_open)).abs().to(device)
-        self.latent_loss_mask = (d_mouth * 50) + 1
-
         # Mouth mask for image
-        # self.image_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_max.pt').to(device)
-        # self.image_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_3std.pt').to(device)
-        self.image_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(device)
+        # mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_3std.pt').to(device)
+        mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(device)
+        # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(device)
+        self.image_mask = mouth_mask
+        # self.image_mask = (mouth_mask + eyes_mask).clamp(-1., 1.)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -124,7 +126,6 @@ class Solver:
 
     def get_loss(self, pred, target_latent, target_image, target_param, validate=False):
         latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
-        # latent_mse = latent_mse * self.latent_loss_mask
         latent_mse = latent_mse.mean()
 
         if self.args.train_mode == 'image':
@@ -137,9 +138,11 @@ class Solver:
             l1_loss *= self.image_mask
             l1_loss = l1_loss.sum() / self.image_mask.sum()
 
+            # Visualize
             # from torchvision import transforms
-            # transforms.ToPILImage('RGB')(make_grid(img_pred.cpu(), normalize=True, range=(-1, 1))).show()
-            # transforms.ToPILImage('RGB')(make_grid(target_image.cpu(), normalize=True, range=(-1, 1))).show()
+            # print(make_grid(img_pred[0].cpu(), normalize=True, range=(-1, 1)).shape, self.image_mask.shape)
+            # transforms.ToPILImage('RGB')(make_grid(img_pred[0].cpu(), normalize=True, range=(-1, 1)) * self.image_mask.cpu()).show()
+            # transforms.ToPILImage('RGB')(make_grid(target_image[0].cpu(), normalize=True, range=(-1, 1)) * self.image_mask.cpu()).show()
             # 1 / 0
 
             # Add landmarks loss
@@ -381,33 +384,35 @@ if __name__ == '__main__':
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
     parser.add_argument('--overfit', action='store_true')
-    parser.add_argument('--model_path', type=str, default=None)
 
     # Hparams
-    parser.add_argument('--batch_size', type=int, default=4)  # 128
-    parser.add_argument('--lr', type=int, default=0.0001)  # 0.0002
-    parser.add_argument('--T', type=int, default=8)
+    parser.add_argument('--batch_size', type=int, default=4)  # 4
+    parser.add_argument('--lr', type=int, default=0.0001)  # 0.0001
+    parser.add_argument('--T', type=int, default=8)  # 8
     parser.add_argument('--train_mode', type=str, default='image')  # 'latent' or 'image'
+    parser.add_argument('--max_frames_per_vid', type=int, default=2000)  # -1
+    parser.add_argument('--model_type', type=str, default='net3')  # 'net2' no identity 'net3' identity info
+    parser.add_argument('--audio_type', type=str, default='deepspeech')  # 'deepspeech', 'mfcc' or 'lpc'
 
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)
     parser.add_argument('--photometric_loss_weight', type=float, default=2.)
-    parser.add_argument('--landmarks_loss_weight', type=float, default=0.)  # .02
+    parser.add_argument('--landmarks_loss_weight', type=float, default=0.)  # .01
 
     # Logging args
     parser.add_argument('--n_iters', type=int, default=20000)
     parser.add_argument('--update_pbar_every', type=int, default=100)  # 1000
-    parser.add_argument('--log_train_every', type=int, default=100)  # 1000
-    parser.add_argument('--log_val_every', type=int, default=100)  # 1000
+    parser.add_argument('--log_train_every', type=int, default=200)  # 1000
+    parser.add_argument('--log_val_every', type=int, default=200)  # 1000
     parser.add_argument('--save_every', type=int, default=5000)  # 100000
     parser.add_argument('--eval_every', type=int, default=5000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
-    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256/')
-    parser.add_argument('--test_latent', type=str, default='saves/projected_images/obama.pt')
-    parser.add_argument('--test_sentence', type=str,
-                        default='/home/meissen/Datasets/Tagesschau/test_sentence_trump_deepspeech/')
+    parser.add_argument('--data_path', type=list, default=['/home/meissen/Datasets/AudioDataset/Aligned256/'])
+    parser.add_argument('--model_path', type=str, default=None)
+    parser.add_argument('--test_latent', type=str, default=None)
+    parser.add_argument('--test_sentence', type=str, default=None)
     args = parser.parse_args()
 
     if args.cont or args.test:
@@ -446,6 +451,7 @@ if __name__ == '__main__':
 
     train_ds = datasets.TagesschauAudioDataset(
         paths=train_paths,
+        audio_type=args.audio_type,
         load_img=args.train_mode == 'image',
         load_latent=True,
         load_3ddfa=(args.train_mode == 'image' and args.landmarks_loss_weight),
@@ -457,6 +463,7 @@ if __name__ == '__main__':
     )
     val_ds = datasets.TagesschauAudioDataset(
         paths=val_paths,
+        audio_type=args.audio_type,
         load_img=args.train_mode == 'image',
         load_latent=True,
         load_3ddfa=(args.train_mode == 'image' and args.landmarks_loss_weight),

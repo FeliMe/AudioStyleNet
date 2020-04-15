@@ -920,6 +920,7 @@ class TagesschauDataset(Dataset):
 class TagesschauAudioDataset(Dataset):
     def __init__(self,
                  paths,
+                 audio_type='deepspeech',
                  load_img=True,
                  load_latent=False,
                  load_3ddfa=False,
@@ -930,6 +931,7 @@ class TagesschauAudioDataset(Dataset):
                  image_size=256,
                  len_dataset=None):
         super().__init__()
+        self.audio_type = audio_type
         self.load_img = load_img
         self.load_latent = load_latent
         self.load_3ddfa = load_3ddfa
@@ -965,7 +967,7 @@ class TagesschauAudioDataset(Dataset):
         audio = []
         for p in audio_paths:
             audio.append(torch.tensor(
-                np.load(p + '.deepspeech.npy'), dtype=torch.float32))
+                np.load(f"{p}.{self.audio_type}.npy"), dtype=torch.float32))
         audio = torch.stack(audio, dim=0)
 
         # Load images
@@ -976,9 +978,8 @@ class TagesschauAudioDataset(Dataset):
 
         # Load latents
         if self.load_latent:
-            input_latent = torch.load(video + 'mean.latent.pt')
-            # input_latent = torch.load(video + '00001.latent.pt')
-            # input_latent = torch.load(input_path + ".latent.pt")
+            # input_latent = torch.load(video + 'mean.latent.pt')
+            input_latent = torch.load(input_path + ".latent.pt")
             target_latent = torch.load(target_path + ".latent.pt")
         else:
             target_latent = torch.tensor(0.)
@@ -1284,15 +1285,20 @@ def aff_wild_get_paths(root_path, flat=False, shuffled=False):
     return all_paths, annotations
 
 
-def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
-    if root_path[-1] != '/':
-        root_path += '/'
-    videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/')
-    # videos = glob(root_path + 'sequence*/') + glob(root_path + 'TV*/') + glob(root_path + 'yt*/')
-    # videos = glob(root_path + 'yt*/')
-    # videos = glob(root_path + 'ff*/')
-    # videos = glob(root_path + '*/')
+def tagesschau_get_paths(root_paths, train_split=1.0, max_frames_per_vid=-1):
+    # root_paths should be list of paths
+    if not type(root_paths) is list:
+        root_paths = [root_paths]
+
+    # Combine all videos to one list
+    videos = []
+    for root_path in root_paths:
+        videos += glob(root_path + '*/')
+
+    # Shuffle
     random.shuffle(videos)
+
+    # Split into train and validation
     split = int(len(videos) * train_split)
     train_videos = videos[:split]
     val_videos = videos[split:]
@@ -1300,6 +1306,7 @@ def tagesschau_get_paths(root_path, train_split=1.0, max_frames_per_vid=-1):
                    for v in train_videos]
     val_paths = [sorted([p.split('.')[0] for p in glob(v + '*.png')])[:max_frames_per_vid]
                  for v in val_videos]
+
     return train_paths, val_paths
 
 

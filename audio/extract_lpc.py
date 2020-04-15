@@ -4,6 +4,7 @@ import numpy as np
 import os
 import python_speech_features
 import torch
+import torchaudio
 
 from glob import glob
 from lpctorch import LPCCoefficients
@@ -14,6 +15,8 @@ from tqdm import tqdm
 
 def read_file(file, target_sr):
     sr, audio = wavfile.read(file)
+    # audio, sr = torchaudio.load(file, channels_first=False)
+    # audio = audio.numpy()
     if audio.ndim != 1:
         audio = audio[:, 0]
 
@@ -75,6 +78,7 @@ if __name__ == '__main__':
     )
 
     files = sorted(glob(args.audio_dir + '*.wav'))
+    print(f"Found {len(files)} wav-files")
 
     for file in tqdm(files):
         save_dir = args.output_dir + file.split('/')[-1].split('.')[0] + '/'
@@ -92,9 +96,10 @@ if __name__ == '__main__':
             lpcs, frame_length=64, hop_length=4, axis=0)
 
         # Visualize
-        # print(save_dir)
-        # plot_lpc(audio_windows[32])
-        # break
+        print(save_dir)
+        print(audio_windows.shape, audio_windows.min(), audio_windows.max(), audio_windows.mean())
+        plot_lpc(audio_windows[32])
+        break
 
         # Save
         os.makedirs(save_dir, exist_ok=True)
