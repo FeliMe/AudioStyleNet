@@ -55,9 +55,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--audio_dir', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/Audio/')
+                        default='/home/meissen/Datasets/TestSentences/Obama/')
     parser.add_argument('--output_dir', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/Aligned256/')
+                        default='/home/meissen/Datasets/TestSentences/Obama/Aligned256/')
     parser.add_argument('--fps', type=int, default=25),
     parser.add_argument('--sample_rate', type=int, default=16000)
     args = parser.parse_args()

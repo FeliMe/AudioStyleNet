@@ -11,11 +11,11 @@ from skimage import io
 from torchvision import transforms
 
 
-def torch2np(img):
+def torch2np_img(img):
     return (img.permute(1, 2, 0).numpy() * 255.).astype(np.uint8)
 
 
-def np2torch(img):
+def np2torch_img(img):
     return torch.tensor(img, dtype=torch.float32).permute(2, 0, 1) / 255.
 
 
@@ -288,8 +288,8 @@ if __name__ == '__main__':
         img_ori, lm_ori, desiredLeftEye, desiredFaceShape)
 
     # Reinsert
-    aligned_torch = np2torch(aligned).unsqueeze(0)
-    ori_torch = np2torch(img_ori).unsqueeze(0)
+    aligned_torch = np2torch_img(aligned).unsqueeze(0)
+    ori_torch = np2torch_img(img_ori).unsqueeze(0)
     # show_tensor(aligned_torch)
     # show_tensor(ori_torch)
 

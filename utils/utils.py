@@ -690,7 +690,6 @@ class VideoAligner:
             '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
 
         # Init alignment variables
-        self.i_frame = 0
         self.avg_rotation = 0.
         self.qsize = None
         self.initial_rot = None
@@ -700,6 +699,7 @@ class VideoAligner:
         self.avg_rotation = 0.
         self.qsize = None
         self.initial_rot = None
+        self.prev_qsize = None
 
     @staticmethod
     def get_rotation(v):
@@ -843,6 +843,9 @@ class VideoAligner:
     def align_video(self, path_to_vid, save_dir):
         os.makedirs(save_dir, exist_ok=True)
 
+        self.reset()
+        i_frame = 0
+
         cap = cv2.VideoCapture(path_to_vid)
         n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
         pbar = tqdm(total=n_frames)
@@ -851,9 +854,9 @@ class VideoAligner:
             ret, frame = cap.read()
             if not ret:
                 break
-            self.i_frame += 1
+            i_frame += 1
             pbar.update()
-            name = str(self.i_frame).zfill(5) + '.png'
+            name = str(i_frame).zfill(5) + '.png'
             save_path = os.path.join(save_dir, name)
 
             # Pre-resize to save computation

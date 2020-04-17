@@ -320,39 +320,12 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path=HOME + "/Datasets/YouTubeDataset2/Aligned256/",
-        # root_path="/home/meissen/workspace/Emotion-Aware-Facial-Animation/saves/test_video/",
+        root_path=HOME + "/Datasets/AudioDataset/Aligned256/01*",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256
     )
-    # _, _, all_paths = datasets.ravdess_get_paths(
-    #     root_path=HOME + "/Datasets/RAVDESS/Aligned256/",
-    #     flat=True,
-    #     shuffled=True,
-    #     validation_split=0.0
-    # )
-    # ds = datasets.RAVDESSFlatDataset(
-    #     paths=all_paths,
-    #     device=device,
-    #     normalize=True,
-    #     mean=[.5, .5, .5],
-    #     std=[.5, .5, .5]
-    # )
-
-    # ds = datasets.TagesschauDataset(
-    #     root_path=HOME + "/Datasets/Tagesschau/Aligned256/",
-    #     shuffled=False,
-    #     flat=True,
-    #     load_img=True,
-    #     load_audio=False,
-    #     load_latent=False,
-    #     load_mean=False,
-    #     normalize=True,
-    #     mean=[.5, .5, .5],
-    #     std=[.5, .5, .5]
-    # )
     train_loader = torch.utils.data.DataLoader(
         ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
     # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)

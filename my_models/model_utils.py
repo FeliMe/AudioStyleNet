@@ -312,79 +312,6 @@ class SPADEResnetBlock(nn.Module):
         return out
 
 
-class GeneratorBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, use_spectral_norm=True):
-        super().__init__()
-
-        self.conv_1 = nn.Conv2d(in_channels, out_channels, (3, 3), padding=1, bias=False)
-        self.conv_2 = nn.Conv2d(out_channels, out_channels, (3, 3), padding=1, bias=False)
-
-        if use_spectral_norm:
-            self.conv1 = spectral_norm(self.conv_1)
-            self.conv2 = spectral_norm(self.conv_2)
-
-    @staticmethod
-    def actvn(x):
-        return F.leaky_relu(x, 2e-1)
-
-    def forward(self, x):
-
-        y = F.interpolate(x, scale_factor=2)
-        y = self.actvn(self.conv_1(y))
-        y = self.actvn(self.conv_2(y))
-
-        return y
-
-
-class DiscriminatorBlock(nn.Module):
-    def __init__(self, in_channels, out_channels, use_spectral_norm=True):
-        super().__init__()
-
-        self.conv_1 = nn.Conv2d(in_channels, in_channels, (3, 3), padding=1, bias=False)
-        self.conv_2 = nn.Conv2d(in_channels, out_channels, (3, 3), padding=1, bias=False)
-        self.downSampler = nn.AvgPool2d(2)  # downsampler
-
-        if use_spectral_norm:
-            self.conv1 = spectral_norm(self.conv_1)
-            self.conv2 = spectral_norm(self.conv_2)
-
-    @staticmethod
-    def actvn(x):
-        return F.leaky_relu(x, 2e-1)
-
-    def forward(self, x):
-        y = self.actvn(self.conv_1(x))
-        y = self.actvn(self.conv_2(y))
-        y = self.downSampler(y)
-
-        return y
-
-
-class DiscriminatorCondCat(nn.Module):
-    def __init__(self, in_channels, out_channels, feat_size,
-                 normalization=True, cond_dim=16):
-        super(DiscriminatorCondCat, self).__init__()
-
-        self.in_cond = nn.Linear(cond_dim, feat_size)
-
-        layers = [nn.Conv2d(in_channels + 1, out_channels, 4, 2, 1)]
-        if normalization:
-            layers.append(nn.InstanceNorm2d(out_channels))
-        layers.append(nn.LeakyReLU(0.2, inplace=True))
-
-        self.main = nn.Sequential(*layers)
-
-    def forward(self, x, cond):
-        # Prepare conditioning
-        b, c, w, h = x.size()
-        cond = self.in_cond(cond)
-        cond = cond.view(b, 1, w, h)
-        x = torch.cat((x, cond), dim=1)
-
-        # Forward
-        return self.main(x)
-
-
 class AdaIN(nn.Module):
     def __init__(self, latent_size, channels):
         super().__init__()
@@ -519,18 +446,6 @@ class MultiplicativeGaussianNoise2d(nn.Module):
                 self.base, self.noise.repeat(b, c, 1, 1).normal_())
             x = x * sampled_noise
         return x
-
-
-def discriminator_block(in_filters, out_filters, normalization=True):
-    """
-    Source: https://github.com/eriklindernoren/PyTorch-GAN/blob/master/implementations/pix2pix/models.py
-    Returns downsampling layers of each discriminator block
-    """
-    layers = [nn.Conv2d(in_filters, out_filters, 4, 2, 1)]
-    if normalization:
-        layers.append(nn.InstanceNorm2d(out_filters))
-    layers.append(nn.LeakyReLU(0.2, inplace=True))
-    return layers
 
 
 def weights_init(m):

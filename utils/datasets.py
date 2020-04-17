@@ -967,7 +967,7 @@ class TagesschauAudioDataset(Dataset):
         audio = []
         for p in audio_paths:
             audio.append(torch.tensor(
-                np.load(f"{p}.{self.audio_type}.npy"), dtype=torch.float32))
+                np.load(f"{p}.{self.audio_type}.npy"), dtype=torch.float32)[:, :32])
         audio = torch.stack(audio, dim=0)
 
         # Load images
@@ -978,8 +978,8 @@ class TagesschauAudioDataset(Dataset):
 
         # Load latents
         if self.load_latent:
-            # input_latent = torch.load(video + 'mean.latent.pt')
-            input_latent = torch.load(input_path + ".latent.pt")
+            input_latent = torch.load(video + 'mean.latent.pt')
+            # input_latent = torch.load(input_path + ".latent.pt")
             target_latent = torch.load(target_path + ".latent.pt")
         else:
             target_latent = torch.tensor(0.)

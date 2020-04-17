@@ -46,7 +46,7 @@ class Solver:
             raise NotImplementedError
 
         if args.audio_type in ['mfcc', 'lpc']:
-            self.audio_encoder = models.AudioExpressionNet4(1).to(self.device).train()
+            self.audio_encoder = models.AudioExpressionNet4(args.T).to(self.device).train()
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -314,9 +314,12 @@ class Solver:
 
     def test_model(self, test_latent_path, test_sentence_path):
         self.audio_encoder.eval()
+        if test_sentence_path[-1] != '/':
+            test_sentence_path += '/'
         test_latent = torch.load(test_latent_path).unsqueeze(0).to(self.device)
 
-        audio_paths = sorted(glob(test_sentence_path + '*.deepspeech.npy'))[:100]
+        sentence_name = test_sentence_path.split('/')[-2]
+        audio_paths = sorted(glob(test_sentence_path + f'*.{self.args.audio_type}.npy'))[:100]
         audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32) for p in audio_paths]).to(self.device)
         pad = self.args.T // 2
         audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
@@ -359,7 +362,7 @@ class Solver:
         original_dir = os.getcwd()
         os.chdir(tmp_dir)
         os.system(
-            f'ffmpeg -framerate 25 -i %05d.png -c:v libx264 -r 25 -pix_fmt yuv420p ../out.mp4')
+            f'ffmpeg -framerate 25 -i %05d.png -c:v libx264 -r 25 -pix_fmt yuv420p ../{sentence_name}.mp4')
 
         # Remove generated frames and keep only video
         os.chdir(original_dir)
@@ -397,15 +400,15 @@ if __name__ == '__main__':
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)
     parser.add_argument('--photometric_loss_weight', type=float, default=2.)
-    parser.add_argument('--landmarks_loss_weight', type=float, default=0.)  # .01
+    parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=20000)
+    parser.add_argument('--n_iters', type=int, default=100000)
     parser.add_argument('--update_pbar_every', type=int, default=100)  # 1000
     parser.add_argument('--log_train_every', type=int, default=200)  # 1000
     parser.add_argument('--log_val_every', type=int, default=200)  # 1000
-    parser.add_argument('--save_every', type=int, default=5000)  # 100000
-    parser.add_argument('--eval_every', type=int, default=5000)  # 10000
+    parser.add_argument('--save_every', type=int, default=10000)  # 100000
+    parser.add_argument('--eval_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
@@ -430,6 +433,8 @@ if __name__ == '__main__':
 
     if args.debug:
         print("DEBUG MODE. NO LOGGING")
+    elif args.test:
+        print("Testing")
     else:
         print("Saving run to {}".format(args.save_dir))
 
@@ -446,8 +451,12 @@ if __name__ == '__main__':
         val_paths = train_paths
         print(f"OVERFITTING ON {train_paths[0][0]}")
 
-    print(f"Sample path training {train_paths[0][0]}")
-    print(f"Sample path validation {val_paths[0][0]}")
+    print("Sample training videos")
+    for i in range(5):
+        print(train_paths[i][0])
+    print(f"Sample validation videos")
+    for i in range(5):
+        print(val_paths[i][0])
 
     train_ds = datasets.TagesschauAudioDataset(
         paths=train_paths,

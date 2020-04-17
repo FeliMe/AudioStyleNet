@@ -9,7 +9,7 @@ import subprocess
 import sys
 import torch
 
-from dreiDDFA.model import dreiDDFA
+# from dreiDDFA.model import dreiDDFA
 from glob import glob
 from PIL import Image
 from skimage import io
@@ -23,9 +23,11 @@ def align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
 
+    aligner = AlignmentHandler()
+
     target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
-    videos = sorted(glob(root_path + '*.mp4'))
+    videos = glob(root_path + '*.mp4')
     assert len(videos) > 0
 
     groups = []
@@ -44,7 +46,6 @@ def align_videos(root_path, group):
             i_video + 1, len(videos),
             save_dir))
 
-        aligner = AlignmentHandler()
         aligner.align_video(video, save_dir)
 
 
@@ -126,9 +127,10 @@ def get_mean_latents(root):
 
 
 def get_landmarks(root_path, group):
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor(
-        '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
+    detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+    detector = dlib.cnn_face_detection_model_v1(detector_path)
+    predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
+    predictor = dlib.shape_predictor(predictor_path)
 
     if root_path[-1] != '/':
         root_path += '/'
@@ -505,6 +507,7 @@ def get_3ddfa_params(root_path):
 if __name__ == "__main__":
 
     path = sys.argv[1]
+    align_videos(path, int(sys.argv[2]))
 
 
 """

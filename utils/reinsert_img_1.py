@@ -2,6 +2,7 @@ import cv2
 import dlib
 import numpy as np
 
+from PIL import Image
 from skimage import io
 
 
@@ -16,6 +17,10 @@ def show_landmarks(landmarks, image_size):
             img = cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
     cv2.imshow("", img)
     cv2.waitKey(0)
+
+
+def show_image(img):
+    Image.fromarray(img).show()
 
 
 class FaceInsertion:
@@ -35,13 +40,60 @@ class FaceInsertion:
         pts = np.array([(pt.x, pt.y) for pt in pts], dtype=np.int32)
         return pts
 
-    def get_mask(self, img, landmarks):
+    @staticmethod
+    def clean_edges(img, pixels_to_ommit=2):
+        """
+        This function removes the first #pixels_to_ommit pixels that are non black from every side of the image
+        (top, bottom, left, right)
+        args:
+            img (np.array): cv2 image
+            pixels_to_ommit (int): how many pixels to remove
+        """
+        w, h, _ = img.shape
+
+        for _k, _j in [[[0, h, 1], [0, w, 1]], [[h - 1, -1, -1], [w - 1, -1, -1]]]:
+            for k in range(_k[0], _k[1], _k[2]):
+                passed_non_black_pixels = 0
+                for j in range(_j[0], _j[1], _j[2]):
+                    if not (img[j, k, :] == [0, 0, 0]).all():
+                        passed_non_black_pixels += 1
+                        if passed_non_black_pixels > pixels_to_ommit:
+                            break
+                        else:
+                            img[j, k, :] = [0, 0, 0]
+
+            for j in range(_j[0], _j[1], _j[2]):
+                passed_non_black_pixels = 0
+                for k in range(_k[0], _k[1], _k[2]):
+                    if not (img[j, k, :] == [0, 0, 0]).all():
+                        passed_non_black_pixels += 1
+                        if passed_non_black_pixels > pixels_to_ommit:
+                            break
+                        else:
+                            img[j, k, :] = [0, 0, 0]
+
+        return img
+
+    @staticmethod
+    def get_mask(img, landmarks):
         # Create empty mask
         mask = np.zeros(img.shape[:2], dtype=np.uint8)
 
         # Fill mask with convex hull of langmarks
         hull = cv2.convexHull(landmarks)
         mask = cv2.fillConvexPoly(mask, hull, 255)
+
+        return mask
+
+    @staticmethod
+    def smooth_mask(mask, smooth):
+        # as a gaussian blur can only make my region of interest smaller we need to dilate mask to find balance
+        k_size = 2 * smooth + 1
+        k_dilate = k_size // 4
+        kernel = np.ones((k_dilate, k_dilate), np.uint8)
+
+        mask = cv2.dilate(mask, kernel)
+        mask = cv2.GaussianBlur(mask, (k_size, k_size), 0)
 
         return mask
 
@@ -59,20 +111,32 @@ class FaceInsertion:
 
         return masked_img, mask
 
-    def insert_face(self, original, modified, save_dir):
-        # Load images
-        img_ori = io.imread(original)
-        img_mod = io.imread(modified)
+    @staticmethod
+    def reinsert_image(source, target, start_pt):
+        target_img = target.copy()
+        y_size, x_size = source.shape[:2]
+        for k in range(y_size):
+            for j in range(x_size):
+                y = start_pt[1] + k
+                x = start_pt[0] + j
+                if not (source[k, j, :] == [0, 0, 0]).all():
+                    try:
+                        target_img[y, x, :] = source[k, j, :]
+                    except IndexError:
+                        # this happens at the edges of the image and can safely be ignored
+                        pass
+        return target_img
 
+    def insert_face(self, img_ori, img_mod, save_dir):
         # Get landmarks
         lm_mod = self.get_landmarks(img_mod)
         if lm_mod is None:
-            print(f"Failed to find face in {modified}, returning None")
+            print("Failed to find face in modified image, returning None")
             return None
 
         lm_ori = self.get_landmarks(img_ori)
         if lm_ori is None:
-            print(f"Failed to find face in {original}, returning None")
+            print("Failed to find face in original image, returning None")
             return None
 
         # Get only face of modified image
@@ -101,16 +165,12 @@ class FaceInsertion:
 
         # Warp modified image to original image shape and size
         warped_img_mod = cv2.warpAffine(masked_img_mod, M, (w_ori, h_ori))
-        warped_mask_mod = cv2.warpAffine(mask_mod, M, (w_ori, h_ori))
-        alpha_s = warped_mask_mod / 255.
-        alpha_l = 1.0 - alpha_s
 
-        final = img_ori.copy()
-        for c in range(0, 3):
-            final[y_ori:y_ori + h_ori, x_ori:x_ori + w_ori, c] = (alpha_s * warped_img_mod[:, :, c] +
-                                                                  alpha_l * final[y_ori:y_ori + h_ori, x_ori:x_ori + w_ori, c])
-        cv2.imshow("", final)
-        cv2.waitKey(0)
+        # Remove empty edges
+        warped_img_mod = self.clean_edges(warped_img_mod, pixels_to_ommit=3)
+
+        final = self.reinsert_image(warped_img_mod, img_ori, (x_ori, y_ori))
+        show_image(final)
 
 
 if __name__ == '__main__':
@@ -118,5 +178,8 @@ if __name__ == '__main__':
     original = 'saves/test/01-01-01-01-01-01-01_00001.png'
     modified = 'saves/test/01-01-01-01-01-01-01_happy.png'
 
+    img_ori = io.imread(original)
+    img_mod = io.imread(modified)
+
     swap = FaceInsertion()
-    swap.insert_face(original, modified, 'saves/test/temp/')
+    swap.insert_face(img_ori, img_mod, 'saves/test/temp/')

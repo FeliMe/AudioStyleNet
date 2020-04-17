@@ -233,6 +233,6 @@ if __name__ == "__main__":
         save_str = save_dir + file.split('/')[-1].split('.')[0]
         os.makedirs(save_dir, exist_ok=True)
         print('Saving {}'.format(save_str + '.png'))
-        save_image(generated, save_str + '.png',
-                   normalize=True, range=(-1, 1))
+        # save_image(generated, save_str + '.png',
+        #            normalize=True, range=(-1, 1))
         torch.save(latents.detach().cpu(), save_str + '.latent.pt')

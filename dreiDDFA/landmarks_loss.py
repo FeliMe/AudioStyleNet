@@ -76,7 +76,8 @@ class LandmarksLoss(nn.Module):
         # 1 / 0
 
         # Get actual loss
-        loss = self.loss_fn(input_lm, target_lm, reduction='none')
-        loss = (loss * self.mask).sum() / self.mask.sum()
+        # loss = self.loss_fn(input_lm, target_lm, reduction='none')
+        loss = self.loss_fn(input_lm[:, :, :2], target_lm[:, :, :2], reduction='none')  # Only in x and y position
+        loss = loss.sum() / self.mask.sum()
 
         return loss

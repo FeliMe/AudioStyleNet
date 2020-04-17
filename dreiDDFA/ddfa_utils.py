@@ -206,18 +206,25 @@ def plot_pointclouds(points, title=""):
     plt.show()
 
 
-def plot_vertices(image, vertices):
+def plot_vertices(image, vertices, save_path=None, show_flg=True):
     import cv2
     image = (image.numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
     vertices = np.round(vertices.numpy()).astype(np.int32)
     for i in range(0, vertices.shape[0], 2):
         st = vertices[i, :2]
         image = cv2.circle(image, (st[0], st[1]), 1, (255, 0, 0), -1)
-    cv2.imshow("", cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
-    cv2.waitKey(0)
+
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+    if save_path is not None:
+        cv2.imwrite(save_path, image)
+
+    if show_flg:
+        cv2.imshow("", image)
+        cv2.waitKey(0)
 
 
-def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=True, **kwargs):
+def draw_landmarks(img, pts, save_path=None, show_flg=True, style='fancy', **kwargs):
     """Draw landmarks using matplotlib"""
     import matplotlib.pyplot as plt
     # To numpy image
@@ -243,8 +250,8 @@ def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=True, **kwargs):
         nums = [0, 17, 22, 27, 31, 36, 42, 48, 60, 68]
 
         # close eyes and mouths
-        def plot_close(i1, i2): return plt.plot([pts[i1, 0], pts[i2, 0]], [pts[i1, 1], pts[i2, 1]],
-                                                color=color, lw=lw, alpha=alpha - 0.1)
+        def plot_close(i1, i2): 
+            return plt.plot([pts[i1, 0], pts[i2, 0]], [pts[i1, 1], pts[i2, 1]], color=color, lw=lw, alpha=alpha - 0.1)
         plot_close(41, 36)
         plot_close(47, 42)
         plot_close(59, 48)
@@ -259,8 +266,8 @@ def draw_landmarks(img, pts, style='fancy', wfp=None, show_flg=True, **kwargs):
                      color=color,
                      markeredgecolor=markeredgecolor, alpha=alpha)
 
-    if wfp is not None:
-        plt.savefig(wfp, dpi=200)
-        print('Save visualization result to {}'.format(wfp))
+    if save_path is not None:
+        plt.savefig(save_path, dpi=200)
+        print('Save visualization result to {}'.format(save_path))
     if show_flg:
         plt.show()
