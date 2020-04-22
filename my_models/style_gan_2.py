@@ -610,7 +610,6 @@ class Generator(nn.Module):
     def forward(
         self,
         styles,
-        return_latents=False,
         inject_index=None,
         truncation=1,
         truncation_latent=None,
@@ -633,14 +632,9 @@ class Generator(nn.Module):
             styles = style_t
 
         if len(styles) < 2:
-            inject_index = self.n_latent
-
-            if len(styles[0].shape) == 2:  # [18, 512]
-                latent = styles[0].unsqueeze(0)
-            else:
-                latent = styles[0]
+            latent = styles[0]
             if latent.shape[1] == 1:  # [b, 1, 512]
-                latent = latent.repeat(1, inject_index, 1)
+                latent = latent.repeat(1, self.n_latent, 1)
         else:
             if inject_index is None:
                 inject_index = random.randint(1, self.n_latent - 1)
@@ -671,11 +665,7 @@ class Generator(nn.Module):
 
         image = skip
 
-        if return_latents:
-            return image, latent
-
-        else:
-            return image, None
+        return image, latent
 
 
 class PretrainedGenerator1024(Generator):
@@ -689,8 +679,7 @@ class PretrainedGenerator1024(Generator):
             lr_mlp=0.01
         )
 
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    '../saves/pre-trained/stylegan2-ffhq-config-f.pt'))
+        w = torch.load('/mnt/sdb1/meissen/Networks/stylegan2-ffhq-config-f.pt')
         self.load_state_dict(w['g_ema'])
         self.register_buffer('latent_avg', w['latent_avg'])
         self.register_buffer('latent_std', w['latent_std'])
@@ -718,8 +707,7 @@ class PretrainedGenerator256(Generator):
             lr_mlp=0.01
         )
 
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    '../saves/pre-trained/stylegan2-ffhq-256.pt'))
+        w = torch.load('/mnt/sdb1/meissen/Networks/stylegan2-ffhq-256.pt')
         self.load_state_dict(w['g_ema'])
 
         self.register_buffer('latent_avg', w['latent_avg'])

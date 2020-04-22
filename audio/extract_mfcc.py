@@ -33,6 +33,21 @@ def extract_mfcc(audio, sr, numcep=32, winstep=0.01, winlen=0.02, audio_window_s
     return np.array(windows)
 
 
+def extract_mfcc_syncnet(audio, sr, audio_window_size=0.2):
+    audio_window_size = int(audio_window_size / 0.01)
+    mfcc = python_speech_features.mfcc(audio, sr)
+
+    # Make windows
+    zero_pad = np.zeros((audio_window_size // 2, mfcc.shape[1]))
+    mfcc = np.concatenate((zero_pad, mfcc, zero_pad), axis=0)
+    windows = []
+    for window_index in range(0, mfcc.shape[0] - audio_window_size, int((1 / 0.01) / 25)):
+        windows.append(mfcc[window_index:window_index + audio_window_size])
+
+    windows = np.array(windows).swapaxes(2, 1)[:, None, :, :]
+    return windows
+
+
 def plot_mfcc(window):
     import matplotlib.pyplot as plt
     from matplotlib import cm
@@ -49,9 +64,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--audio_dir', type=str,
-                        default='/home/meissen/Datasets/TestSentences/Obama/')
+                        default='/home/meissen/Datasets/AudioDataset/Audio/')
     parser.add_argument('--output_dir', type=str,
-                        default='/home/meissen/Datasets/TestSentences/Obama/Aligned256/')
+                        default='/home/meissen/Datasets/AudioDataset/Aligned256/')
     parser.add_argument('--fps', type=int, default=25),
     parser.add_argument('--sample_rate', type=int, default=16000)
     args = parser.parse_args()
@@ -66,14 +81,15 @@ if __name__ == '__main__':
         os.makedirs(save_dir, exist_ok=True)
         audio = read_file(file, sr)
 
-        windows = extract_mfcc(audio, sr=sr, numcep=32,
-                               winstep=0.01, winlen=0.02, audio_window_size=0.64, fps=fps)
+        # windows = extract_mfcc(audio, sr=sr, numcep=32,
+        #                        winstep=0.01, winlen=0.02, audio_window_size=0.64, fps=fps)
+        windows = extract_mfcc_syncnet(audio, sr)
 
         # Visualize
-        print(f"{save_dir} Audio length {(len(audio) / sr) * fps:.2f} frames")
-        print(windows.shape, windows.min(), windows.max(), windows.mean())
-        plot_mfcc(windows[32])
-        break
+        # print(f"{save_dir} Audio length {(len(audio) / sr) * fps:.2f} frames")
+        # print(windows.shape, windows.min(), windows.max(), windows.mean())
+        # plot_mfcc(windows[32, 0])
+        # break
 
         for i in range(len(windows)):
             save_path = save_dir + f"{str(i + 1).zfill(5)}.mfcc.npy"

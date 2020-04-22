@@ -467,7 +467,7 @@ def tagesschau_gather_info(root):
 def get_3ddfa_params(root_path):
     device = 'cuda'
 
-    model = dreiDDFA().to(device)
+    model = dreiDDFA(True).to(device)
 
     videos = sorted(glob(root_path + '*/'))
     frames = [sorted(glob(v + '*.png')) for v in videos]
@@ -488,7 +488,7 @@ def get_3ddfa_params(root_path):
 
         params = {
             'param': res['param'][0].cpu(),
-            'roi_box': res['roi_boxes']
+            'roi_box': res['roi_box']
         }
 
         # Visualize
@@ -496,7 +496,7 @@ def get_3ddfa_params(root_path):
         # print(params['roi_box'])
         # print(save_path)
         # from dreiDDFA.ddfa_utils import draw_landmarks
-        # landmarks = model.reconstruct_vertices(res['param'], res['roi_boxes'], dense=False)
+        # landmarks = model.reconstruct_vertices(res['param'], res['roi_box'], dense=False)
         # draw_landmarks(img[0].cpu(), landmarks[0].cpu(), show_flg=True)
         # 1 / 0
 

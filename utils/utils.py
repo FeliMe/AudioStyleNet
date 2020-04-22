@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import torchvision.transforms as transforms
 
 from argparse import Namespace
+from imageio import mimwrite
 from PIL import Image
 from scipy.ndimage.filters import gaussian_filter
 from torch.utils.tensorboard import SummaryWriter
@@ -685,9 +686,10 @@ def texture_params(mouth_lm, frame):
 class VideoAligner:
     def __init__(self):
         # Init face tracking
-        self.detector = dlib.get_frontal_face_detector()
-        self.predictor = dlib.shape_predictor(
-            '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat')
+        predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
+        self.predictor = dlib.shape_predictor(predictor_path)
+        detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+        self.detector = dlib.cnn_face_detection_model_v1(detector_path)
 
         # Init alignment variables
         self.avg_rotation = 0.
@@ -858,6 +860,8 @@ class VideoAligner:
             pbar.update()
             name = str(i_frame).zfill(5) + '.png'
             save_path = os.path.join(save_dir, name)
+            # if os.path.exists(save_path):
+            #     continue
 
             # Pre-resize to save computation
             h_old, w_old, _ = frame.shape
@@ -873,10 +877,10 @@ class VideoAligner:
             rects = self.detector(frame_small, 1)
             if len(rects) == 0:
                 print(
-                    f"Did not detect a face in {self.i_frame}, resetting aligner")
+                    f"Did not detect a face in {path_to_vid} {i_frame}, resetting aligner")
                 self.reset()
                 continue
-            rect = rects[0]
+            rect = rects[0].rect
             landmarks = [(int(item.x / factor), int(item.y / factor))
                          for item in self.predictor(gray_small, rect).parts()]
             frame = self.align_image(
@@ -887,9 +891,9 @@ class VideoAligner:
             )
 
             # Visualize
-            # print(save_path)
-            # frame.show()
-            # 1 / 0
+            print(save_path)
+            frame.show()
+            1 / 0
 
             # Save
             frame.save(save_path)
@@ -1009,3 +1013,17 @@ class HparamWriter(SummaryWriter):
         writer.add_summary(exp)
         writer.add_summary(ssi)
         writer.add_summary(sei)
+
+
+def write_video(path, video, fps):
+    """
+    Save a sequence of torch tensors of np arrays as video to path
+    Args:
+        path (str): save path
+        video (torch.tensor of np.array): frames in correct order
+        fps: Target fps of video
+    """
+    if torch.is_tensor(video):
+        video = np.transpose(video.data.numpy() * 255.,
+                             [0, 2, 3, 1]).astype(np.uint8)
+    mimwrite(path, video, fps=fps)

@@ -168,8 +168,7 @@ def mobilenet_025(num_classes=62, input_channel=3):
 
 
 def pretrained_model():
-    checkpoint_fp = os.path.join(os.path.dirname(os.path.abspath(
-        __file__)), '../saves/pre-trained/phase1_wpdc_vdc.pth.tar')
+    checkpoint_fp = '/mnt/sdb1/meissen/Networks/phase1_wpdc_vdc.pth.tar'
 
     checkpoint = torch.load(
         checkpoint_fp, map_location=lambda storage, loc: storage)['state_dict']

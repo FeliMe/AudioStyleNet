@@ -917,7 +917,7 @@ class TagesschauDataset(Dataset):
         }
 
 
-class TagesschauAudioDataset(Dataset):
+class AudioDataset(Dataset):
     def __init__(self,
                  paths,
                  audio_type='deepspeech',
@@ -978,8 +978,8 @@ class TagesschauAudioDataset(Dataset):
 
         # Load latents
         if self.load_latent:
-            input_latent = torch.load(video + 'mean.latent.pt')
-            # input_latent = torch.load(input_path + ".latent.pt")
+            # input_latent = torch.load(video + 'mean.latent.pt')
+            input_latent = torch.load(input_path + ".latent.pt")
             target_latent = torch.load(target_path + ".latent.pt")
         else:
             target_latent = torch.tensor(0.)
@@ -1310,6 +1310,17 @@ def tagesschau_get_paths(root_paths, train_split=1.0, max_frames_per_vid=-1):
     return train_paths, val_paths
 
 
+def get_video_paths_by_file(root_path, filename, max_frames_per_vid=-1):
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    videos = [root_path + line.replace('\n', '') + '/' for line in lines]
+    random.shuffle(videos)
+
+    videos = [sorted([p.split('.')[0] for p in glob(v + '*.png')])[:max_frames_per_vid] for v in videos]
+
+    return videos
+
+
 def ffhq_get_paths(root_path, train_split=1.0):
     paths = glob(root_path + '*.png')
     random.shuffle(paths)
@@ -1364,7 +1375,7 @@ class RandomSequenceSampler(Sampler):
         return len(self.data_source)
 
 
-class RandomTagesschauAudioSampler(Sampler):
+class RandomAudioSampler(Sampler):
     """
     Samples batches of sequential indices of length T + 1 (last index is for
     random input frame).
