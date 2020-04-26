@@ -284,8 +284,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--batch_size', type=int, default=4)  # 4
     parser.add_argument('--lr', type=int, default=0.01)  # 0.01
-    parser.add_argument('--n_iters', type=int, default=150000)  # 150000
-    parser.add_argument('--log_train_every', type=int, default=1)  # 1
+    parser.add_argument('--n_iters', type=int, default=120000)  # 150000  # 70000
+    parser.add_argument('--log_train_every', type=int, default=100)  # 1
     parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
     parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_every', type=int, default=10000)  # 10000
@@ -320,17 +320,17 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path=HOME + "/Datasets/AudioDataset/Aligned256/01*",
+        root_path="/mnt/sdb1/meissen/Datasets/GRID/Aligned256/",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
         image_size=256
     )
     train_loader = torch.utils.data.DataLoader(
-        ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+        ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)
     val_loader = torch.utils.data.DataLoader(
-        ds, batch_size=args.batch_size, shuffle=True, num_workers=2, pin_memory=True)
+        ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     print(len(ds))
 
     # Init solver

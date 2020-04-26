@@ -109,6 +109,7 @@ class Solver:
         print(f"Saving: {save_path}")
 
     def load(self, path):
+        print(f"Loading audio_encoder weights from {path}")
         checkpoint = torch.load(path, map_location=self.device)
         if type(checkpoint) == dict:
             self.optim.load_state_dict(checkpoint['optim_state_dict'])
@@ -139,10 +140,14 @@ class Solver:
         if self.args.n_latent_vec == 4:
             latent_offset = self.audio_encoder(audio, input_latent[:, 4:8])
             prediction = input_latent.clone()
+            if not self.audio_encoder.training:
+                latent_offset *= self.args.test_multiplier
             prediction[:, 4:8] += latent_offset
         elif self.args.n_latent_vec == 8:
             latent_offset = self.audio_encoder(audio, input_latent[:, :8])
             prediction = input_latent.clone()
+            if not self.audio_encoder.training:
+                latent_offset *= self.args.test_multiplier
             prediction[:, :8] += latent_offset
         else:
             raise NotImplementedError
@@ -518,23 +523,24 @@ if __name__ == '__main__':
     parser.add_argument('--T', type=int, default=8)  # 8
     parser.add_argument('--train_mode', type=str, default='image')  # 'latent' or 'image'
     parser.add_argument('--max_frames_per_vid', type=int, default=-1)  # -1
-    parser.add_argument('--model_type', type=str, default='net4')  # 'net2' no identity 'net3' identity info
+    parser.add_argument('--model_type', type=str, default='net3')  # 'net2' no identity 'net3' identity info
     parser.add_argument('--audio_type', type=str, default='deepspeech')  # 'deepspeech', 'mfcc' or 'lpc'
     parser.add_argument('--n_latent_vec', type=int, default=4)  # 4 for middle [4:8] 8 for coarse and middle [:8]
     parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
+    parser.add_argument('--test_multiplier', type=float, default=1.)  # During test time, direction is multiplied with
 
     # Loss weights
-    parser.add_argument('--latent_loss_weight', type=float, default=0.)  # 1.
+    parser.add_argument('--latent_loss_weight', type=float, default=1.)  # 1.
     parser.add_argument('--photometric_loss_weight', type=float, default=200.)  # 2. or 200.
     parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=20000)
-    parser.add_argument('--update_pbar_every', type=int, default=100)  # 1000
-    parser.add_argument('--log_train_every', type=int, default=200)  # 1000
-    parser.add_argument('--log_val_every', type=int, default=200)  # 1000
-    parser.add_argument('--save_every', type=int, default=5000)  # 100000
-    parser.add_argument('--eval_every', type=int, default=5000)  # 10000
+    parser.add_argument('--n_iters', type=int, default=80000)
+    parser.add_argument('--update_pbar_every', type=int, default=100)  # 100
+    parser.add_argument('--log_train_every', type=int, default=200)  # 200
+    parser.add_argument('--log_val_every', type=int, default=200)  # 200
+    parser.add_argument('--save_every', type=int, default=10000)  # 10000
+    parser.add_argument('--eval_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args

@@ -16,14 +16,14 @@ from skimage import io
 from torchvision import transforms
 from tqdm import tqdm
 from utils import get_mouth_params
-from alignment_handler import AlignmentHandler
+from utils import VideoAligner
 
 
 def align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
 
-    aligner = AlignmentHandler()
+    aligner = VideoAligner()
 
     target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
@@ -65,7 +65,8 @@ def encode_frames(root_path):
     # Load encoder
     from my_models.models import resnetEncoder
     e = resnetEncoder(net=18).eval().to(device)
-    e.load_state_dict(torch.load("PATH_HERE"))
+    # e.load_state_dict(torch.load("PATH_HERE"))
+    e.load_state_dict(torch.load("/mnt/sdb1/meissen/Networks/resNet18GRID.pt"))
 
     # Get latent avg
     from my_models.style_gan_2 import PretrainedGenerator1024
@@ -96,7 +97,7 @@ def encode_frames(root_path):
         from torchvision.utils import make_grid
         from utils.utils import downsample_256
         print(save_path, latent.shape)
-        img_gen = g.to(device)([latent.to(device)],
+        img_gen = g.to(device)([latent.unsqueeze(0).to(device)],
                                input_is_latent=True, noise=g.noises)[0].cpu()
         img_gen = downsample_256(img_gen)
         img_gen = make_grid(torch.cat((img_gen, img.cpu()),
@@ -507,7 +508,8 @@ def get_3ddfa_params(root_path):
 if __name__ == "__main__":
 
     path = sys.argv[1]
-    align_videos(path, int(sys.argv[2]))
+    # align_videos(path, int(sys.argv[2]))
+    encode_frames(path)
 
 
 """
@@ -521,7 +523,7 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=0B7EVK8r0v71pQy1YUGtHeUM2dUE' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=&id=0B7EVK8r0v71pQy1YUGtHeUM2dUE'
-0B7EVK8r0v71pQy1YUGtHeUM2dUE
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=FF_I&id=13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I'
+13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I
 """

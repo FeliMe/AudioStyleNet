@@ -849,15 +849,15 @@ class VideoAligner:
         i_frame = 0
 
         cap = cv2.VideoCapture(path_to_vid)
-        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        pbar = tqdm(total=n_frames)
+        # n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # pbar = tqdm(total=n_frames)
         while cap.isOpened():
             # Frame shape: (weight, width, 3)
             ret, frame = cap.read()
             if not ret:
                 break
             i_frame += 1
-            pbar.update()
+            # pbar.update()
             name = str(i_frame).zfill(5) + '.png'
             save_path = os.path.join(save_dir, name)
             # if os.path.exists(save_path):

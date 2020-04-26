@@ -149,8 +149,8 @@ class Projector:
         self.update_lr(t)
 
         # Train
-        self.img_gen, _ = self.g_ema(
-            [self.latent_expr], input_is_latent=True, noise=self.noises)
+        self.img_gen = self.g_ema(
+            [self.latent_expr.unsqueeze(0)], input_is_latent=True, noise=self.noises)[0]
 
         # Downsample to 256 x 256
         self.img_gen = utils.downsample_256(self.img_gen)
@@ -176,7 +176,7 @@ class Projector:
 
     def get_images(self):
         imgs, _ = self.g_ema(
-            [self.latent_in], input_is_latent=True, noise=self.noises)
+            [self.latent_in.unsqueeze(0)], input_is_latent=True, noise=self.noises)
         return imgs
 
     def get_latents(self):
@@ -233,6 +233,6 @@ if __name__ == "__main__":
         save_str = save_dir + file.split('/')[-1].split('.')[0]
         os.makedirs(save_dir, exist_ok=True)
         print('Saving {}'.format(save_str + '.png'))
-        # save_image(generated, save_str + '.png',
-        #            normalize=True, range=(-1, 1))
+        save_image(generated, save_str + '.png',
+                   normalize=True, range=(-1, 1))
         torch.save(latents.detach().cpu(), save_str + '.latent.pt')
