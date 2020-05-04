@@ -10,6 +10,7 @@ from dreiDDFA.landmarks_loss import LandmarksLoss
 from glob import glob
 from lpips import PerceptualLoss
 from my_models import models, style_gan_2
+from subprocess import Popen, PIPE
 from torch.utils.data import DataLoader
 from torchvision.utils import save_image, make_grid
 from tqdm import tqdm
@@ -26,7 +27,9 @@ class Solver:
         self.device = args.device
         self.args = args
 
+        self.initial_lr = self.args.lr
         self.lr = self.args.lr
+        self.lr_rampdown_length = 0.1  # TODO: 0.3
 
         # Init global step
         self.global_step = 0
@@ -46,6 +49,9 @@ class Solver:
                 args.T, args.n_latent_vec).to(self.device).train()
         elif args.model_type == 'net4':
             self.audio_encoder = models.AudioExpressionNet4(
+                args.T, args.n_latent_vec).to(self.device).train()
+        elif args.model_type == 'net5':
+            self.audio_encoder = models.AudioExpressionNet5(
                 args.T, args.n_latent_vec).to(self.device).train()
         else:
             raise NotImplementedError
@@ -121,7 +127,7 @@ class Solver:
     def update_lr(self, t):
         lr_ramp = min(1.0, (1.0 - t) / self.lr_rampdown_length)
         lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
-        lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
+        # lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
         self.lr = self.initial_lr * lr_ramp
         self.optim.param_groups[0]['lr'] = self.lr
 
@@ -134,20 +140,45 @@ class Solver:
         if type(batch['target_param']) is dict:
             target_param['param'] = batch['target_param']['param'].to(self.device)
             target_param['roi_box'] = torch.stack(batch['target_param']['roi_box'][0]).T
-        return audio, input_latent, target_latent, target_img, target_param
 
-    def forward(self, audio, input_latent):
+        if self.args.use_landmark_input:
+            b = self.args.batch_size
+            aux_input = torch.cat((batch['input_landmark'].view(
+                b, -1).to(self.device), input_latent[:, 4:8].view(b, -1)), dim=1)
+        else:
+            if self.args.n_latent_vec == 4:
+                aux_input = input_latent[:, 4:8]
+            elif self.args.n_latent_vec == 8:
+                aux_input = input_latent[:, :8]
+            else:
+                raise NotImplementedError
+
+        return audio, input_latent, aux_input, target_latent, target_img, target_param
+
+    def forward(self, audio, input_latent, aux_input):
+        # Normalize audio features
+        if args.normalize_audio:
+            audio = (audio - audio.mean()) / audio.std()
         if self.args.n_latent_vec == 4:
-            latent_offset = self.audio_encoder(audio, input_latent[:, 4:8])
+            latent_offset = self.audio_encoder(audio, aux_input)
             prediction = input_latent.clone()
             if not self.audio_encoder.training:
-                latent_offset *= self.args.test_multiplier
-            prediction[:, 4:8] += latent_offset
+                # multiplier = (0.3 / latent_offset.std())
+                multiplier = self.args.test_multiplier
+                # multiplier = (input_latent[:, 4:8].std(dim=2).mean(dim=1) - 1) * self.args.test_multiplier
+                latent_offset *= multiplier
+                prediction[:, 4:8] += latent_offset
+                # Truncation trick
+                prediction[:, 4:8] = self.g.latent_avg + self.args.test_truncation * \
+                    (prediction[:, 4:8] - self.g.latent_avg)
+            else:
+                prediction[:, 4:8] += latent_offset
         elif self.args.n_latent_vec == 8:
-            latent_offset = self.audio_encoder(audio, input_latent[:, :8])
+            latent_offset = self.audio_encoder(audio, aux_input)
             prediction = input_latent.clone()
             if not self.audio_encoder.training:
-                latent_offset *= self.args.test_multiplier
+                multiplier = (input_latent[:, :8].std(dim=2).mean(dim=1) - 1) * self.args.test_multiplier
+                latent_offset *= multiplier
             prediction[:, :8] += latent_offset
         else:
             raise NotImplementedError
@@ -221,11 +252,16 @@ class Solver:
 
         while i_iter < n_iters:
             for batch in data_loaders['train']:
+                # Update learning rate
+                t = self.global_step / n_iters
+                self.update_lr(t)
+
                 # Unpack batch
-                audio, input_latent, target_latent, target_img, target_param = self.unpack_data(batch)
+                audio, input_latent, aux_input, target_latent, target_img, target_param = self.unpack_data(
+                    batch)
 
                 # Encode
-                pred = self.forward(audio, input_latent)
+                pred = self.forward(audio, input_latent, aux_input)
 
                 # Compute perceptual loss
                 losses = self.get_loss(pred, target_latent, target_img, target_param, validate=False)
@@ -251,12 +287,14 @@ class Solver:
                 if self.about_time(self.args.update_pbar_every):
                     pbar_avg_train_loss /= self.args.update_pbar_every
                     pbar.set_description('step [{gs}/{ni}] - '
-                                         'train loss {tl:.4f} - '
-                                         'val loss {vl:.4f}'.format(
+                                         't-loss {tl:.3f} - '
+                                         'v-loss {vl:.3f} - '
+                                         'lr {vl:.6f}'.format(
                                              gs=self.global_step,
                                              ni=n_iters,
                                              tl=pbar_avg_train_loss,
                                              vl=val_loss,
+                                             lr=self.lr
                                          ))
                     pbar_avg_train_loss = 0.
                     print("")
@@ -298,11 +336,12 @@ class Solver:
         }
         for batch in data_loaders['val']:
             # Unpack batch
-            audio, input_latent, target_latent, target_img, target_param = self.unpack_data(batch)
+            audio, input_latent, aux_input, target_latent, target_img, target_param = self.unpack_data(
+                batch)
 
             with torch.no_grad():
                 # Forward
-                pred = self.forward(audio, input_latent)
+                pred = self.forward(audio, input_latent, aux_input)
                 loss = self.get_loss(pred, target_latent, target_img, target_param, validate=True)
                 for key, value in loss.items():
                     loss_dict[key] += value.item()
@@ -314,17 +353,19 @@ class Solver:
     def eval(self, data_loader, sample_name):
         # Unpack batch
         batch = next(iter(data_loader))
-        audio, input_latent, target_latent, target_img, _ = self.unpack_data(batch)
+        audio, input_latent, aux_input, target_latent, target_img, _ = self.unpack_data(
+            batch)
 
         n_display = min(4, self.args.batch_size)
         audio = audio[:n_display]
         target_latent = target_latent[:n_display]
         target_img = target_img[:n_display]
         input_latent = input_latent[:n_display]
+        aux_input = aux_input[:n_display]
 
         with torch.no_grad():
             # Forward
-            pred = self.forward(audio, input_latent.clone())
+            pred = self.forward(audio, input_latent, aux_input)
             input_img, _ = self.g([input_latent], input_is_latent=True, noise=self.g.noises)
             input_img = utils.downsample_256(input_img)
 
@@ -348,46 +389,49 @@ class Solver:
             nrow=1
         )
 
-    def test_model(self, train_paths, val_paths, test_paths, n_test):
-        for i in range(n_test):
-            # Training set
-            split = train_paths[i][0].split('/')
+    def test_model(self, paths, n_test, frames, mode=""):
+        counter = 0
+        for path in paths:
+            split = path[0].split('/')
             sentence = '/'.join(split[:-1]) + '/'
-            latent = sentence + 'mean.latent.pt'
+            if self.args.random_inp_latent:
+                latent = random.choice(glob(sentence + '*.latent.pt'))
+            else:
+                latent = sentence + 'mean.latent.pt'
             audio_file = '/'.join(split[:-3] + ['AudioMP3'] + [split[-2]]) + '.mp3'
-            self.test_video(latent, sentence, audio_file, mode='train')
+            self.test_video(latent, sentence, audio_file, frames, mode=mode)
+            counter += 1
+            if counter == n_test:
+                break
 
-            # Validation set
-            split = val_paths[i][0].split('/')
-            sentence = '/'.join(split[:-1]) + '/'
-            latent = sentence + 'mean.latent.pt'
-            audio_file = '/'.join(split[:-3] + ['AudioMP3'] + [split[-2]]) + '.mp3'
-            self.test_video(latent, sentence, audio_file, mode='val')
-
-            # Test set
-            split = test_paths[i][0].split('/')
-            sentence = '/'.join(split[:-1]) + '/'
-            latent = sentence + 'mean.latent.pt'
-            audio_file = '/'.join(split[:-3] + ['AudioMP3'] + [split[-2]]) + '.mp3'
-            self.test_video(latent, sentence, audio_file, mode='test')
-
-    def test_video(self, test_latent_path, test_sentence_path, audio_file_path, mode=""):
+    def test_video(self, test_latent_path, test_sentence_path, audio_file_path, frames=-1, mode=""):
+        print(f"Testing {test_sentence_path}\n{audio_file_path}\n")
         self.audio_encoder.eval()
         if test_sentence_path[-1] != '/':
             test_sentence_path += '/'
         test_latent = torch.load(test_latent_path).unsqueeze(0).to(self.device)
+        if self.args.use_landmark_input:
+            aux_input = torch.cat((torch.load(test_latent_path.split(
+                '.')[0] + '.landmarks.pt').float().view(-1).to(self.device), test_latent[:, 4:8].view(-1))).unsqueeze(0)
+        else:
+            if self.args.n_latent_vec == 4:
+                aux_input = test_latent[:, 4:8]
+            elif self.args.n_latent_vec == 8:
+                aux_input = test_latent[:, :8]
+            else:
+                raise NotImplementedError
 
         sentence_name = test_sentence_path.split('/')[-2]
 
         # Load audio features
-        audio_paths = sorted(glob(test_sentence_path + f'*.{self.args.audio_type}.npy'))[:100]
+        audio_paths = sorted(glob(test_sentence_path + f'*.{self.args.audio_type}.npy'))[:frames]
         audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32) for p in audio_paths]).to(self.device)
         # Pad audio features
         pad = self.args.T // 2
         audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
         audios = audios.unfold(0, self.args.T, 1).permute(0, 3, 1, 2)
 
-        target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:100]
+        target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:frames]
         target_latents = torch.stack([torch.load(p) for p in target_latent_paths]).to(self.device)
 
         pbar = tqdm(total=len(target_latents))
@@ -399,29 +443,36 @@ class Solver:
             target_latent = target_latent.unsqueeze(0)
             with torch.no_grad():
                 input_latent = test_latent.clone()
-                latent = self.forward(audio, input_latent)
+                latent = self.forward(audio, input_latent, aux_input)
                 # Generate images
                 pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
-                target_img = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
+                # target_img = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
                 # Downsample
                 pred = utils.downsample_256(pred)
-                target_img = utils.downsample_256(target_img)
+                # target_img = utils.downsample_256(target_img)
             pbar.update()
             # Normalize
             pred = make_grid(pred.cpu(), normalize=True, range=(-1, 1))
-            target_img = make_grid(target_img.cpu(), normalize=True, range=(-1, 1))
-            diff = (target_img - pred) * 5
+            # target_img = make_grid(target_img.cpu(), normalize=True, range=(-1, 1))
+            # diff = (target_img - pred) * 5
 
-            save_tensor = torch.stack((pred, target_img, diff), dim=0)
-            video.append(make_grid(save_tensor))
+            # save_tensor = torch.stack((pred, target_img, diff), dim=0)
+            # video.append(make_grid(save_tensor))
+            video.append(make_grid(pred))
 
         # Save frames as video
         video = torch.stack(video, dim=0)
-        video_name = f"{self.args.save_dir}{mode}_{sentence_name}"
+        video_name = f"{self.args.save_dir}results/{mode}{sentence_name}"
+        os.makedirs(f"{self.args.save_dir}results", exist_ok=True)
         utils.write_video(f'{video_name}.mp4', video, fps=25)
 
         # Add audio
-        os.system(f"ffmpeg -i {video_name}.mp4 -i {audio_file_path} -codec copy -shortest {video_name}.mov")
+        p = Popen(['ffmpeg', '-y', '-i', f'{video_name}.mp4', '-i', audio_file_path, '-codec', 'copy', '-shortest', f'{video_name}.mov'],
+                  stdout=PIPE, stderr=PIPE)
+        output, error = p.communicate()
+        if p.returncode != 0:
+            print("Adding audio from %s to video %s failed with error\n%d %s %s" % (
+                  audio_file_path, f'{video_name}.mp4', p.returncode, output, error))
         os.system(f"rm {video_name}.mp4")
 
         self.audio_encoder.train()
@@ -457,6 +508,8 @@ def load_data(args):
         load_img=args.train_mode == 'image',
         load_latent=True,
         load_3ddfa=(args.train_mode == 'image' and args.landmarks_loss_weight),
+        load_landmarks=args.use_landmark_input,
+        random_inp_latent=args.random_inp_latent,
         T=args.T,
         normalize=True,
         mean=[0.5, 0.5, 0.5],
@@ -469,6 +522,8 @@ def load_data(args):
         load_img=args.train_mode == 'image',
         load_latent=True,
         load_3ddfa=(args.train_mode == 'image' and args.landmarks_loss_weight),
+        load_landmarks=args.use_landmark_input,
+        random_inp_latent=args.random_inp_latent,
         T=args.T,
         normalize=True,
         mean=[0.5, 0.5, 0.5],
@@ -523,11 +578,16 @@ if __name__ == '__main__':
     parser.add_argument('--T', type=int, default=8)  # 8
     parser.add_argument('--train_mode', type=str, default='image')  # 'latent' or 'image'
     parser.add_argument('--max_frames_per_vid', type=int, default=-1)  # -1
-    parser.add_argument('--model_type', type=str, default='net3')  # 'net2' no identity 'net3' identity info
+    parser.add_argument('--model_type', type=str, default='net5')  # 'net2' no identity 'net3' identity info
     parser.add_argument('--audio_type', type=str, default='deepspeech')  # 'deepspeech', 'mfcc' or 'lpc'
+    parser.add_argument('--random_inp_latent', type=bool, default=True)
+    parser.add_argument('--use_landmark_input', type=bool, default=True)
+    parser.add_argument('--normalize_audio', type=bool, default=False)
     parser.add_argument('--n_latent_vec', type=int, default=4)  # 4 for middle [4:8] 8 for coarse and middle [:8]
     parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
-    parser.add_argument('--test_multiplier', type=float, default=1.)  # During test time, direction is multiplied with
+
+    parser.add_argument('--test_multiplier', type=float, default=3.)  # During test time, direction is multiplied with
+    parser.add_argument('--test_truncation', type=float, default=.5)  # After multiplication, truncate to mean latent
 
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)  # 1.
@@ -535,7 +595,7 @@ if __name__ == '__main__':
     parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=80000)
+    parser.add_argument('--n_iters', type=int, default=20000)
     parser.add_argument('--update_pbar_every', type=int, default=100)  # 100
     parser.add_argument('--log_train_every', type=int, default=200)  # 200
     parser.add_argument('--log_val_every', type=int, default=200)  # 200
@@ -545,9 +605,12 @@ if __name__ == '__main__':
 
     # Path args
     parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256/')
-    parser.add_argument('--train_paths_file', type=str, default='/home/meissen/Datasets/AudioDataset/train_videos.txt')
-    parser.add_argument('--val_paths_file', type=str, default='/home/meissen/Datasets/AudioDataset/val_videos.txt')
-    parser.add_argument('--test_paths_file', type=str, default='/home/meissen/Datasets/AudioDataset/test_videos.txt')
+    parser.add_argument('--train_paths_file', type=str,
+                        default='/home/meissen/Datasets/AudioDataset/split_files/train_videos.txt')
+    parser.add_argument('--val_paths_file', type=str,
+                        default='/home/meissen/Datasets/AudioDataset/split_files/val_videos.txt')
+    parser.add_argument('--test_paths_file', type=str,
+                        default='/home/meissen/Datasets/AudioDataset/split_files/test_videos.txt')
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--test_latent', type=str, default=None)
     parser.add_argument('--test_sentence', type=str, default=None)
@@ -584,9 +647,23 @@ if __name__ == '__main__':
     # Train
     if args.test:
         if args.test_sentence is not None:
-            solver.test_video(args.test_latent, args.test_sentence, args.audio_file)
+            solver.test_video(args.test_latent, args.test_sentence, args.audio_file, frames=100)
         else:
-            solver.test_model(train_paths, val_paths, test_paths, 3)
+            # solver.test_model(train_paths, n_test=-1, frames=100, mode='train_')
+            # solver.test_model(val_paths, n_test=3, frames=100, mode='val_')
+            # solver.test_model(test_paths, n_test=3, frames=100, mode='test_')
+            solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
+
+            # grid_paths = []
+            # with open('/mnt/sdb1/meissen/Datasets/GRID/grid_videos.txt', 'r') as f:
+            #     line = f.readline()
+            #     while line:
+            #         video = line.replace('\n', '')
+            #         video_root = f'/mnt/sdb1/meissen/Datasets/GRID/Aligned256/{video}/'
+            #         grid_paths.append(sorted(glob(video_root + '*.png')))
+            #         line = f.readline()
+            # random.shuffle(grid_paths)
+            # solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
     else:
         solver.train(data_loaders, args.n_iters)
         print("Finished training.")

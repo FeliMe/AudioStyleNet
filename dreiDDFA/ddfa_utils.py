@@ -250,7 +250,7 @@ def draw_landmarks(img, pts, save_path=None, show_flg=True, style='fancy', **kwa
         nums = [0, 17, 22, 27, 31, 36, 42, 48, 60, 68]
 
         # close eyes and mouths
-        def plot_close(i1, i2): 
+        def plot_close(i1, i2):
             return plt.plot([pts[i1, 0], pts[i2, 0]], [pts[i1, 1], pts[i2, 1]], color=color, lw=lw, alpha=alpha - 0.1)
         plot_close(41, 36)
         plot_close(47, 42)

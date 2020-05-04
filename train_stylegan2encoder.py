@@ -29,7 +29,7 @@ class solverEncoder:
 
         self.initial_lr = self.args.lr
         self.lr = self.args.lr
-        self.lr_rampdown_length = 0.3
+        self.lr_rampdown_length = 0.4  # TODO 0.3
         self.lr_rampup_length = 0.1
 
         # Load generator
@@ -44,11 +44,12 @@ class solverEncoder:
         # Define encoder model
         self.e = resnetEncoder().train().to(self.device)
 
+        path = self.args.model_path  # TODO DELETE
+        self.e.load_state_dict(torch.load(path))  # TODO DELETE
+
         if self.args.cont or self.args.test or self.args.run:
             path = self.args.model_path
-            self.e.load_state_dict(torch.load(path))
-            self.global_step = int(path.split(
-                '/')[-1].split('.')[0].split('model')[-1])
+            self.load(path)
 
         # Print # parameters
         print("# params {} (trainable {})".format(
@@ -57,7 +58,7 @@ class solverEncoder:
         ))
 
         # Select optimizer and loss criterion
-        self.opt = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
+        self.optim = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
         self.criterion = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
 
         # Set up tensorboard
@@ -94,15 +95,29 @@ class solverEncoder:
 
     def save(self):
         save_path = f"{self.args.save_dir}models/model{self.global_step}.pt"
+        torch.save({
+            'model': self.e.state_dict(),
+            'optim_state_dict': self.optim.state_dict(),
+            'global_step': self.global_step,
+        }, save_path)
         print(f"Saving: {save_path}")
-        torch.save(self.e.state_dict(), save_path)
+
+    def load(self, path):
+        print(f"Loading audio_encoder weights from {path}")
+        checkpoint = torch.load(path, map_location=self.device)
+        if type(checkpoint) == dict:
+            self.optim.load_state_dict(checkpoint['optim_state_dict'])
+            self.e.load_state_dict(checkpoint['model'])
+            self.global_step = checkpoint['global_step']
+        else:
+            self.e.load_state_dict(checkpoint)
 
     def update_lr(self, t):
         lr_ramp = min(1.0, (1.0 - t) / self.lr_rampdown_length)
         lr_ramp = 0.5 - 0.5 * np.cos(lr_ramp * np.pi)
         lr_ramp = lr_ramp * min(1.0, t / self.lr_rampup_length)
         self.lr = self.initial_lr * lr_ramp
-        self.opt.param_groups[0]['lr'] = self.lr
+        self.optim.param_groups[0]['lr'] = self.lr
 
     def train(self, n_iters, train_loader, val_loader):
         print("Start training")
@@ -125,9 +140,9 @@ class solverEncoder:
                 loss, img_gen = self.forward(img)
 
                 # Optimize
-                self.opt.zero_grad()
+                self.optim.zero_grad()
                 loss.backward()
-                self.opt.step()
+                self.optim.step()
 
                 self.global_step += 1
                 i_iter += 1
@@ -282,18 +297,19 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--test', action='store_true')
+    parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--run', action='store_true')
+
     parser.add_argument('--batch_size', type=int, default=4)  # 4
     parser.add_argument('--lr', type=int, default=0.01)  # 0.01
-    parser.add_argument('--n_iters', type=int, default=120000)  # 150000  # 70000
+    parser.add_argument('--n_iters', type=int, default=60000)  # 150000
     parser.add_argument('--log_train_every', type=int, default=100)  # 1
     parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
     parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
-    parser.add_argument('--debug', action='store_true')
-    parser.add_argument('--test', action='store_true')
-    parser.add_argument('--cont', action='store_true')
-    parser.add_argument('--run', action='store_true')
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--src_path', type=str, default=None)
     args = parser.parse_args()
@@ -320,7 +336,7 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path="/mnt/sdb1/meissen/Datasets/GRID/Aligned256/",
+        root_path="/home/meissen/Datasets/GRID/Aligned256/",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],

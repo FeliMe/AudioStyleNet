@@ -4,7 +4,6 @@ import numpy as np
 import os
 import sys
 import torch
-import torch.nn.functional as F
 
 from glob import glob
 from PIL import Image
@@ -72,9 +71,9 @@ if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--prediction_path', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/results_yousaidthat/')
+                        default='/mnt/sdb1/meissen/Datasets/GRID/results_lpips_latent_mse_100k_mult3/')
     parser.add_argument('--target_path', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/Video/')
+                        default='/mnt/sdb1/meissen/Datasets/GRID/Video/')
     parser.add_argument('--metric_name', type=str, default='psnr')  # 'psnr' or 'ssim'
     args = parser.parse_args()
 
@@ -82,6 +81,7 @@ if __name__ == '__main__':
     if os.path.isdir(args.prediction_path):
         prediction_files = glob(args.prediction_path + '*.mp4')
         prediction_files += glob(args.prediction_path + '*.mov')
+        prediction_files += glob(args.prediction_path + '*.avi')
     else:
         prediction_files = [args.prediction_path]
     prediction_files = sorted(prediction_files)
@@ -97,7 +97,13 @@ if __name__ == '__main__':
     assert (len(prediction_files) != 0) and (len(target_files) != 0)
     print(f"{len(prediction_files)} videos")
 
-    metric_fn = PSNR() if args.metric_name == 'psnr' else SSIM()
+    if args.metric_name.lower() == 'psnr':
+        metric_fn = PSNR()
+    elif args.metric_name.lower() == 'ssim':
+        metric_fn = SSIM()
+    else:
+        raise NotImplementedError
+
     metric_sum = 0.
     pbar = tqdm(total=len(prediction_files))
     for prediction_video, target_video in zip(prediction_files, target_files):

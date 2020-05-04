@@ -761,7 +761,7 @@ class VideoAligner:
             self.prev_qsize = qsize_raw
 
         # Reset if cut in Video (qsize makes a jump)
-        if max(qsize_raw / self.prev_qsize, self.prev_qsize / qsize_raw) > 1.1:
+        if max(qsize_raw / self.prev_qsize, self.prev_qsize / qsize_raw) > 1.3:
             self.prev_qsize = qsize_raw
             self.avg_rotation = 0.
             self.initial_rot = None
@@ -787,8 +787,7 @@ class VideoAligner:
 
         self.avg_rotation = 0.7 * self.avg_rotation + \
             0.3 * (self.initial_rot - rotation)
-        quad = self.Rotate2D(quad, c, self.initial_rot -
-                             rotation - self.avg_rotation)
+        quad = self.Rotate2D(quad, c, self.initial_rot - rotation - self.avg_rotation)
 
         # Convert image to PIL
         img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
@@ -891,9 +890,9 @@ class VideoAligner:
             )
 
             # Visualize
-            print(save_path)
-            frame.show()
-            1 / 0
+            # print(save_path)
+            # frame.show()
+            # 1 / 0
 
             # Save
             frame.save(save_path)

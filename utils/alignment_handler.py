@@ -31,8 +31,9 @@ class AlignmentHandler():
         # Init face tracking
         predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
         self.landmark_detector = dlib.shape_predictor(predictor_path)
-        detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
-        self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
+        # detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+        # self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
+        self.face_detector = dlib.get_frontal_face_detector()  #Use this one first, other for missing frames
 
         # Init alignment variables
         self.avg_angle = 0.
@@ -87,7 +88,7 @@ class AlignmentHandler():
         # compute center (x, y)-coordinates (i.e., the median point)
         # between the two eyes in the input image
         eyesCenter = ((leftEyeCenter[0] + rightEyeCenter[0]) / 2,
-                    (leftEyeCenter[1] + rightEyeCenter[1]) / 2)
+                      (leftEyeCenter[1] + rightEyeCenter[1]) / 2)
 
         # grab the rotation matrix for rotating and scaling the face
         M = cv2.getRotationMatrix2D(eyesCenter, angle, scale)
@@ -139,8 +140,9 @@ class AlignmentHandler():
         if self.initial_angle is None:
             self.initial_angle = angle
 
-        self.avg_angle = 0.7 * self.avg_angle + \
-            0.3 * (self.initial_angle + angle)
+        # self.avg_angle = 0.5 * self.avg_angle + \
+        #     0.5 * (self.initial_angle + angle)
+        self.avg_angle = 0.7 * self.avg_angle + 0.3 * angle
 
         # compute the desired right eye x-coordinate based on the
         # desired x-coordinate of the left eye
@@ -157,7 +159,7 @@ class AlignmentHandler():
             self.prev_dist = dist
 
         # Reset if cut in Video (qsize makes a jump)
-        if max(dist / self.prev_dist, self.prev_dist / dist) > 1.1:
+        if max(dist / self.prev_dist, self.prev_dist / dist) > 1.5:
             self.prev_dist = dist
             self.avg_angle = 0.
             self.initial_angle = None
@@ -260,8 +262,8 @@ class AlignmentHandler():
         rects = self.face_detector(img, 1)
         if len(rects) == 0:
             return None
-        rect = rects[0].rect
-        pts = self.landmark_detector(cv2.cvtColor(img, cv2.COLOR_RGB2GRAY), rect).parts()
+        rect = rects[0]
+        pts = self.landmark_detector(img, rect).parts()
         pts = np.array([(pt.x, pt.y) for pt in pts], dtype=np.int32)
         return pts
 
@@ -275,15 +277,15 @@ class AlignmentHandler():
         alignment_params = {}
 
         cap = cv2.VideoCapture(video)
-        n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        pbar = tqdm(total=n_frames)
+        # n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        # pbar = tqdm(total=n_frames)
         while cap.isOpened():
             # Frame shape: (weight, width, 3)
             ret, frame = cap.read()
             if not ret:
                 break
             i_frame += 1
-            pbar.update()
+            # pbar.update()
             name = str(i_frame).zfill(5) + '.png'
             save_path = os.path.join(save_dir, name)
 

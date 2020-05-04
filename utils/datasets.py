@@ -924,6 +924,8 @@ class AudioDataset(Dataset):
                  load_img=True,
                  load_latent=False,
                  load_3ddfa=False,
+                 load_landmarks=False,
+                 random_inp_latent=False,
                  T=8,
                  normalize=False,
                  mean=[0.5, 0.5, 0.5],
@@ -935,6 +937,8 @@ class AudioDataset(Dataset):
         self.load_img = load_img
         self.load_latent = load_latent
         self.load_3ddfa = load_3ddfa
+        self.load_landmarks = load_landmarks
+        self.random_inp_latent = random_inp_latent
         self.normalize = normalize
         self.mean = mean
         self.std = std
@@ -978,8 +982,10 @@ class AudioDataset(Dataset):
 
         # Load latents
         if self.load_latent:
-            input_latent = torch.load(video + 'mean.latent.pt')
-            # input_latent = torch.load(input_path + ".latent.pt")
+            if self.random_inp_latent:
+                input_latent = torch.load(input_path + ".latent.pt")
+            else:
+                input_latent = torch.load(video + 'mean.latent.pt')
             target_latent = torch.load(target_path + ".latent.pt")
         else:
             target_latent = torch.tensor(0.)
@@ -990,12 +996,21 @@ class AudioDataset(Dataset):
         else:
             target_param = torch.tensor(0.)
 
+        if self.load_landmarks:
+            if self.random_inp_latent:
+                input_landmark = torch.load(input_path + ".landmarks.pt")
+            else:
+                raise NotImplementedError
+        else:
+            input_landmark = torch.tensor(0.)
+
         return {
             'audio': audio,
             'target_img': target_img,
             'input_latent': input_latent,
             'target_latent': target_latent,
             'target_param': target_param,
+            'input_landmark': input_landmark,
             'indices': indices,
             'paths': paths
         }

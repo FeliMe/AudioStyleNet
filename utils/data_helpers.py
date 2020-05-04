@@ -17,13 +17,15 @@ from torchvision import transforms
 from tqdm import tqdm
 from utils import get_mouth_params
 from utils import VideoAligner
+from alignment_handler import AlignmentHandler
 
 
 def align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
 
-    aligner = VideoAligner()
+    # aligner = VideoAligner()
+    aligner = AlignmentHandler()
 
     target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
@@ -31,7 +33,7 @@ def align_videos(root_path, group):
     assert len(videos) > 0
 
     groups = []
-    n = len(videos) // 7
+    n = len(videos) // 2
     for i in range(0, len(videos), n):
         groups.append(videos[i:i + n])
 
@@ -66,7 +68,7 @@ def encode_frames(root_path):
     from my_models.models import resnetEncoder
     e = resnetEncoder(net=18).eval().to(device)
     # e.load_state_dict(torch.load("PATH_HERE"))
-    e.load_state_dict(torch.load("/mnt/sdb1/meissen/Networks/resNet18GRID.pt"))
+    e.load_state_dict(torch.load("/mnt/sdb1/meissen/Networks/YouTubeDS_new.pt"))
 
     # Get latent avg
     from my_models.style_gan_2 import PretrainedGenerator1024
@@ -128,8 +130,9 @@ def get_mean_latents(root):
 
 
 def get_landmarks(root_path, group):
-    detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
-    detector = dlib.cnn_face_detection_model_v1(detector_path)
+    # detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+    # detector = dlib.cnn_face_detection_model_v1(detector_path)
+    detector = dlib.get_frontal_face_detector()
     predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
     predictor = dlib.shape_predictor(predictor_path)
 
@@ -158,16 +161,14 @@ def get_landmarks(root_path, group):
             save_path = frame.split('.')[0] + '.landmarks.pt'
             img = io.imread(frame)
 
-            # Grayscale image
-            gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
             # Detect faces
             rects = detector(img, 1)
             if len(rects) == 0:
                 print(f"Did not detect a face in {frame}")
+                continue
             rect = rects[0]
             landmarks = torch.tensor([(item.x, item.y) for item in predictor(
-                gray, rect).parts()], dtype=torch.float32)
+                img, rect).parts()], dtype=torch.float32)
 
             # Visualize
             # print(save_path)
@@ -523,7 +524,7 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=FF_I&id=13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I'
-13ZHkq9UsI8I7VZjKdDade1qA2GaZ330I
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=ok_c&id=1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB'
+1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB
 """
