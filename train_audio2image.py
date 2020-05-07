@@ -29,7 +29,7 @@ class Solver:
 
         self.initial_lr = self.args.lr
         self.lr = self.args.lr
-        self.lr_rampdown_length = 0.1  # TODO: 0.3
+        self.lr_rampdown_length = 0.3
 
         # Init global step
         self.global_step = 0
@@ -157,7 +157,7 @@ class Solver:
 
     def forward(self, audio, input_latent, aux_input):
         # Normalize audio features
-        if args.normalize_audio:
+        if self.args.normalize_audio:
             audio = (audio - audio.mean()) / audio.std()
         if self.args.n_latent_vec == 4:
             latent_offset = self.audio_encoder(audio, aux_input)
@@ -289,7 +289,7 @@ class Solver:
                     pbar.set_description('step [{gs}/{ni}] - '
                                          't-loss {tl:.3f} - '
                                          'v-loss {vl:.3f} - '
-                                         'lr {vl:.6f}'.format(
+                                         'lr {lr:.6f}'.format(
                                              gs=self.global_step,
                                              ni=n_iters,
                                              tl=pbar_avg_train_loss,
@@ -394,6 +394,8 @@ class Solver:
         for path in paths:
             split = path[0].split('/')
             sentence = '/'.join(split[:-1]) + '/'
+            if split[-2].startswith('TV'):
+                continue
             if self.args.random_inp_latent:
                 latent = random.choice(glob(sentence + '*.latent.pt'))
             else:
@@ -531,9 +533,9 @@ def load_data(args):
         image_size=256,
     )
     train_sampler = datasets.RandomAudioSampler(
-        train_paths, args.T, args.batch_size, 10000, weighted=True)
+        train_paths, args.T, args.batch_size, 10000, weighted=True, static_random=args.static_random_inp_latent)
     val_sampler = datasets.RandomAudioSampler(
-        val_paths, args.T, args.batch_size, 50, weighted=True)
+        val_paths, args.T, args.batch_size, 50, weighted=True, static_random=args.static_random_inp_latent)
 
     print(f"Dataset length: Train {len(train_ds)} val {len(val_ds)}")
     data_loaders = {
@@ -578,10 +580,11 @@ if __name__ == '__main__':
     parser.add_argument('--T', type=int, default=8)  # 8
     parser.add_argument('--train_mode', type=str, default='image')  # 'latent' or 'image'
     parser.add_argument('--max_frames_per_vid', type=int, default=-1)  # -1
-    parser.add_argument('--model_type', type=str, default='net5')  # 'net2' no identity 'net3' identity info
+    parser.add_argument('--model_type', type=str, default='net3')  # 'net2' no identity 'net3' identity info
     parser.add_argument('--audio_type', type=str, default='deepspeech')  # 'deepspeech', 'mfcc' or 'lpc'
-    parser.add_argument('--random_inp_latent', type=bool, default=True)
-    parser.add_argument('--use_landmark_input', type=bool, default=True)
+    parser.add_argument('--random_inp_latent', type=bool, default=False)
+    parser.add_argument('--static_random_inp_latent', type=bool, default=False)
+    parser.add_argument('--use_landmark_input', type=bool, default=False)
     parser.add_argument('--normalize_audio', type=bool, default=False)
     parser.add_argument('--n_latent_vec', type=int, default=4)  # 4 for middle [4:8] 8 for coarse and middle [:8]
     parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
@@ -595,7 +598,7 @@ if __name__ == '__main__':
     parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=20000)
+    parser.add_argument('--n_iters', type=int, default=100000)
     parser.add_argument('--update_pbar_every', type=int, default=100)  # 100
     parser.add_argument('--log_train_every', type=int, default=200)  # 200
     parser.add_argument('--log_val_every', type=int, default=200)  # 200
@@ -604,7 +607,7 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
-    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256/')
+    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256_old/')
     parser.add_argument('--train_paths_file', type=str,
                         default='/home/meissen/Datasets/AudioDataset/split_files/train_videos.txt')
     parser.add_argument('--val_paths_file', type=str,
@@ -652,7 +655,7 @@ if __name__ == '__main__':
             # solver.test_model(train_paths, n_test=-1, frames=100, mode='train_')
             # solver.test_model(val_paths, n_test=3, frames=100, mode='val_')
             # solver.test_model(test_paths, n_test=3, frames=100, mode='test_')
-            solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
+            solver.test_model(test_paths, n_test=-1, frames=-1, mode='test_')
 
             # grid_paths = []
             # with open('/mnt/sdb1/meissen/Datasets/GRID/grid_videos.txt', 'r') as f:

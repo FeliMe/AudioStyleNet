@@ -1,11 +1,101 @@
+import numpy as np
 import torch
 import torch.nn.functional as F
-from torch.autograd import Variable
-from math import exp
 
-"""
-Structural similarity index from https://github.com/Po-Hsun-Su/pytorch-ssim
-"""
+from facenet_pytorch import MTCNN, InceptionResnetV1
+from math import exp, log10
+from torch.autograd import Variable
+
+
+class FaceNetDist:
+    def __init__(self, image_size=109):
+        self.mtcnn = MTCNN(image_size=image_size)
+        self.resnet = InceptionResnetV1(pretrained='vggface2').eval()
+
+    def __call__(self, img1, img2):
+        """
+        Mean L1 distance between the facenet embeddings of two images
+        args:
+            img1 (PIL Image)
+            img2 (PIL Image)
+        """
+        # Align images
+        img1_cropped = self.mtcnn(img1)
+        img2_cropped = self.mtcnn(img2)
+
+        # Visualize
+        # from torchvision import transforms
+        # transforms.ToPILImage()(img1_cropped).show()
+        # transforms.ToPILImage()(img2_cropped).show()
+
+        # Compute embeddings
+        img1_embedding = self.resnet(img1_cropped.unsqueeze(0))
+        img2_embedding = self.resnet(img2_cropped.unsqueeze(0))
+
+        dist = F.l1_loss(img1_embedding, img2_embedding).item()
+
+        return dist
+
+
+class FDBM:
+    """
+    Frequency Domain Image Blur Measure as in
+    'Image Sharpness Measure for Blurred Images in Frequency Domain'
+    """
+
+    def __init__(self):
+        self.name = 'FDBM'
+
+    @staticmethod
+    def __call__(img):
+        """
+        args:
+            img (np.array): cv2 grayscale image of shape M x N and dtype np.uint8
+        """
+        assert img.ndim == 2
+
+        # 1. Compute Fourier Transformation
+        f = np.fft.fft2(img)
+
+        # 2. Shift to center
+        fc = np.fft.fftshift(f)
+
+        # Visualize
+        # magnitude_spectrum = 20 * np.log(np.abs(fc))
+        # import matplotlib.pyplot as plt
+        # plt.imshow(magnitude_spectrum, cmap='gray')
+        # plt.title('Magnitude Spectrum')
+        # plt.xticks([])
+        # plt.yticks([])
+        # plt.show()
+
+        # 3. Compute absolute value of fc
+        fa = np.abs(fc)
+
+        # 4. Calculate maximum value of the frequency component in F
+        m = fa.max()
+
+        # 5. Calculate  the total number of pixels in F whose pixel value > thres
+        thres = m / 1000.
+        th = (f > thres).sum()
+
+        # 6. Calculate Image Quality measure
+        (M, N) = img.shape
+        fdbm = th / (M * N)
+
+        return fdbm
+
+
+class PSNR:
+    """Peak Signal to Noise Ratio"""
+
+    def __init__(self):
+        self.name = "PSNR"
+
+    @staticmethod
+    def __call__(prediction, target):
+        mse = F.mse_loss(prediction, target)
+        return 10 * log10(1 / mse.item())
 
 
 def gaussian(window_size, sigma):
@@ -62,6 +152,9 @@ def ssim(img1, img2, window_size=11, size_average=True):
 
 
 class SSIM(torch.nn.Module):
+    """
+    Structural similarity index from https://github.com/Po-Hsun-Su/pytorch-ssim
+    """
     def __init__(self, window_size=11, size_average=True):
         super(SSIM, self).__init__()
         self.window_size = window_size

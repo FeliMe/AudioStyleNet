@@ -29,27 +29,23 @@ class solverEncoder:
 
         self.initial_lr = self.args.lr
         self.lr = self.args.lr
-        self.lr_rampdown_length = 0.4  # TODO 0.3
+        self.lr_rampdown_length = 0.3
         self.lr_rampup_length = 0.1
 
         # Load generator
         self.g = style_gan_2.PretrainedGenerator1024().eval().to(device)
         for param in self.g.parameters():
             param.requires_grad = False
-        self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
+        # self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
+        self.latent_avg = self.g.latent_avg.unsqueeze(0).to(self.device)  # TODO: REMOVE
 
         # Init global step
         self.global_step = 0
 
         # Define encoder model
-        self.e = resnetEncoder().train().to(self.device)
+        # self.e = resnetEncoder().train().to(self.device)
+        self.e = resnetEncoder(out_dim=512).train().to(self.device)  # TODO: REMOVE
 
-        path = self.args.model_path  # TODO DELETE
-        self.e.load_state_dict(torch.load(path))  # TODO DELETE
-
-        if self.args.cont or self.args.test or self.args.run:
-            path = self.args.model_path
-            self.load(path)
 
         # Print # parameters
         print("# params {} (trainable {})".format(
@@ -60,6 +56,14 @@ class solverEncoder:
         # Select optimizer and loss criterion
         self.optim = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
         self.criterion = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
+
+        # path = self.args.model_path  # TODO DELETE
+        # self.e.load_state_dict(torch.load(path))  # TODO DELETE
+
+        # Load model and optimizer checkpoint
+        if self.args.cont or self.args.test or self.args.run:
+            path = self.args.model_path
+            self.load(path)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test and not self.args.run:
@@ -84,9 +88,13 @@ class solverEncoder:
         # Decode
         img_gen, _ = self.g(
             [latent], input_is_latent=True, noise=self.g.noises)
-
         # Downsample to 256 x 256
         img_gen = utils.downsample_256(img_gen)
+
+        # from torchvision.utils import make_grid
+        # img_gen = make_grid(img_gen.detach().cpu(), normalize=True, range=(-1, 1))
+        # transforms.ToPILImage()(img_gen).show()
+        # 1 / 0
 
         # Compute perceptual loss
         loss = self.criterion(img_gen, img).mean()
@@ -304,7 +312,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--batch_size', type=int, default=4)  # 4
     parser.add_argument('--lr', type=int, default=0.01)  # 0.01
-    parser.add_argument('--n_iters', type=int, default=60000)  # 150000
+    parser.add_argument('--n_iters', type=int, default=90000)  # 150000
     parser.add_argument('--log_train_every', type=int, default=100)  # 1
     parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
     parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
@@ -336,7 +344,7 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path="/home/meissen/Datasets/GRID/Aligned256/",
+        root_path="/home/meissen/Datasets/CREMA-D/Aligned256/",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],

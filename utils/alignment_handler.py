@@ -27,13 +27,18 @@ def show_tensor(tensor):
 
 
 class AlignmentHandler():
-    def __init__(self, desiredLeftEye=(0.371, 0.470), desiredFaceShape=(256, 256), static=False):
+    def __init__(self, desiredLeftEye=(0.371, 0.470), desiredFaceShape=(256, 256), detector='frontal'):
         # Init face tracking
         predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
         self.landmark_detector = dlib.shape_predictor(predictor_path)
-        # detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
-        # self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
-        self.face_detector = dlib.get_frontal_face_detector()  #Use this one first, other for missing frames
+
+        if detector == 'frontal':
+            self.face_detector = dlib.get_frontal_face_detector()  # Use this one first, other for missing frames
+        elif detector == 'cnn':
+            detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+            self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
+        else:
+            raise NotImplementedError
 
         # Init alignment variables
         self.avg_angle = 0.
@@ -43,7 +48,6 @@ class AlignmentHandler():
 
         self.desiredLeftEye = desiredLeftEye
         self.desiredFaceShape = desiredFaceShape
-        self.static = static  # Doesn't smooth rotation and scale over consecutive frames
 
     @staticmethod
     def align_face_static(img, keypoints, desiredLeftEye=(0.371, 0.470), desiredFaceShape=(256, 256)):

@@ -263,6 +263,10 @@ class AudioExpressionNet3(nn.Module):
         latent_dim = 128
         pca_dim = 512
         self.latent_in = nn.Linear(self.expression_dim, latent_dim)
+        pca = 'saves/pre-trained/audio_dataset_offset_to_mean_4to8_pca512.pt'
+        weight = torch.load(pca)[:latent_dim]
+        with torch.no_grad():
+            self.latent_in.weight = nn.Parameter(weight)  # TODO: Maybe remove again
 
         self.fc1 = nn.Linear(64, 128)
         self.adain1 = model_utils.LinearAdaIN(latent_dim, 128)
@@ -380,7 +384,13 @@ class AudioExpressionNet5(nn.Module):
         #     nn.Linear(256, latent_dim),
         #     nn.ReLU(True),
         # )
-        self.latent_in = nn.Linear(68 * 2 + self.expression_dim, latent_dim)
+        self.latent_in = nn.Linear(self.expression_dim, pca_dim)
+        pca = 'saves/pre-trained/audio_dataset_offset_to_static_random_pca512.pt'
+        weight = torch.load(pca)[:pca_dim]
+        with torch.no_grad():
+            self.latent_in.weight = nn.Parameter(weight)
+
+        self.aux_in = nn.Linear(512 + 68 * 2, latent_dim)
 
         self.fc1 = nn.Linear(64, 128)
         self.adain1 = model_utils.LinearAdaIN(latent_dim, 128)
@@ -389,12 +399,7 @@ class AudioExpressionNet5(nn.Module):
         self.fc_out = nn.Linear(pca_dim, self.expression_dim)
 
         # Init fc_out with 512 precomputed pac components
-        if self.n_latent_vec == 4:
-            pca = 'saves/pre-trained/audio_dataset_offset_to_mean_4to8_pca512.pt'
-        elif self.n_latent_vec == 8:
-            pca = 'saves/pre-trained/audio_dataset_offset_to_mean_0to8_pca512.pt'
-        else:
-            raise NotImplementedError
+        pca = 'saves/pre-trained/audio_dataset_offset_to_static_random_pca512.pt'
         weight = torch.load(pca)[:pca_dim].T
         with torch.no_grad():
             self.fc_out.weight = nn.Parameter(weight)
@@ -423,7 +428,7 @@ class AudioExpressionNet5(nn.Module):
             nn.Softmax(dim=1)
         )
 
-    def forward(self, audio, latent):
+    def forward(self, audio, aux_input):
         # input shape: [b, T, 16, 29]
         b = audio.shape[0]
         audio = audio.permute(0, 1, 3, 2)  # [b, T, 29, 16]
@@ -433,14 +438,19 @@ class AudioExpressionNet5(nn.Module):
         conv_res = self.convNet(audio)
         conv_res = conv_res.view(b * self.T, 1, -1)  # [b * T, 1, 64]
 
-        latent = self.latent_in(latent.clone().view(b, -1))
+        aux_input = aux_input.clone()
+        landmarks = aux_input[:, :68 * 2]
+        latent = aux_input[:, 68 * 2:]
+        latent = self.latent_in(latent)
+
+        face_info = self.aux_in(torch.cat((landmarks, latent), dim=1))
 
         # Fully connected
         expression = []
         conv_res = conv_res.view(b, self.T, 1, -1)  # [b, T, 1, 64]
         conv_res = conv_res.transpose(0, 1)  # [T, b, 1, 64]
         for t in conv_res:
-            z_ = F.leaky_relu(self.adain1(self.fc1(t), latent), 0.02)
+            z_ = F.leaky_relu(self.adain1(self.fc1(t), face_info), 0.02)
             z_ = F.leaky_relu(self.fc2(z_))
             z_ = self.fc3(z_)
             expression.append(self.fc_out(z_))
@@ -1263,6 +1273,8 @@ class resnetEncoder(nn.Module):
 
         if self.out_dim == 18 * 512:
             y = y.view(-1, 18, 512)
+        else:
+            y = y.view(-1, 1, 512)  # TODO: REMOVE
 
         return y
 

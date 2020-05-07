@@ -25,7 +25,7 @@ def align_videos(root_path, group):
         root_path += '/'
 
     # aligner = VideoAligner()
-    aligner = AlignmentHandler()
+    aligner = AlignmentHandler(detector='frontal')
 
     target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
     print(f'Saving to {target_path}')
@@ -67,8 +67,13 @@ def encode_frames(root_path):
     # Load encoder
     from my_models.models import resnetEncoder
     e = resnetEncoder(net=18).eval().to(device)
-    # e.load_state_dict(torch.load("PATH_HERE"))
-    e.load_state_dict(torch.load("/mnt/sdb1/meissen/Networks/YouTubeDS_new.pt"))
+    # checkpoint = torch.load("PATH_HERE", map_location=device)
+    checkpoint = torch.load(
+        "/mnt/sdb1/meissen/Networks/GRID_new.pt", map_location=device)
+    if type(checkpoint) == dict:
+        e.load_state_dict(checkpoint['model'])
+    else:
+        e.load_state_dict(checkpoint)
 
     # Get latent avg
     from my_models.style_gan_2 import PretrainedGenerator1024
@@ -109,7 +114,7 @@ def encode_frames(root_path):
         1 / 0
 
         # Save
-        # torch.save(latent, save_path)
+        torch.save(latent, save_path)
 
 
 def get_mean_latents(root):

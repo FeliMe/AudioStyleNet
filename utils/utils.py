@@ -684,12 +684,16 @@ def texture_params(mouth_lm, frame):
 
 
 class VideoAligner:
-    def __init__(self):
+    def __init__(self, detector='frontal'):
         # Init face tracking
         predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
         self.predictor = dlib.shape_predictor(predictor_path)
-        detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
-        self.detector = dlib.cnn_face_detection_model_v1(detector_path)
+        if detector == 'frontal':
+            self.detector = dlib.get_frontal_face_detector()
+        else:
+            detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+            self.detector = dlib.cnn_face_detection_model_v1(detector_path)
+        self.detector_type = detector
 
         # Init alignment variables
         self.avg_rotation = 0.
@@ -859,8 +863,8 @@ class VideoAligner:
             # pbar.update()
             name = str(i_frame).zfill(5) + '.png'
             save_path = os.path.join(save_dir, name)
-            # if os.path.exists(save_path):
-            #     continue
+            if os.path.exists(save_path):
+                continue
 
             # Pre-resize to save computation
             h_old, w_old, _ = frame.shape
@@ -879,7 +883,10 @@ class VideoAligner:
                     f"Did not detect a face in {path_to_vid} {i_frame}, resetting aligner")
                 self.reset()
                 continue
-            rect = rects[0].rect
+            if self.detector_type == 'frontal':
+                rect = rects[0]
+            else:
+                rect = rects[0].rect
             landmarks = [(int(item.x / factor), int(item.y / factor))
                          for item in self.predictor(gray_small, rect).parts()]
             frame = self.align_image(

@@ -1407,7 +1407,7 @@ class RandomAudioSampler(Sampler):
         weighted (bool):
     """
 
-    def __init__(self, paths, T, batch_size, num_batches, weighted=False):
+    def __init__(self, paths, T, batch_size, num_batches, weighted=False, static_random=False):
         indices = []
         i = 0
         for path in paths:
@@ -1419,6 +1419,7 @@ class RandomAudioSampler(Sampler):
         self.T = T
         self.batch_size = batch_size
         self.num_batches = num_batches
+        self.static_random = static_random
         if weighted:
             len_videos = [len(v) for v in indices]
             self.prob_video = [float(length) / sum(len_videos)
@@ -1426,12 +1427,27 @@ class RandomAudioSampler(Sampler):
         else:
             self.prob_video = [1. / len(self.indices) for _ in self.indices]
 
+        # Use always the same random input for each video
+        self.input_indices = [random.choice(ind) for ind in self.indices]
+
     def __iter__(self):
         batch = []
         videos = random.choices(self.indices, weights=self.prob_video, k=len(self))
         for video in videos:
             start = random.randint(0, len(video) - self.T)
             inp_idx = random.choice(video)
+            sample = video[start: start + self.T] + [inp_idx]
+            batch.append(sample)
+        return iter(batch)
+        batch = []
+        video_inds = random.choices(range(len(self.indices)), weights=self.prob_video, k=len(self))
+        for video_ind in video_inds:
+            video = self.indices[video_ind]
+            start = random.randint(0, len(video) - self.T)
+            if self.static_random:
+                inp_idx = self.input_indices[video_ind]
+            else:
+                inp_idx = random.choice(video)
             sample = video[start: start + self.T] + [inp_idx]
             batch.append(sample)
         return iter(batch)
