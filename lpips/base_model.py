@@ -10,9 +10,9 @@ class BaseModel():
     def name(self):
         return 'BaseModel'
 
-    def initialize(self, use_gpu=True, gpu_ids=[0]):
+    def initialize(self, use_gpu=True, gpu_id=0):
         self.use_gpu = use_gpu
-        self.gpu_ids = gpu_ids
+        self.gpu_id = gpu_id
 
     def forward(self):
         pass

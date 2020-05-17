@@ -14,6 +14,10 @@ from torchvision.utils import save_image, make_grid
 from torchvision import transforms
 from tqdm import tqdm
 
+
+RAIDROOT = os.environ['RAIDROOT']
+
+
 EMOTIONS = ['neutral', 'calm', 'happy', 'sad',
             'angry', 'fearful', 'disgusted', 'surprised']
 
@@ -83,7 +87,7 @@ def add_mouth_features(args):
     # Get face detector
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(
-        '/home/meissen/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+        RAIDROOT + 'Networks/shape_predictor_68_face_landmarks.dat')
 
     # Load training data
     data = torch.load(args.training_data)

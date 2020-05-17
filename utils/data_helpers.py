@@ -20,6 +20,9 @@ from utils import VideoAligner
 from alignment_handler import AlignmentHandler
 
 
+RAIDROOT = os.environ['RAIDROOT']
+
+
 def align_videos(root_path, group):
     if root_path[-1] != '/':
         root_path += '/'
@@ -135,22 +138,16 @@ def get_mean_latents(root):
 
 
 def get_landmarks(root_path, group):
-    # detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
-    # detector = dlib.cnn_face_detection_model_v1(detector_path)
-    detector = dlib.get_frontal_face_detector()
-    predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
-    predictor = dlib.shape_predictor(predictor_path)
+    aligner = VideoAligner2(device='cuda')
 
     if root_path[-1] != '/':
         root_path += '/'
 
-    target_path = ('/').join(root_path.split('/')[:-2]) + '/Aligned256/'
-    print(f'Saving to {target_path}')
     videos = sorted(glob(root_path + '*/'))
     assert len(videos) > 0
 
     groups = []
-    n = len(videos) // 6
+    n = len(videos) // 4
     for i in range(0, len(videos), n):
         groups.append(videos[i:i + n])
 
@@ -167,25 +164,64 @@ def get_landmarks(root_path, group):
             img = io.imread(frame)
 
             # Detect faces
-            rects = detector(img, 1)
-            if len(rects) == 0:
+            landmarks = aligner.get_landmarks(img)
+            if landmarks is None:
                 print(f"Did not detect a face in {frame}")
                 continue
-            rect = rects[0]
-            landmarks = torch.tensor([(item.x, item.y) for item in predictor(
-                img, rect).parts()], dtype=torch.float32)
 
             # Visualize
-            # print(save_path)
-            # print(landmarks.shape)
-            # for (x, y) in landmarks:
-            #     cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
-            # cv2.imshow("", img)
-            # cv2.waitKey(0)
-            # 1 / 0
+            print(save_path)
+            print(landmarks.shape)
+            for (x, y) in landmarks:
+                cv2.circle(img, (x, y), 1, (255, 255, 255), 1)
+            cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            cv2.waitKey(0)
+            1 / 0
 
             # Save
-            torch.save(landmarks, save_path)
+            torch.save(torch.tensor(landmarks), save_path)
+
+
+def get_mean_landmarks(root, device):
+
+    videos = sorted(glob(root + '*/'))
+    assert len(videos) > 0
+
+    aligner = VideoAligner2(device=device)
+
+    from my_models.style_gan_2 import PretrainedGenerator1024
+    from torchvision.utils import make_grid
+    from utils.utils import downsample_256
+    g = PretrainedGenerator1024().eval().to(device)
+
+    pbar = tqdm(total=len(videos))
+    for video in videos:
+        pbar.update()
+        pbar.set_description(video)
+        img_path = video + 'mean.latent.pt'
+        save_path = video + 'mean.landmarks.pt'
+        mean_latent = torch.load(img_path).unsqueeze(0).to(device)
+
+        with torch.no_grad():
+            img = g([mean_latent], input_is_latent=True, noise=g.noises)[0]
+        img = downsample_256(img)
+        img = make_grid(img.cpu(), normalize=True, range=(-1, 1))
+
+        img = (img.permute(1, 2, 0).numpy() * 255.).astype(np.uint8)
+
+        landmarks = aligner.get_landmarks(img)
+        if landmarks is None:
+            print(f"Did not detect a face in {img_path}")
+            continue
+
+        # Visualize
+        # print(save_path)
+        # print(landmarks.shape)
+        # Image.fromarray(img).show()
+        # 1 / 0
+
+        # Save
+        torch.save(torch.tensor(landmarks), save_path)
 
 
 def get_scores(root_path, model='fer'):
@@ -379,7 +415,7 @@ def omg_get_phoneme_timing(root_path):
 def omg_extract_face_feats(root_path):
     detector = dlib.get_frontal_face_detector()
     predictor = dlib.shape_predictor(
-        '/home/meissen/Datasets/RAVDESS/shape_predictor_68_face_landmarks.dat')
+        RAIDROOT + 'Networks/shape_predictor_68_face_landmarks.dat')
 
     if root_path[-1] != '/':
         root_path += '/'
@@ -529,7 +565,7 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=ok_c&id=1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB'
-1ny40a0zIwJuxt-FxUFYW_CAt85dzoHsB
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1ykjOZwwFfyP2V1vdUVsm2v4r1QSM-uxa' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=RMFc&id=1UW22xm4r9AewNoySyPd2fyUab0nqymBR'
+1ykjOZwwFfyP2V1vdUVsm2v4r1QSM-uxa
 """

@@ -3,7 +3,10 @@ from torch import nn
 from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
-fused = load('fused', sources=['op/fused_bias_act.cpp', 'op/fused_bias_act_kernel.cu'])
+try:
+    import fused
+except ModuleNotFoundError:
+    fused = load('fused', sources=['op/fused_bias_act.cpp', 'op/fused_bias_act_kernel.cu'])
 
 
 class FusedLeakyReLUFunctionBackward(Function):

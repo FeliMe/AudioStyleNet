@@ -1000,7 +1000,7 @@ class AudioDataset(Dataset):
             if self.random_inp_latent:
                 input_landmark = torch.load(input_path + ".landmarks.pt")
             else:
-                raise NotImplementedError
+                input_landmark = torch.load(video + 'mean.landmarks.pt')
         else:
             input_landmark = torch.tensor(0.)
 

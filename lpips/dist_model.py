@@ -22,7 +22,7 @@ class DistModel(BaseModel):
     def initialize(self, model='net-lin', net='alex', colorspace='Lab',
                    pnet_rand=False, pnet_tune=False, model_path=None,
                    use_gpu=True, printNet=False, spatial=False, is_train=False,
-                   lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0]):
+                   lr=.0001, beta1=0.5, version='0.1', gpu_id=0):
         '''
         INPUTS
             model - ['net-lin'] for linearly calibrated network
@@ -44,13 +44,13 @@ class DistModel(BaseModel):
             version - 0.1 for latest, 0.0 was original (with a bug)
             gpu_ids - int array - [0] by default, gpus to use
         '''
-        BaseModel.initialize(self, use_gpu=use_gpu, gpu_ids=gpu_ids)
+        BaseModel.initialize(self, use_gpu=use_gpu, gpu_id=gpu_id)
 
         self.model = model
         self.net = net
         self.is_train = is_train
         self.spatial = spatial
-        self.gpu_ids = gpu_ids
+        self.gpu_id = gpu_id
         self.model_name = '%s [%s]' % (model, net)
 
         if(self.model == 'net-lin'):  # pretrained net + linear layer
@@ -103,10 +103,10 @@ class DistModel(BaseModel):
             self.net.eval()
 
         if(use_gpu):
-            self.net.to(gpu_ids[0])
-            self.net = torch.nn.DataParallel(self.net, device_ids=gpu_ids)
+            self.net.to(f"cuda:{gpu_id}")
+            # self.net = torch.nn.DataParallel(self.net, device_ids=gpu_ids)
             if(self.is_train):
-                self.rankLoss = self.rankLoss.to(device=gpu_ids[0])  # just put this on GPU0
+                self.rankLoss = self.rankLoss.to(device=f"cuda:{gpu_id}")  # just put this on GPU0
 
         if(printNet):
             print('---------- Networks initialized -------------')
@@ -143,10 +143,10 @@ class DistModel(BaseModel):
         self.input_judge = data['judge']
 
         if(self.use_gpu):
-            self.input_ref = self.input_ref.to(device=self.gpu_ids[0])
-            self.input_p0 = self.input_p0.to(device=self.gpu_ids[0])
-            self.input_p1 = self.input_p1.to(device=self.gpu_ids[0])
-            self.input_judge = self.input_judge.to(device=self.gpu_ids[0])
+            self.input_ref = self.input_ref.to(device=f"cuda:{self.gpu_id}")
+            self.input_p0 = self.input_p0.to(device=f"cuda:{self.gpu_id}")
+            self.input_p1 = self.input_p1.to(device=f"cuda:{self.gpu_id}")
+            self.input_judge = self.input_judge.to(device=f"cuda:{self.gpu_id}")
 
         self.var_ref = Variable(self.input_ref, requires_grad=True)
         self.var_p0 = Variable(self.input_p0, requires_grad=True)

@@ -8,6 +8,13 @@ from torch.nn import functional as F
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 
+RAIDROOT = os.environ['RAIDROOT']
+
+# try:
+#     import upfirdn2d
+# except ModuleNotFoundError as e:
+#     upfirdn2d_op = load('upfirdn2d', sources=['op/upfirdn2d.cpp', 'op/upfirdn2d_kernel.cu'])
+
 
 class PixelNorm(nn.Module):
     def __init__(self):
@@ -679,7 +686,7 @@ class PretrainedGenerator1024(Generator):
             lr_mlp=0.01
         )
 
-        w = torch.load('/mnt/sdb1/meissen/Networks/stylegan2-ffhq-config-f.pt')
+        w = torch.load(RAIDROOT + 'Networks/stylegan2-ffhq-config-f.pt')
         self.load_state_dict(w['g_ema'])
         self.register_buffer('latent_avg', w['latent_avg'])
         self.register_buffer('latent_std', w['latent_std'])
@@ -693,6 +700,11 @@ class PretrainedGenerator1024(Generator):
     def cpu(self):
         self = super().cpu()
         self.noises = [n.cpu() for n in self.noises]
+        return self
+
+    def to(self, device):
+        self = super().to(device)
+        self.noises = [n.to(device) for n in self.noises]
         return self
 
 

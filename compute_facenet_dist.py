@@ -1,17 +1,18 @@
-import cv2
 import numpy as np
-import scipy.io.wavfile as wav
+import os
 import sys
 import torch
 
 from eafa import Emotion_Aware_Facial_Animation
-from glob import glob
 from PIL import Image
 from torchvision import transforms
 from torchvision.utils import make_grid
 from tqdm import tqdm
 from utils.metrics import FaceNetDist
 from utils.utils import downsample_256
+
+
+RAIDROOT = os.environ['RAIDROOT']
 
 
 def np2torch_img(img):
@@ -23,7 +24,7 @@ def image_from_latent(latentfile, eafa_model):
     with torch.no_grad():
         img = eafa_model.g([latent], input_is_latent=True, noise=eafa_model.g.noises)[0].cpu()
     img = downsample_256(img)
-    img = make_grid(img)
+    img = make_grid(img, normalize=True, range=(-1, 1))
     return img
 
 
@@ -34,6 +35,7 @@ def compute_metric(prediction, static_image, metric_fn):
 
         # Visualize
         # img_pred.show()
+        # static_image.show()
         # 1 / 0
 
         metric = metric_fn(img_pred, static_image)
@@ -48,6 +50,7 @@ if __name__ == '__main__':
     # Init model
     model = Emotion_Aware_Facial_Animation(
         model_path=sys.argv[1],
+        device='cuda:2',
         model_type='net3',
         audio_type='deepspeech',
         T=8,
@@ -55,7 +58,7 @@ if __name__ == '__main__':
         normalize_audio=False
     )
 
-    root_path = '/mnt/sdb1/meissen/Datasets/GRID/'
+    root_path = RAIDROOT + 'Datasets/GRID/'
     latent_root = root_path + 'Aligned256/'
     target_root = root_path + 'Video/'
 
@@ -72,7 +75,7 @@ if __name__ == '__main__':
     metric_mean = 0.
     pbar = tqdm(total=len(videos))
     for video in videos:
-        latentfile = sorted(glob(f"{latent_root}{video}/mean.latent.pt"))
+        latentfile = f"{latent_root}{video}/mean.latent.pt"
         sentence = f"{latent_root}{video}/"
         # print(f"Image {imagefile} - Audio {audiofile})
 
@@ -81,7 +84,7 @@ if __name__ == '__main__':
 
         # Create video
         vid = model(test_latent=latentfile, test_sentence_path=sentence)
-        vid = ((np.rollaxis(vid.numpy(), 1, 4) + 1) * 127.5).astype(np.uint8)
+        vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
         # Compute metric
         metric = compute_metric(vid, static_image, metric_fn)

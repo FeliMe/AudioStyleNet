@@ -11,6 +11,9 @@ from skimage import io
 from torchvision import transforms
 
 
+RAIDROOT = os.environ['RAIDROOT']
+
+
 def torch2np_img(img):
     return (img.permute(1, 2, 0).numpy() * 255.).astype(np.uint8)
 
@@ -29,13 +32,13 @@ def show_tensor(tensor):
 class AlignmentHandler():
     def __init__(self, desiredLeftEye=(0.371, 0.470), desiredFaceShape=(256, 256), detector='frontal'):
         # Init face tracking
-        predictor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
+        predictor_path = RAIDROOT + 'Networks/shape_predictor_68_face_landmarks.dat'
         self.landmark_detector = dlib.shape_predictor(predictor_path)
 
         if detector == 'frontal':
             self.face_detector = dlib.get_frontal_face_detector()  # Use this one first, other for missing frames
         elif detector == 'cnn':
-            detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+            detector_path = RAIDROOT + 'Networks/mmod_human_face_detector.dat'
             self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
         else:
             raise NotImplementedError

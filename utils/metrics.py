@@ -27,6 +27,7 @@ class FaceNetDist:
         # from torchvision import transforms
         # transforms.ToPILImage()(img1_cropped).show()
         # transforms.ToPILImage()(img2_cropped).show()
+        # 1 / 0
 
         # Compute embeddings
         img1_embedding = self.resnet(img1_cropped.unsqueeze(0))

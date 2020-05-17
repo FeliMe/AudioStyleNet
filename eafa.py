@@ -41,13 +41,15 @@ def tempdir():
 class Emotion_Aware_Facial_Animation:
     def __init__(self,
                  model_path,
+                 device,
                  model_type='net3',
                  audio_type='deepspeech',
                  T=8,
                  n_latent_vec=4,
                  normalize_audio=False):
 
-        self.device = 'cuda'
+        self.device = device
+        torch.cuda.set_device(device)
         self.n_latent_vec = n_latent_vec
         self.normalize_audio = normalize_audio
         self.T = T
@@ -88,9 +90,7 @@ class Emotion_Aware_Facial_Animation:
         print(f"Loading audio_encoder weights from {path}")
         checkpoint = torch.load(path, map_location=self.device)
         if type(checkpoint) == dict:
-            self.optim.load_state_dict(checkpoint['optim_state_dict'])
             self.audio_encoder.load_state_dict(checkpoint['model'])
-            self.global_step = checkpoint['global_step']
         else:
             self.audio_encoder.load_state_dict(checkpoint)
 
@@ -128,7 +128,7 @@ class Emotion_Aware_Facial_Animation:
 
         return prediction
 
-    def predict(self, test_latent, test_sentence_path, use_landmark_input=False):
+    def __call__(self, test_latent, test_sentence_path, use_landmark_input=False):
         # Load test latent
         if type(test_latent) is str:
             test_latent = torch.load(test_latent).unsqueeze(0).to(self.device)
@@ -157,7 +157,7 @@ class Emotion_Aware_Facial_Animation:
         audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
         audios = audios.unfold(0, self.T, 1).permute(0, 3, 1, 2)
 
-        pbar = tqdm(total=len(audios))
+        # pbar = tqdm(total=len(audios))
         video = []
 
         # Generate
@@ -172,11 +172,11 @@ class Emotion_Aware_Facial_Animation:
 
                 # Downsample
                 pred = utils.downsample_256(pred)
-            pbar.update()
+            # pbar.update()
 
             # Normalize
             pred = make_grid(pred.cpu(), normalize=True, range=(-1, 1))
-            video.append(make_grid(pred))
+            video.append(pred)
 
         return torch.stack(video)
 

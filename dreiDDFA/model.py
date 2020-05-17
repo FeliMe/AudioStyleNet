@@ -1,6 +1,7 @@
 import dreiDDFA.ddfa_utils as d_utils
 import dlib
 import numpy as np
+import os
 import pickle
 import torch
 import torch.nn as nn
@@ -9,6 +10,9 @@ import torch.nn.functional as F
 from dreiDDFA.mobilenet_v1 import pretrained_model
 from math import sqrt
 from os import path as osp
+
+
+RAIDROOT = os.environ['RAIDROOT']
 
 
 class dreiDDFA(nn.Module):
@@ -23,9 +27,9 @@ class dreiDDFA(nn.Module):
             param.requires_grad = False
 
         # 2. load dlib model for face detection and landmark used for face cropping
-        regressor_path = '/home/meissen/Datasets/shape_predictor_68_face_landmarks.dat'
+        regressor_path = RAIDROOT + 'Networks/shape_predictor_68_face_landmarks.dat'
         self.face_regressor = dlib.shape_predictor(regressor_path)
-        detector_path = '/home/meissen/Datasets/mmod_human_face_detector.dat'
+        detector_path = RAIDROOT + 'Networks/mmod_human_face_detector.dat'
         self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
         # self.face_detector = dlib.get_frontal_face_detector()
 

@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import os
 import sys
 import torch
 
@@ -10,6 +11,9 @@ from glob import glob
 from utils.metrics import FDBM
 from PIL import Image
 from tqdm import tqdm
+
+
+RAIDROOT = os.environ['RAIDROOT']
 
 
 def np2torch_img(img):
@@ -29,7 +33,7 @@ def compute_metric(prediction, metric_fn):
             continue
 
         aligned_pred = aligner.align_face_static(
-            frame_pred, lm_pred, desiredLeftEye=(0.28, 0.23), desiredFaceShape=(163, 163))[0]
+            frame_pred, lm_pred, desiredLeftEye=(0.28, 0.23), desiredFaceShape=(128, 128))[0]
 
         # Visualize
         # Image.fromarray(aligned_pred).show()
@@ -49,6 +53,7 @@ if __name__ == '__main__':
     # Init model
     model = Emotion_Aware_Facial_Animation(
         model_path=sys.argv[1],
+        device='cuda:2',
         model_type='net3',
         audio_type='deepspeech',
         T=8,
@@ -56,11 +61,11 @@ if __name__ == '__main__':
         normalize_audio=False
     )
 
-    root_path = '/mnt/sdb1/meissen/Datasets/GRID/'
+    root_path = RAIDROOT + 'Datasets/GRID/'
     latent_root = root_path + 'Aligned256/'
     target_root = root_path + 'Video/'
 
-    metric_name = 'cpbd'
+    metric_name = 'fdbm'
     if metric_name.lower() == 'cpbd':
         metric_fn = compute
     elif metric_name.lower() == 'fdbm':
@@ -78,14 +83,14 @@ if __name__ == '__main__':
     metric_mean = 0.
     pbar = tqdm(total=len(videos))
     for video in videos:
-        latentfile = sorted(glob(f"{latent_root}{video}/mean.latent.pt"))
+        latentfile = f"{latent_root}{video}/mean.latent.pt"
         sentence = f"{latent_root}{video}/"
         targetfile = f"{target_root}{video}.mpg"
         # print(f"Image {imagefile} - Audio {audiofile})
 
         # Create video
         vid = model(test_latent=latentfile, test_sentence_path=sentence)
-        vid = ((np.rollaxis(vid.numpy(), 1, 4) + 1) * 127.5).astype(np.uint8)
+        vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
         # Compute metric
         metric = compute_metric(vid, metric_fn)

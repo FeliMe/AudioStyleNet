@@ -11,14 +11,14 @@ from lpips import dist_model
 
 
 class PerceptualLoss(torch.nn.Module):
-    def __init__(self, model='net-lin', net='vgg', colorspace='rgb', spatial=False, use_gpu=True, gpu_ids=[0]):  # VGG using our perceptually-learned weights (LPIPS metric)
+    def __init__(self, model='net-lin', net='vgg', colorspace='rgb', spatial=False, use_gpu=True, gpu_id=0):  # VGG using our perceptually-learned weights (LPIPS metric)
         super(PerceptualLoss, self).__init__()
         print('Setting up Perceptual loss...')
         self.use_gpu = use_gpu
         self.spatial = spatial
-        self.gpu_ids = gpu_ids
+        self.gpu_id = gpu_id
         self.model = dist_model.DistModel()
-        self.model.initialize(model=model, net=net, use_gpu=use_gpu, colorspace=colorspace, spatial=self.spatial, gpu_ids=gpu_ids)
+        self.model.initialize(model=model, net=net, use_gpu=use_gpu, colorspace=colorspace, spatial=self.spatial, gpu_id=gpu_id)
         print('...[%s] initialized' % self.model.name())
         print('...Done')
 

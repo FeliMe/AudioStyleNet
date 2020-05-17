@@ -9,8 +9,7 @@ from torchvision import models as torch_models
 
 import my_models.model_utils as model_utils
 
-
-""" Image models """
+RAIDROOT = os.environ['RAIDROOT']
 
 
 MAPPING = {
@@ -85,7 +84,7 @@ class AudioExpressionNet(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            '/mnt/sdb1/meissen/Networks/audio2expression_convNet_justus.pt'))
+            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
@@ -154,7 +153,7 @@ class AudioExpressionNet2(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            '/mnt/sdb1/meissen/Networks/audio2expression_convNet_justus.pt'))
+            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
@@ -256,7 +255,7 @@ class AudioExpressionNet3(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            '/mnt/sdb1/meissen/Networks/audio2expression_convNet_justus.pt'))
+            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
@@ -372,7 +371,7 @@ class AudioExpressionNet5(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            '/mnt/sdb1/meissen/Networks/audio2expression_convNet_justus.pt'))
+            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
@@ -496,7 +495,7 @@ class AudioExpressionNet4(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            '/mnt/sdb1/meissen/Networks/audio2expression_convNet_justus.pt'))
+            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 

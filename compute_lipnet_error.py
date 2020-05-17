@@ -1,14 +1,18 @@
 import cv2
 import face_alignment
 import numpy as np
+import os
 import sys
 import torch
 
 from glob import glob
 from eafa import Emotion_Aware_Facial_Animation
 from jiwer import wer, mer, wil
-from lipnet import LipNet
-from PIL import Image
+from utils.lipnet import LipNet
+
+
+RAIDROOT = os.environ['RAIDROOT']
+DEVICE = 'cuda:2'
 
 
 def get_position(size, padding=0.25):
@@ -60,7 +64,7 @@ def transformation_from_points(points1, points2):
 
 def prepare_video(array):
     fa = face_alignment.FaceAlignment(
-        face_alignment.LandmarksType._2D, flip_input=False, device='cpu')
+        face_alignment.LandmarksType._2D, flip_input=False, device=DEVICE)
     points = [fa.get_landmarks(I) for I in array]
 
     front256 = get_position(256)
@@ -77,6 +81,12 @@ def prepare_video(array):
             w = 160 // 2
             img = img[y - w // 2:y + w // 2, x - w:x + w, ...]
             img = cv2.resize(img, (128, 64))
+
+            # Visualize
+            # cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+            # cv2.waitKey(0)
+            # 1 / 0
+
             video.append(img)
 
     video = np.stack(video, axis=0).astype(np.float32)
@@ -135,7 +145,7 @@ def get_model():
     model = LipNet()
     model = model.cuda()
 
-    pretrained_dict = torch.load('/mnt/sdb1/meissen/Networks/lipnet.pt')
+    pretrained_dict = torch.load(RAIDROOT + 'Networks/lipnet.pt')
     model_dict = model.state_dict()
     pretrained_dict = {k: v for k, v in pretrained_dict.items(
     ) if k in model_dict.keys() and v.size() == model_dict[k].size()}
@@ -154,6 +164,7 @@ if __name__ == '__main__':
     # Init model
     model = Emotion_Aware_Facial_Animation(
         model_path=sys.argv[1],
+        device=DEVICE,
         model_type='net3',
         audio_type='deepspeech',
         T=8,
@@ -164,7 +175,7 @@ if __name__ == '__main__':
     # Get model
     lipnet_model = get_model()
 
-    root_path = '/mnt/sdb1/meissen/Datasets/GRID/'
+    root_path = RAIDROOT + 'Datasets/GRID/'
     latent_root = root_path + 'Aligned256/'
     transcript_root = root_path + 'Video/'
 
@@ -179,7 +190,7 @@ if __name__ == '__main__':
     mer_sum = 0.
     wil_sum = 0.
     for video in videos:
-        latentfile = sorted(glob(f"{latent_root}{video}/mean.latent.pt"))
+        latentfile = f"{latent_root}{video}/mean.latent.pt"
         sentence = f"{latent_root}{video}/"
         transcriptfile = f"{transcript_root}{video}.transcript.txt"
         # print(f"Image {imagefile} - Audio {audiofile} - Target {transcriptfile}")
@@ -189,7 +200,7 @@ if __name__ == '__main__':
 
         # Create video
         vid = model(test_latent=latentfile, test_sentence_path=sentence)
-        vid = ((np.rollaxis(vid.numpy(), 1, 4) + 1) * 127.5).astype(np.uint8)
+        vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
         vid = prepare_video(vid)
 

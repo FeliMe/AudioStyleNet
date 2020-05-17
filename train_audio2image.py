@@ -18,6 +18,8 @@ from utils import datasets, utils
 
 
 HOME = os.path.expanduser('~')
+RAIDROOT = os.environ['RAIDROOT']
+DATAROOT = os.environ['DATAROOT']
 
 
 class Solver:
@@ -29,7 +31,7 @@ class Solver:
 
         self.initial_lr = self.args.lr
         self.lr = self.args.lr
-        self.lr_rampdown_length = 0.3
+        self.lr_rampdown_length = 0.4
 
         # Init global step
         self.global_step = 0
@@ -71,7 +73,7 @@ class Solver:
 
         # Select optimizer and loss criterion
         self.optim = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.lr)
-        self.lpips = PerceptualLoss(model='net-lin', net='vgg')
+        self.lpips = PerceptualLoss(model='net-lin', net='vgg', gpu_id=args.gpu)
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -83,9 +85,9 @@ class Solver:
                 dense=True, img_mean=0.5, img_std=0.5).to(self.device)
 
         # Mouth mask for image
-        # mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_3std.pt').to(device)
-        mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(device)
-        # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(device)
+        # mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_3std.pt').to(self.device)
+        mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(self.device)
+        # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(self.device)
         self.image_mask = mouth_mask
         # self.image_mask = (mouth_mask + eyes_mask).clamp(-1., 1.)
 
@@ -250,9 +252,11 @@ class Solver:
             'landmarks': 0.
         }
 
-        while i_iter < n_iters:
+        # while i_iter < n_iters:
+        while self.global_step < n_iters:
             for batch in data_loaders['train']:
                 # Update learning rate
+                # t = i_iter / n_iters
                 t = self.global_step / n_iters
                 self.update_lr(t)
 
@@ -321,7 +325,8 @@ class Solver:
                         self.eval(data_loaders['val'], f'val_gen_{self.global_step}.png')
 
                 # Break if n_iters is reached and still in epoch
-                if i_iter == n_iters:
+                # if i_iter == n_iters:
+                if self.global_step == n_iters:
                     break
 
         self.save()
@@ -426,7 +431,8 @@ class Solver:
         sentence_name = test_sentence_path.split('/')[-2]
 
         # Load audio features
-        audio_paths = sorted(glob(test_sentence_path + f'*.{self.args.audio_type}.npy'))[:frames]
+        audio_type = 'deepspeech' if self.args.audio_type == 'deepspeech-synced' else self.args.audio_type
+        audio_paths = sorted(glob(test_sentence_path + f'*.{audio_type}.npy'))[:frames]
         audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32) for p in audio_paths]).to(self.device)
         # Pad audio features
         pad = self.args.T // 2
@@ -569,6 +575,10 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
+
+    # GPU
+    parser.add_argument('--gpu', type=int, default=0)
+
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
@@ -581,7 +591,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_mode', type=str, default='image')  # 'latent' or 'image'
     parser.add_argument('--max_frames_per_vid', type=int, default=-1)  # -1
     parser.add_argument('--model_type', type=str, default='net3')  # 'net2' no identity 'net3' identity info
-    parser.add_argument('--audio_type', type=str, default='deepspeech')  # 'deepspeech', 'mfcc' or 'lpc'
+    parser.add_argument('--audio_type', type=str, default='deepspeech-synced')  # 'deepspeech', 'mfcc' or 'lpc'
     parser.add_argument('--random_inp_latent', type=bool, default=False)
     parser.add_argument('--static_random_inp_latent', type=bool, default=False)
     parser.add_argument('--use_landmark_input', type=bool, default=False)
@@ -589,8 +599,8 @@ if __name__ == '__main__':
     parser.add_argument('--n_latent_vec', type=int, default=4)  # 4 for middle [4:8] 8 for coarse and middle [:8]
     parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
 
-    parser.add_argument('--test_multiplier', type=float, default=3.)  # During test time, direction is multiplied with
-    parser.add_argument('--test_truncation', type=float, default=.5)  # After multiplication, truncate to mean latent
+    parser.add_argument('--test_multiplier', type=float, default=2.)  # During test time, direction is multiplied with
+    parser.add_argument('--test_truncation', type=float, default=.8)  # After multiplication, truncate to mean latent
 
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)  # 1.
@@ -598,7 +608,7 @@ if __name__ == '__main__':
     parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
-    parser.add_argument('--n_iters', type=int, default=100000)
+    parser.add_argument('--n_iters', type=int, default=150000)
     parser.add_argument('--update_pbar_every', type=int, default=100)  # 100
     parser.add_argument('--log_train_every', type=int, default=200)  # 200
     parser.add_argument('--log_val_every', type=int, default=200)  # 200
@@ -607,13 +617,13 @@ if __name__ == '__main__':
     parser.add_argument('--save_dir', type=str, default='saves/audio_encoder/')
 
     # Path args
-    parser.add_argument('--data_path', type=str, default='/home/meissen/Datasets/AudioDataset/Aligned256_old/')
+    parser.add_argument('--data_path', type=str, default=f'{DATAROOT}AudioDataset/Aligned256/')
     parser.add_argument('--train_paths_file', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/split_files/train_videos.txt')
+                        default=f'{DATAROOT}AudioDataset/split_files/train_videos.txt')
     parser.add_argument('--val_paths_file', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/split_files/val_videos.txt')
+                        default=f'{DATAROOT}AudioDataset/split_files/val_videos.txt')
     parser.add_argument('--test_paths_file', type=str,
-                        default='/home/meissen/Datasets/AudioDataset/split_files/test_videos.txt')
+                        default=f'{DATAROOT}AudioDataset/split_files/test_videos.txt')
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--test_latent', type=str, default=None)
     parser.add_argument('--test_sentence', type=str, default=None)
@@ -638,8 +648,8 @@ if __name__ == '__main__':
         print("Testing")
 
     # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    args.device = device
+    args.device = f'cuda:{args.gpu}'
+    torch.cuda.set_device(args.device)
 
     # Load data
     data_loaders, train_paths, val_paths, test_paths = load_data(args)
@@ -655,18 +665,31 @@ if __name__ == '__main__':
             # solver.test_model(train_paths, n_test=-1, frames=100, mode='train_')
             # solver.test_model(val_paths, n_test=3, frames=100, mode='val_')
             # solver.test_model(test_paths, n_test=3, frames=100, mode='test_')
-            solver.test_model(test_paths, n_test=-1, frames=-1, mode='test_')
+            # solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
 
-            # grid_paths = []
-            # with open('/mnt/sdb1/meissen/Datasets/GRID/grid_videos.txt', 'r') as f:
-            #     line = f.readline()
-            #     while line:
-            #         video = line.replace('\n', '')
-            #         video_root = f'/mnt/sdb1/meissen/Datasets/GRID/Aligned256/{video}/'
-            #         grid_paths.append(sorted(glob(video_root + '*.png')))
-            #         line = f.readline()
-            # random.shuffle(grid_paths)
-            # solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
+            # GRID videos
+            grid_paths = []
+            with open(RAIDROOT + 'Datasets/GRID/grid_videos.txt', 'r') as f:
+                line = f.readline()
+                while line:
+                    video = line.replace('\n', '')
+                    video_root = RAIDROOT + f'Datasets/GRID/Aligned256/{video}/'
+                    grid_paths.append(sorted(glob(video_root + '*.png')))
+                    line = f.readline()
+            random.shuffle(grid_paths)
+            solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
+
+            # CREMA-D videos
+            grid_paths = []
+            with open(RAIDROOT + 'Datasets/CREMA-D/crema-d_videos.txt', 'r') as f:
+                line = f.readline()
+                while line:
+                    video = line.replace('\n', '')
+                    video_root = RAIDROOT + f'Datasets/CREMA-D/Aligned256/{video}/'
+                    grid_paths.append(sorted(glob(video_root + '*.png')))
+                    line = f.readline()
+            random.shuffle(grid_paths)
+            solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
     else:
         solver.train(data_loaders, args.n_iters)
         print("Finished training.")
