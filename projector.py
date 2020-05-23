@@ -1,7 +1,7 @@
+import argparse
 import glob
 import os
 import numpy as np
-import sys
 import torch
 import torch.nn.functional as F
 
@@ -185,8 +185,15 @@ class Projector:
 
 if __name__ == "__main__":
 
+    # Parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--input', type=str, required=True)
+    parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--gpu', type=int, required=True)
+    args = parser.parse_args()
+
     # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.gpu}'
 
     # Load model
     g = style_gan_2.PretrainedGenerator1024().to(device).train()
@@ -197,7 +204,7 @@ if __name__ == "__main__":
     proj = Projector(g)
 
     # Load target image
-    path = sys.argv[1]
+    path = args.input
     if os.path.isdir(path):
         image_files = glob.glob(path + '*.png')
         image_files += glob.glob(path + '*.jpg')
@@ -205,7 +212,7 @@ if __name__ == "__main__":
         image_files = [path]
 
     # Specify save_dir
-    save_dir = sys.argv[2] if len(sys.argv) > 2 else 'saves/projected_images/'
+    save_dir = args.output_dir if args.output_dir is not None else 'saves/projected_images/'
     if save_dir[-1] != '/':
         save_dir = save_dir + '/'
 
@@ -222,7 +229,7 @@ if __name__ == "__main__":
         target_image = transform(target_image).to(device)
 
         # Run projector
-        proj.run(target_image, 1000 if i == 0 else 50)
+        proj.run(target_image, 2000 if i == 0 else 100)
 
         # Collect results
         generated = proj.get_images()

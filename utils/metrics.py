@@ -8,11 +8,12 @@ from torch.autograd import Variable
 
 
 class FaceNetDist:
-    def __init__(self, image_size=109):
-        self.mtcnn = MTCNN(image_size=image_size)
-        self.resnet = InceptionResnetV1(pretrained='vggface2').eval()
+    def __init__(self, device, image_size=109):
+        self.device = device
+        self.mtcnn = MTCNN(image_size=image_size, device=self.device)
+        self.resnet = InceptionResnetV1(pretrained='vggface2').eval().to(self.device)
 
-    def __call__(self, img1, img2):
+    def __call__(self, img1, img2, verbose=False):
         """
         Mean L1 distance between the facenet embeddings of two images
         args:
@@ -23,15 +24,20 @@ class FaceNetDist:
         img1_cropped = self.mtcnn(img1)
         img2_cropped = self.mtcnn(img2)
 
+        if img1_cropped is None or img2_cropped is None:
+            return None
+
         # Visualize
-        # from torchvision import transforms
-        # transforms.ToPILImage()(img1_cropped).show()
-        # transforms.ToPILImage()(img2_cropped).show()
-        # 1 / 0
+        if verbose:
+            from torchvision import transforms
+            from torchvision.utils import make_grid
+            transforms.ToPILImage()(make_grid(img1_cropped.cpu(), normalize=True, range=(-1, 1))).show()
+            transforms.ToPILImage()(make_grid(img2_cropped.cpu(), normalize=True, range=(-1, 1))).show()
+            1 / 0
 
         # Compute embeddings
-        img1_embedding = self.resnet(img1_cropped.unsqueeze(0))
-        img2_embedding = self.resnet(img2_cropped.unsqueeze(0))
+        img1_embedding = self.resnet(img1_cropped.unsqueeze(0).to(self.device))
+        img2_embedding = self.resnet(img2_cropped.unsqueeze(0).to(self.device))
 
         dist = F.l1_loss(img1_embedding, img2_embedding).item()
 

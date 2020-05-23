@@ -24,6 +24,7 @@ def load_video(videofile):
         if not ret:
             break
         frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+    assert len(frames) > 0, f"Failed to load video {videofile}"
     return np.array(frames)
 
 
@@ -31,8 +32,8 @@ def np2torch_img(img):
     return torch.tensor(img, dtype=torch.float32).permute(2, 0, 1) / 255.
 
 
-def compute_metric(prediction, target, metric_fn):
-    aligner = AlignmentHandler()
+def compute_metric(prediction, target, metric_fn, verbose=False):
+    aligner = AlignmentHandler(detector='frontal')
     i_frame = 0
     metric_arr = []
     for frame_pred, frame_target in zip(prediction, target):
@@ -53,9 +54,10 @@ def compute_metric(prediction, target, metric_fn):
             frame_target, lm_target, desiredLeftEye=(0.28, 0.23), desiredFaceShape=(128, 128))[0]
 
         # Visualize
-        # Image.fromarray(aligned_pred).show()
-        # Image.fromarray(aligned_target).show()
-        # 1 / 0
+        if verbose:
+            Image.fromarray(aligned_pred).show()
+            Image.fromarray(aligned_target).show()
+            1 / 0
 
         aligned_pred = np2torch_img(aligned_pred)
         aligned_target = np2torch_img(aligned_target)
@@ -69,22 +71,48 @@ def compute_metric(prediction, target, metric_fn):
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str)
+    parser.add_argument('--model_path', type=str)
+    parser.add_argument('--metric', type=str)
+    parser.add_argument('--gpu', type=int)
+    parser.add_argument('--verbose', action="store_true")
+    parser.add_argument('--model_type', type=str, default='net3')
+    parser.add_argument('--audio_type', type=str, default='deepspeech')
+    parser.add_argument('--audio_multiplier', type=float, default=2.0)
+    parser.add_argument('--audio_truncation', type=float, default=0.8)
+    args = parser.parse_args()
+
+    device = f"cuda:{args.gpu}"
+
     # Init model
     model = Emotion_Aware_Facial_Animation(
-        model_path=sys.argv[1],
-        device='cuda:2',
-        model_type='net3',
-        audio_type='deepspeech',
+        model_path=args.model_path,
+        device=device,
+        model_type=args.model_type,
+        audio_type=args.audio_type,
         T=8,
         n_latent_vec=4,
         normalize_audio=False
     )
 
-    root_path = RAIDROOT + 'Datasets/GRID/'
+    dataset = args.dataset
+
+    # root_path = f'/home/meissen/Datasets/{dataset}/'
+    root_path = RAIDROOT + f'Datasets/{dataset}/'
     latent_root = root_path + 'Aligned256/'
     target_root = root_path + 'Video/'
 
-    metric_name = 'ssim'
+    if dataset == 'GRID':
+        video_ext = '.mpg'
+    elif dataset == 'CREMA-D':
+        video_ext = '.flv'
+    elif dataset == 'AudioDataset':
+        video_ext = '.mp4'
+    else:
+        raise NotImplementedError
+
+    metric_name = args.metric
     if metric_name.lower() == 'psnr':
         metric_fn = PSNR()
     elif metric_name.lower() == 'ssim':
@@ -93,30 +121,35 @@ if __name__ == '__main__':
         raise NotImplementedError
 
     videos = []
-    with open(root_path + 'grid_videos.txt', 'r') as f:
+    with open(root_path + f'{dataset.lower()}_videos.txt', 'r') as f:
         line = f.readline()
         while line:
             videos.append(line.replace('\n', ''))
             line = f.readline()
 
-    metric_sum = 0.
+    metric_mean = []
     pbar = tqdm(total=len(videos))
     for video in videos:
         latentfile = f"{latent_root}{video}/mean.latent.pt"
         sentence = f"{latent_root}{video}/"
-        targetfile = f"{target_root}{video}.mpg"
+        targetfile = f"{target_root}{video}{video_ext}"
         # print(f"Image {imagefile} - Audio {audiofile} - Target {targetfile}")
 
         # Create video
-        vid = model(test_latent=latentfile, test_sentence_path=sentence)
+        max_sec = 30 if dataset == 'AudioDataset' else -1
+        vid = model(test_latent=latentfile, test_sentence_path=sentence,
+                    audio_multiplier=args.audio_multiplier,
+                    audio_truncation=args.audio_truncation,
+                    max_sec=max_sec)
         vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
         # Compute metric
         target = load_video(targetfile)
-        metric = compute_metric(vid, target, metric_fn)
-        metric_sum += metric.mean()
+        metric = compute_metric(vid, target, metric_fn, verbose=args.verbose)
+        metric_mean.append(metric.mean())
         pbar.update()
-        pbar.set_description(f"{metric_name}: {metric.mean():.4f}")
+        pbar.set_description(
+            f"{metric_name}: {metric.mean():.4f} - current mean: {np.array(metric_mean).mean():.4f}")
 
-    print(f"mean {metric_name}: {metric_sum / len(videos):.4f}")
+    print(f"mean {metric_name}: {np.array(metric_mean).mean():.4f}")
     print(f"prediction was {root_path}")

@@ -719,7 +719,7 @@ class PretrainedGenerator256(Generator):
             lr_mlp=0.01
         )
 
-        w = torch.load('/mnt/sdb1/meissen/Networks/stylegan2-ffhq-256.pt')
+        w = torch.load(RAIDROOT + 'Networks/stylegan2-ffhq-256.pt')
         self.load_state_dict(w['g_ema'])
 
         self.register_buffer('latent_avg', w['latent_avg'])

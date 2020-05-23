@@ -858,8 +858,7 @@ class EmotionClassifier(nn.Module):
             param.requires_grad = False
 
     def _load_weights(self):
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    '../saves/pre-trained/classifier_aligned256.pt'))
+        w = torch.load(RAIDROOT + 'Networks/classifier_aligned256.pt')
         self.classifier.load_state_dict(w)
 
     def _filter_emotions(self, out):
@@ -906,8 +905,7 @@ class FERModelGitHub(nn.Module):
         return nn.Sequential(*layers)
 
     def _load_weights(self):
-        w = torch.load(os.path.join(os.path.dirname(os.path.realpath(__file__)),
-                                    '../saves/pre-trained/FERModelGitHub.pt'))
+        w = torch.load(RAIDROOT + 'Networks/FERModelGitHub.pt')
         self.load_state_dict(w['net'])
 
     def forward(self, x):
@@ -954,9 +952,9 @@ class FERClassifier(nn.Module):
                 x, 48, mode='bilinear', align_corners=False)
 
         out = self.classifier(x)
-        out = self._map_to_ravdess_out(out)
         if self.softmaxed:
             out = nn.functional.softmax(out, dim=1)
+        out = self._map_to_ravdess_out(out)
         out = self._filter_emotions(out)
         return out
 
@@ -1251,6 +1249,65 @@ class resnetEncoder(nn.Module):
         self.avgpool = resnet.avgpool
         self.flatten = nn.Flatten()
         self.linear_n = nn.Linear(512, out_dim)
+
+        if pretrained:
+            self.load_weights()
+
+    def load_weights(self):
+        state_dict = torch.load('saves/pre-trained/resNet18Tagesschau.pt')
+        self.load_state_dict(state_dict)
+
+    def forward(self, x):
+
+        y = self.layer0(x)
+        y = self.layer1(y)
+        y = self.layer2(y)
+        y = self.layer3(y)
+        y = self.layer4(y)
+        y = self.avgpool(y)
+        y = self.flatten(y)
+        y = self.linear_n(y)
+
+        if self.out_dim == 18 * 512:
+            y = y.view(-1, 18, 512)
+        else:
+            y = y.view(-1, 1, 512)  # TODO: REMOVE
+
+        return y
+
+
+class resnet50Encoder(nn.Module):
+    def __init__(self, out_dim=512 * 18, pretrained=False):
+        super().__init__()
+
+        def _set_requires_grad_false(layer):
+            for param in layer.parameters():
+                param.requires_grad = False
+
+        from my_models.resnet50_vggface import ResNet50
+        resnet = ResNet50(pretrained=True)
+
+        self.out_dim = out_dim
+
+        self.layer0 = nn.Sequential(
+            resnet.conv1,
+            resnet.bn1,
+            resnet.relu,
+            resnet.maxpool
+        )
+        _set_requires_grad_false(self.layer0)
+        self.layer1 = resnet.layer1
+        _set_requires_grad_false(self.layer1)
+        self.layer2 = resnet.layer2
+        _set_requires_grad_false(self.layer2)
+        self.layer3 = resnet.layer3
+        # _set_requires_grad_false(self.layer3)
+        self.layer4 = resnet.layer4
+        # _set_requires_grad_false(self.layer4)
+
+        self.avgpool = resnet.avgpool
+        self.flatten = nn.Flatten()
+        self.linear_n = nn.Linear(8192, out_dim)
 
         if pretrained:
             self.load_weights()

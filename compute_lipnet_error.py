@@ -1,3 +1,4 @@
+import argparse
 import cv2
 import face_alignment
 import numpy as np
@@ -62,7 +63,7 @@ def transformation_from_points(points1, points2):
                       np.matrix([0., 0., 1.])])
 
 
-def prepare_video(array):
+def prepare_video(array, verbose=False):
     fa = face_alignment.FaceAlignment(
         face_alignment.LandmarksType._2D, flip_input=False, device=DEVICE)
     points = [fa.get_landmarks(I) for I in array]
@@ -83,9 +84,10 @@ def prepare_video(array):
             img = cv2.resize(img, (128, 64))
 
             # Visualize
-            # cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
-            # cv2.waitKey(0)
-            # 1 / 0
+            if verbose:
+                cv2.imshow("", cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(0)
+                1 / 0
 
             video.append(img)
 
@@ -93,17 +95,6 @@ def prepare_video(array):
     video = torch.FloatTensor(video.transpose(3, 0, 1, 2)) / 255.0
 
     return video
-
-
-def load_video(videofile):
-    frames = []
-    cap = cv2.VideoCapture(videofile)
-    while cap.isOpened():
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-    return np.array(frames)
 
 
 def ctc_arr2txt(arr, start):
@@ -141,9 +132,9 @@ def read_transcript(file):
     return text.lower()
 
 
-def get_model():
+def get_model(device):
     model = LipNet()
-    model = model.cuda()
+    model = model.to(device)
 
     pretrained_dict = torch.load(RAIDROOT + 'Networks/lipnet.pt')
     model_dict = model.state_dict()
@@ -161,26 +152,40 @@ def get_model():
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str)
+    parser.add_argument('--model_path', type=str)
+    parser.add_argument('--gpu', type=int)
+    parser.add_argument('--verbose', action="store_true")
+    parser.add_argument('--model_type', type=str, default='net3')
+    parser.add_argument('--audio_type', type=str, default='deepspeech')
+    parser.add_argument('--audio_multiplier', type=float, default=2.0)
+    parser.add_argument('--audio_truncation', type=float, default=0.8)
+    args = parser.parse_args()
+
+    device = f"cuda:{args.gpu}"
+
     # Init model
     model = Emotion_Aware_Facial_Animation(
-        model_path=sys.argv[1],
-        device=DEVICE,
-        model_type='net3',
-        audio_type='deepspeech',
+        model_path=args.model_path,
+        device=device,
+        model_type=args.model_type,
+        audio_type=args.audio_type,
         T=8,
         n_latent_vec=4,
         normalize_audio=False
     )
 
-    # Get model
-    lipnet_model = get_model()
+    lipnet_model = get_model(device)
 
-    root_path = RAIDROOT + 'Datasets/GRID/'
+    dataset = args.dataset
+
+    root_path = RAIDROOT + f'Datasets/{dataset}/'
     latent_root = root_path + 'Aligned256/'
     transcript_root = root_path + 'Video/'
 
     videos = []
-    with open(root_path + 'grid_videos.txt', 'r') as f:
+    with open(root_path + f'{dataset.lower()}_videos.txt', 'r') as f:
         line = f.readline()
         while line:
             videos.append(line.replace('\n', ''))
@@ -199,10 +204,14 @@ if __name__ == '__main__':
         transcript = read_transcript(transcriptfile)
 
         # Create video
-        vid = model(test_latent=latentfile, test_sentence_path=sentence)
+        max_sec = 30 if dataset == 'AudioDataset' else -1
+        vid = model(test_latent=latentfile, test_sentence_path=sentence,
+                    audio_multiplier=args.audio_multiplier,
+                    audio_truncation=args.audio_truncation,
+                    max_sec=max_sec)
         vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
-        vid = prepare_video(vid)
+        vid = prepare_video(vid, verbose=args.verbose)
 
         prediction = lipnet_predict(vid, lipnet_model)
         if prediction is None:

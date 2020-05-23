@@ -8,7 +8,7 @@ from datetime import datetime
 from glob import glob
 from lpips import PerceptualLoss
 from my_models import style_gan_2
-from my_models.models import resnetEncoder
+from my_models.models import resnetEncoder, resnet50Encoder
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -18,6 +18,8 @@ from torchvision.utils import save_image
 
 
 HOME = os.path.expanduser('~')
+RAIDROOT = os.environ['RAIDROOT']
+DATAROOT = os.environ['DATAROOT']
 
 
 class solverEncoder:
@@ -33,19 +35,20 @@ class solverEncoder:
         self.lr_rampup_length = 0.1
 
         # Load generator
-        self.g = style_gan_2.PretrainedGenerator1024().eval().to(device)
+        # self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
+        self.g = style_gan_2.PretrainedGenerator256().eval().to(self.device)  # TODO: REMOVE
         for param in self.g.parameters():
             param.requires_grad = False
-        # self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
-        self.latent_avg = self.g.latent_avg.unsqueeze(0).to(self.device)  # TODO: REMOVE
+        self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
+        # self.latent_avg = self.g.latent_avg.unsqueeze(0).to(self.device)  # TODO: REMOVE
 
         # Init global step
         self.global_step = 0
 
         # Define encoder model
         # self.e = resnetEncoder().train().to(self.device)
-        self.e = resnetEncoder(out_dim=512).train().to(self.device)  # TODO: REMOVE
-
+        # self.e = resnetEncoder(out_dim=512).train().to(self.device)  # TODO: REMOVE
+        self.e = resnet50Encoder(out_dim=512 * 18).train().to(self.device)  # TODO: REMOVE
 
         # Print # parameters
         print("# params {} (trainable {})".format(
@@ -55,10 +58,7 @@ class solverEncoder:
 
         # Select optimizer and loss criterion
         self.optim = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
-        self.criterion = PerceptualLoss(model='net-lin', net='vgg').to(self.device)
-
-        # path = self.args.model_path  # TODO DELETE
-        # self.e.load_state_dict(torch.load(path))  # TODO DELETE
+        self.criterion = PerceptualLoss(model='net-lin', net='vgg', gpu_id=args.gpu)
 
         # Load model and optimizer checkpoint
         if self.args.cont or self.args.test or self.args.run:
@@ -305,6 +305,8 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
+    parser.add_argument('--gpu', type=int)
+
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--cont', action='store_true')
@@ -312,7 +314,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--batch_size', type=int, default=4)  # 4
     parser.add_argument('--lr', type=int, default=0.01)  # 0.01
-    parser.add_argument('--n_iters', type=int, default=90000)  # 150000
+    parser.add_argument('--n_iters', type=int, default=50000)  # 150000
     parser.add_argument('--log_train_every', type=int, default=100)  # 1
     parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
     parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
@@ -339,12 +341,13 @@ if __name__ == '__main__':
         print("DEBUG MODE")
 
     # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.gpu}'
     args.device = device
+    torch.cuda.set_device(args.device)
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path="/home/meissen/Datasets/CREMA-D/Aligned256/",
+        root_path=DATAROOT + "AudioDataset/Aligned256/01",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],

@@ -565,7 +565,7 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1ykjOZwwFfyP2V1vdUVsm2v4r1QSM-uxa' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=RMFc&id=1UW22xm4r9AewNoySyPd2fyUab0nqymBR'
-1ykjOZwwFfyP2V1vdUVsm2v4r1QSM-uxa
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=0pWE&id=1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU'
+1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU
 """

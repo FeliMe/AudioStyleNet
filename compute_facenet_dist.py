@@ -1,3 +1,4 @@
+import argparse
 import numpy as np
 import os
 import sys
@@ -28,7 +29,7 @@ def image_from_latent(latentfile, eafa_model):
     return img
 
 
-def compute_metric(prediction, static_image, metric_fn):
+def compute_metric(prediction, static_image, metric_fn, verbose=False):
     metric_arr = []
     for frame_pred in prediction:
         img_pred = Image.fromarray(frame_pred)
@@ -38,7 +39,7 @@ def compute_metric(prediction, static_image, metric_fn):
         # static_image.show()
         # 1 / 0
 
-        metric = metric_fn(img_pred, static_image)
+        metric = metric_fn(img_pred, static_image, verbose)
         metric_arr.append(metric)
 
     metric_arr = np.array(metric_arr)
@@ -47,32 +48,48 @@ def compute_metric(prediction, static_image, metric_fn):
 
 if __name__ == '__main__':
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset', type=str)
+    parser.add_argument('--model_path', type=str)
+    parser.add_argument('--metric', type=str)
+    parser.add_argument('--gpu', type=int)
+    parser.add_argument('--verbose', action="store_true")
+    parser.add_argument('--model_type', type=str, default='net3')
+    parser.add_argument('--audio_type', type=str, default='deepspeech')
+    parser.add_argument('--audio_multiplier', type=float, default=2.0)
+    parser.add_argument('--audio_truncation', type=float, default=0.8)
+    args = parser.parse_args()
+
+    device = f"cuda:{args.gpu}"
+
     # Init model
     model = Emotion_Aware_Facial_Animation(
-        model_path=sys.argv[1],
-        device='cuda:2',
-        model_type='net3',
-        audio_type='deepspeech',
+        model_path=args.model_path,
+        device=device,
+        model_type=args.model_type,
+        audio_type=args.audio_type,
         T=8,
         n_latent_vec=4,
         normalize_audio=False
     )
 
-    root_path = RAIDROOT + 'Datasets/GRID/'
+    dataset = args.dataset
+
+    root_path = RAIDROOT + f'Datasets/{dataset}/'
     latent_root = root_path + 'Aligned256/'
     target_root = root_path + 'Video/'
 
     metric_name = 'face_net_dist'
-    metric_fn = FaceNetDist(image_size=109)
+    metric_fn = FaceNetDist(device=device, image_size=109)
 
     videos = []
-    with open(root_path + 'grid_videos.txt', 'r') as f:
+    with open(root_path + f'{dataset.lower()}_videos.txt', 'r') as f:
         line = f.readline()
         while line:
             videos.append(line.replace('\n', ''))
             line = f.readline()
 
-    metric_mean = 0.
+    metric_mean = []
     pbar = tqdm(total=len(videos))
     for video in videos:
         latentfile = f"{latent_root}{video}/mean.latent.pt"
@@ -83,14 +100,19 @@ if __name__ == '__main__':
         static_image = transforms.ToPILImage()(static_image)
 
         # Create video
-        vid = model(test_latent=latentfile, test_sentence_path=sentence)
+        max_sec = 30 if dataset == 'AudioDataset' else -1
+        vid = model(test_latent=latentfile, test_sentence_path=sentence,
+                    audio_multiplier=args.audio_multiplier,
+                    audio_truncation=args.audio_truncation,
+                    max_sec=max_sec)
         vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
         # Compute metric
-        metric = compute_metric(vid, static_image, metric_fn)
-        metric_mean += metric.mean()
+        metric = compute_metric(vid, static_image, metric_fn, verbose=args.verbose)
+        metric_mean.append(metric.mean())
         pbar.update()
-        pbar.set_description(f"{metric_name}: {metric.mean():.4f}")
+        pbar.set_description(
+            f"{metric_name}: {metric.mean():.4f} - current mean: {np.array(metric_mean).mean():.4f}")
 
-    print(f"mean {metric_name}: {metric_mean / len(videos):.4f}")
+    print(f"mean {metric_name}: {np.array(metric_mean).mean():.4f}")
     print(f"prediction was {root_path}")

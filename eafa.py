@@ -94,7 +94,14 @@ class Emotion_Aware_Facial_Animation:
         else:
             self.audio_encoder.load_state_dict(checkpoint)
 
-    def forward(self, audio, input_latent, aux_input, test_multiplier=3., test_truncation=.5):
+    def forward(self,
+                audio,
+                input_latent,
+                aux_input,
+                direction=None,
+                audio_multiplier=2.,
+                audio_truncation=.8,
+                direction_multiplier=1.):
         # Normalize audio features
         if self.normalize_audio:
             audio = (audio - audio.mean()) / audio.std()
@@ -105,30 +112,47 @@ class Emotion_Aware_Facial_Animation:
             prediction = input_latent.clone()
 
             # Adapt strength of direction
-            latent_offset *= test_multiplier
+            latent_offset *= audio_multiplier
             prediction[:, 4:8] += latent_offset
 
             # Truncation trick
-            prediction[:, 4:8] = self.g.latent_avg + test_truncation * \
+            prediction[:, 4:8] = self.g.latent_avg + audio_truncation * \
                 (prediction[:, 4:8] - self.g.latent_avg)
+
+            # Add another direction to the prediction
+            if direction is not None:
+                prediction[:, :8] += (direction * direction_multiplier)
 
         elif self.n_latent_vec == 8:
             latent_offset = self.audio_encoder(audio, aux_input)
             prediction = input_latent.clone()
 
             # Adapt strength of direction
-            latent_offset *= test_multiplier
+            latent_offset *= audio_multiplier
             prediction[:, 4:8] += latent_offset
 
             # Truncation trick
-            prediction[:, 4:8] = self.g.latent_avg + test_truncation * \
+            prediction[:, 4:8] = self.g.latent_avg + audio_truncation * \
                 (prediction[:, 4:8] - self.g.latent_avg)
+
+            # Add another direction to the prediction
+            if direction is not None:
+                prediction[:, :8] += (direction * direction_multiplier)
+
         else:
             raise NotImplementedError
 
         return prediction
 
-    def __call__(self, test_latent, test_sentence_path, use_landmark_input=False):
+    def __call__(self,
+                 test_latent,
+                 test_sentence_path,
+                 direction=None,
+                 use_landmark_input=False,
+                 audio_multiplier=2.0,
+                 audio_truncation=0.8,
+                 direction_multiplier=1.0,
+                 max_sec=None):
         # Load test latent
         if type(test_latent) is str:
             test_latent = torch.load(test_latent).unsqueeze(0).to(self.device)
@@ -152,10 +176,29 @@ class Emotion_Aware_Facial_Animation:
         audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32)
                               for p in audio_paths]).to(self.device)
 
+        if max_sec is not None:
+            max_frames = 25 * max_sec
+            audios = audios[:max_frames]
+
         # Pad audio features
         pad = self.T // 2
         audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
         audios = audios.unfold(0, self.T, 1).permute(0, 3, 1, 2)
+
+        # Load direction if provided
+        if direction is not None:
+            # Load test latent
+            if type(direction) is str:
+                ext = direction.split('.')[-1]
+                if ext == 'npy':
+                    direction = torch.tensor(
+                        np.load(direction), dtype=torch.float32).unsqueeze(0).to(self.device)
+                elif ext == 'pt':
+                    direction = torch.load(direction).unsqueeze(0).to(self.device)
+                else:
+                    raise RuntimeError
+            else:
+                direction = direction.unsqueeze(0).to(self.device)
 
         # pbar = tqdm(total=len(audios))
         video = []
@@ -165,7 +208,10 @@ class Emotion_Aware_Facial_Animation:
             audio = audio.unsqueeze(0)
             with torch.no_grad():
                 input_latent = test_latent.clone()
-                latent = self.forward(audio, input_latent, aux_input)
+                latent = self.forward(audio, input_latent, aux_input, direction,
+                                      audio_multiplier=audio_multiplier,
+                                      audio_truncation=audio_truncation,
+                                      direction_multiplier=direction_multiplier)
 
                 # Generate images
                 pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
@@ -181,6 +227,7 @@ class Emotion_Aware_Facial_Animation:
         return torch.stack(video)
 
     def save_video(self, video, audiofile, f):
+        print(f"Saving to {f}")
         with tempdir() as tmp_path:
             # Save frames as video
             utils.write_video(f'{tmp_path}/tmp.avi', video, fps=25)

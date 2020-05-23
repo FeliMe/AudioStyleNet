@@ -89,7 +89,8 @@ class Solver:
         mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(self.device)
         # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(self.device)
         self.image_mask = mouth_mask
-        # self.image_mask = (mouth_mask + eyes_mask).clamp(-1., 1.)
+        self.image_mask = self.image_mask.clamp(0., 1.)
+        # self.image_mask = (mouth_mask + eyes_mask).clamp(0., 1.)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -201,6 +202,21 @@ class Solver:
             pred_img = self.g([pred], input_is_latent=True, noise=self.g.noises)[0]
             pred_img = utils.downsample_256(pred_img)
 
+            # Visualize
+            # from torchvision import transforms
+            # sample_pred = make_grid(pred_img[0].cpu(), normalize=True, range=(-1, 1))
+            # sample_target = make_grid(target_image[0].cpu(), normalize=True, range=(-1, 1))
+            # sample_pred_masked = sample_pred * self.image_mask.cpu()
+            # sample_target_masked = sample_target * self.image_mask.cpu()
+            # print(self.image_mask.min(), self.image_mask.max())
+            # print(sample_pred.shape, self.image_mask.shape, sample_pred_masked.shape)
+            # print(sample_target.shape, self.image_mask.shape, sample_target_masked.shape)
+            # transforms.ToPILImage('RGB')(sample_pred).show()
+            # transforms.ToPILImage('RGB')(sample_target).show()
+            # transforms.ToPILImage('RGB')(sample_pred_masked).show()
+            # transforms.ToPILImage('RGB')(sample_target_masked).show()
+            # 1 / 0
+
             # Image loss
             if self.args.image_loss_type == 'lpips':
                 l1_loss = self.lpips(pred_img * self.image_mask, target_image * self.image_mask).mean()
@@ -210,13 +226,6 @@ class Solver:
                 l1_loss = l1_loss.sum() / self.image_mask.sum()
             else:
                 raise NotImplementedError
-
-            # Visualize
-            # from torchvision import transforms
-            # print(make_grid(pred_img[0].cpu(), normalize=True, range=(-1, 1)).shape, self.image_mask.shape)
-            # transforms.ToPILImage('RGB')(make_grid(pred_img[0].cpu(), normalize=True, range=(-1, 1)) * self.image_mask.cpu()).show()
-            # transforms.ToPILImage('RGB')(make_grid(target_image[0].cpu(), normalize=True, range=(-1, 1)) * self.image_mask.cpu()).show()
-            # 1 / 0
 
             # Add landmarks loss
             if self.args.landmarks_loss_weight:
@@ -604,7 +613,7 @@ if __name__ == '__main__':
 
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)  # 1.
-    parser.add_argument('--photometric_loss_weight', type=float, default=200.)  # 2. or 200.
+    parser.add_argument('--photometric_loss_weight', type=float, default=250.)  # 2. or 200.
     parser.add_argument('--landmarks_loss_weight', type=float, default=0.0)  # .01
 
     # Logging args
@@ -668,16 +677,16 @@ if __name__ == '__main__':
             # solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
 
             # GRID videos
-            grid_paths = []
-            with open(RAIDROOT + 'Datasets/GRID/grid_videos.txt', 'r') as f:
-                line = f.readline()
-                while line:
-                    video = line.replace('\n', '')
-                    video_root = RAIDROOT + f'Datasets/GRID/Aligned256/{video}/'
-                    grid_paths.append(sorted(glob(video_root + '*.png')))
-                    line = f.readline()
-            random.shuffle(grid_paths)
-            solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
+            # grid_paths = []
+            # with open(RAIDROOT + 'Datasets/GRID/grid_videos.txt', 'r') as f:
+            #     line = f.readline()
+            #     while line:
+            #         video = line.replace('\n', '')
+            #         video_root = RAIDROOT + f'Datasets/GRID/Aligned256/{video}/'
+            #         grid_paths.append(sorted(glob(video_root + '*.png')))
+            #         line = f.readline()
+            # random.shuffle(grid_paths)
+            # solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
 
             # CREMA-D videos
             grid_paths = []
