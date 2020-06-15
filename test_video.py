@@ -27,9 +27,7 @@ model = Emotion_Aware_Facial_Animation(
     device=device,
     model_type=args.model_type,
     audio_type=args.audio_type,
-    T=8,
-    n_latent_vec=4,
-    normalize_audio=False
+    T=8
 )
 
 # Create video
@@ -40,5 +38,15 @@ vid = model(test_latent=args.latentfile, test_sentence_path=args.sentence_path,
             direction_multiplier=args.direction_multiplier,
             max_sec=args.max_sec)
 
+# from torchvision import transforms
+# import os
+# save_dir = f'/home/meissen/{args.latentfile.split("/")[-2]}_trunc_{args.audio_truncation}_mult_{args.audio_multiplier}/'
+# os.makedirs(save_dir, exist_ok=True)
+# for i, frame in enumerate(vid[:-1]):
+#     frame = transforms.ToPILImage('RGB')(frame)
+#     frame.save(f'{save_dir}{str(i + 1).zfill(5)}.png')
+
 # Save video
+# import os
+# args.target_path = os.path.join("/home/meissen/", f"{args.latentfile.split('/')[-2]}_{args.direction.split('/')[-1].split('.')[0]}_{args.direction_multiplier}.avi")
 model.save_video(vid, args.audiofile, args.target_path)

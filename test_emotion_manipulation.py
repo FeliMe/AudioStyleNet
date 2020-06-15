@@ -131,7 +131,7 @@ if __name__ == '__main__':
             # print(f"Image {imagefile} - Audio {audiofile})
 
             # Create video
-            max_sec = 30 if dataset == 'AudioDataset' else -1
+            max_sec = 30 if dataset == 'AudioDataset' else None
             max_sec = 1 if args.verbose else max_sec
             vid = model(test_latent=latentfile, test_sentence_path=sentence,
                         direction=directionfile,

@@ -963,6 +963,26 @@ class VideoAligner2:
         '''pts = {} Rotates points(nx2) about center cnt(2) by angle ang(1) in radian'''
         return np.dot(pts - c, np.array([[np.cos(ang), np.sin(ang)], [-np.sin(ang), np.cos(ang)]])) + c
 
+    def align_single_image(self, image, save_path, output_size=256):
+        if type(image) is str:
+            image = cv2.imread(image)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        landmarks = self.get_landmarks(image)
+
+        if landmarks is None:
+            print(f"Error, no face found")
+            raise RuntimeError
+
+        image = self.align_image(
+            image,
+            landmarks,
+            output_size=256,
+            transform_size=1024
+        )
+
+        image.save(save_path)
+
     def align_image(self,
                     frame,
                     landmarks,

@@ -35,19 +35,17 @@ class solverEncoder:
         self.lr_rampup_length = 0.1
 
         # Load generator
-        # self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
-        self.g = style_gan_2.PretrainedGenerator256().eval().to(self.device)  # TODO: REMOVE
+        self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
+        # self.g = style_gan_2.PretrainedGenerator256().eval().to(self.device)  # TODO: REMOVE
         for param in self.g.parameters():
             param.requires_grad = False
         self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
-        # self.latent_avg = self.g.latent_avg.unsqueeze(0).to(self.device)  # TODO: REMOVE
 
         # Init global step
         self.global_step = 0
 
         # Define encoder model
         # self.e = resnetEncoder().train().to(self.device)
-        # self.e = resnetEncoder(out_dim=512).train().to(self.device)  # TODO: REMOVE
         self.e = resnet50Encoder(out_dim=512 * 18).train().to(self.device)  # TODO: REMOVE
 
         # Print # parameters

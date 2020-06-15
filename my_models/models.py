@@ -1,10 +1,12 @@
 import FrEIA.framework as Ff
 import FrEIA.modules as Fm
+import numpy as np
 import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from PIL import Image
 from torchvision import models as torch_models
 
 import my_models.model_utils as model_utils
@@ -254,15 +256,16 @@ class AudioExpressionNet3(nn.Module):
         )
 
         # Load pre-trained convNet
-        self.convNet.load_state_dict(torch.load(
-            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
+        # self.convNet.load_state_dict(torch.load(
+        #     f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
         # Freeze convNet
         # _set_requires_grad_false(self.convNet)
 
         latent_dim = 128
         pca_dim = 512
         self.latent_in = nn.Linear(self.expression_dim, latent_dim)
-        pca = 'saves/pre-trained/audio_dataset_offset_to_mean_4to8_pca512.pt'
+        # pca = 'saves/pre-trained/audio_dataset_offset_to_mean_4to8_pca512.pt'
+        pca = 'saves/pre-trained/audio_dataset_pca512.pt'
         weight = torch.load(pca)[:latent_dim]
         with torch.no_grad():
             self.latent_in.weight = nn.Parameter(weight)  # TODO: Maybe remove again
@@ -927,6 +930,8 @@ class FERClassifier(nn.Module):
         self.emotions = [int(MAPPING[e]) - 1 for e in emotions]
         self.softmaxed = softmaxed
 
+        self.register_buffer('to_gray', torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1))
+
         for param in self.classifier.parameters():
             param.requires_grad = False
 
@@ -946,10 +951,25 @@ class FERClassifier(nn.Module):
     def _filter_emotions(self, out):
         return out[:, self.emotions]
 
+    def prepare_img(self, img):
+        # Reshape
+        b, c, h, w = img.shape
+        if w != 48:
+            img = nn.functional.interpolate(
+                img, 48, mode='bilinear', align_corners=False)
+        # Convert to gray
+        gray = (img * self.to_gray).sum(dim=1, keepdim=True).repeat(1, 3, 1, 1)
+
+        # Visualize
+        # from torchvision import transforms
+        # transforms.ToPILImage('RGB')(img[0].cpu()).show()
+        # transforms.ToPILImage('RGB')(gray[0].cpu()).show()
+        # 1 / 0
+
+        return gray
+
     def forward(self, x):
-        if x.shape[-1] != 48:
-            x = nn.functional.interpolate(
-                x, 48, mode='bilinear', align_corners=False)
+        x = self.prepare_img(x)
 
         out = self.classifier(x)
         if self.softmaxed:

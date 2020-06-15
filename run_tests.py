@@ -33,8 +33,10 @@ model = Emotion_Aware_Facial_Animation(
 
 dataset = args.dataset
 
-root_path = f'/home/meissen/Datasets/{dataset}/'
-# root_path = RAIDROOT + f'Datasets/{dataset}/'
+if os.path.exists(f'/home/meissen/Datasets/{dataset}/'):
+    root_path = f'/home/meissen/Datasets/{dataset}/'
+else:
+    root_path = RAIDROOT + f'Datasets/{dataset}/'
 audio_root = root_path + 'Audio/'
 latent_root = root_path + 'Aligned256/'
 target_path = f'{root_path}results_own_model_{args.model_path.split("/")[-3]}/'
@@ -56,7 +58,8 @@ for video in videos:
     pbar.set_description(video)
 
     # Create video
-    max_sec = 30 if dataset == 'AudioDataset' else -1
+    max_sec = 30 if dataset == 'AudioDataset' else None
+    max_sec = 1 if args.verbose else max_sec
     vid = model(test_latent=latentfile, test_sentence_path=sentence,
                 audio_multiplier=args.audio_multiplier,
                 audio_truncation=args.audio_truncation,

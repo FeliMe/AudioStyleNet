@@ -44,14 +44,10 @@ class Emotion_Aware_Facial_Animation:
                  device,
                  model_type='net3',
                  audio_type='deepspeech',
-                 T=8,
-                 n_latent_vec=4,
-                 normalize_audio=False):
+                 T=8):
 
         self.device = device
         torch.cuda.set_device(device)
-        self.n_latent_vec = n_latent_vec
-        self.normalize_audio = normalize_audio
         self.T = T
         self.audio_type = audio_type
 
@@ -61,27 +57,8 @@ class Emotion_Aware_Facial_Animation:
             param.requires_grad = False
 
         # Define audio encoder
-        if model_type == 'net2':
-            self.audio_encoder = models.AudioExpressionNet2(
-                T, n_latent_vec).to(self.device).eval()
-        elif model_type == 'net3':
-            self.audio_encoder = models.AudioExpressionNet3(
-                T, n_latent_vec).to(self.device).eval()
-        elif model_type == 'net4':
-            self.audio_encoder = models.AudioExpressionNet4(
-                T, n_latent_vec).to(self.device).eval()
-        elif model_type == 'net5':
-            self.audio_encoder = models.AudioExpressionNet5(
-                T, n_latent_vec).to(self.device).eval()
-        else:
-            raise NotImplementedError
-
-        if audio_type == 'lpc':
-            self.audio_encoder = models.AudioExpressionNet4(
-                T, n_latent_vec).to(self.device).eval()
-        elif audio_type == 'mfcc':
-            self.audio_encoder = models.AudioExpressionSyncNet(
-                T, n_latent_vec).to(self.device).eval()
+        self.audio_encoder = models.AudioExpressionNet3(
+            T, 4).to(self.device).eval()
 
         # Load weights
         self.load(model_path)
@@ -102,45 +79,22 @@ class Emotion_Aware_Facial_Animation:
                 audio_multiplier=2.,
                 audio_truncation=.8,
                 direction_multiplier=1.):
-        # Normalize audio features
-        if self.normalize_audio:
-            audio = (audio - audio.mean()) / audio.std()
 
         # Predict offset
-        if self.n_latent_vec == 4:
-            latent_offset = self.audio_encoder(audio, aux_input)
-            prediction = input_latent.clone()
+        latent_offset = self.audio_encoder(audio, aux_input)
+        prediction = input_latent.clone()
 
-            # Adapt strength of direction
-            latent_offset *= audio_multiplier
-            prediction[:, 4:8] += latent_offset
+        # Adapt strength of direction
+        latent_offset *= audio_multiplier
+        prediction[:, 4:8] += latent_offset
 
-            # Truncation trick
-            prediction[:, 4:8] = self.g.latent_avg + audio_truncation * \
-                (prediction[:, 4:8] - self.g.latent_avg)
+        # Truncation trick
+        prediction[:, 4:8] = self.g.latent_avg + audio_truncation * \
+            (prediction[:, 4:8] - self.g.latent_avg)
 
-            # Add another direction to the prediction
-            if direction is not None:
-                prediction[:, :8] += (direction * direction_multiplier)
-
-        elif self.n_latent_vec == 8:
-            latent_offset = self.audio_encoder(audio, aux_input)
-            prediction = input_latent.clone()
-
-            # Adapt strength of direction
-            latent_offset *= audio_multiplier
-            prediction[:, 4:8] += latent_offset
-
-            # Truncation trick
-            prediction[:, 4:8] = self.g.latent_avg + audio_truncation * \
-                (prediction[:, 4:8] - self.g.latent_avg)
-
-            # Add another direction to the prediction
-            if direction is not None:
-                prediction[:, :8] += (direction * direction_multiplier)
-
-        else:
-            raise NotImplementedError
+        # Add another direction to the prediction
+        if direction is not None:
+            prediction[:, :8] += (direction * direction_multiplier)  # TODO: +-
 
         return prediction
 
@@ -159,17 +113,19 @@ class Emotion_Aware_Facial_Animation:
         else:
             test_latent = test_latent.unsqueeze(0).to(self.device)
 
+        if test_latent.shape[1] == 1:
+            test_latent = test_latent.repeat(1, 18, 1)
+
+        # Visualize
+        # img = self.g([test_latent], input_is_latent=True, noise=self.g.noises)[0]
+        # img = utils.downsample_256(img)
+        # img = make_grid(img.cpu(), normalize=True, range=(-1, 1))
+        # from torchvision import transforms
+        # transforms.ToPILImage('RGB')(img).show()
+        # 1 / 0
+
         # Auxiliary input
-        if use_landmark_input:
-            aux_input = torch.cat((torch.load(test_latent.split(
-                '.')[0] + '.landmarks.pt').float().view(-1).to(self.device), test_latent[:, 4:8].view(-1))).unsqueeze(0)
-        else:
-            if self.n_latent_vec == 4:
-                aux_input = test_latent[:, 4:8]
-            elif self.n_latent_vec == 8:
-                aux_input = test_latent[:, :8]
-            else:
-                raise NotImplementedError
+        aux_input = test_latent[:, 4:8]
 
         # Load audio features
         audio_paths = sorted(glob(test_sentence_path + f'*.{self.audio_type}.npy'))
@@ -200,7 +156,6 @@ class Emotion_Aware_Facial_Animation:
             else:
                 direction = direction.unsqueeze(0).to(self.device)
 
-        # pbar = tqdm(total=len(audios))
         video = []
 
         # Generate
@@ -218,7 +173,6 @@ class Emotion_Aware_Facial_Animation:
 
                 # Downsample
                 pred = utils.downsample_256(pred)
-            # pbar.update()
 
             # Normalize
             pred = make_grid(pred.cpu(), normalize=True, range=(-1, 1))
@@ -228,6 +182,10 @@ class Emotion_Aware_Facial_Animation:
 
     def save_video(self, video, audiofile, f):
         print(f"Saving to {f}")
+        if not os.path.isabs(audiofile):
+            audiofile = os.path.join(os.getcwd(), audiofile)
+        if not os.path.isabs(f):
+            f = os.path.join(os.getcwd(), f)
         with tempdir() as tmp_path:
             # Save frames as video
             utils.write_video(f'{tmp_path}/tmp.avi', video, fps=25)
@@ -249,8 +207,6 @@ if __name__ == '__main__':
     parser.add_argument('--model_type', type=str, default='net3')
     parser.add_argument('--audio_type', type=str, default='deepspeech')
     parser.add_argument('--T', type=int, default=8)
-    parser.add_argument('--n_latent_vec', type=int, default=4)
-    parser.add_argument('--normalize_audio', type=bool, default=False)
     model_args = parser.parse_args()
 
     # Sentence args
@@ -264,9 +220,7 @@ if __name__ == '__main__':
         model_path=model_args.model_path,
         model_type=model_args.model_type,
         audio_type=model_args.audio_type,
-        T=model_args.T,
-        n_latent_vec=model_args.n_latent_vec,
-        normalize_audio=model_args.normalize_audio
+        T=model_args.T
     )
 
     model.predict(sentence_args.test_latent, sentence_args.test_sentence, sentence_args.audiofile)

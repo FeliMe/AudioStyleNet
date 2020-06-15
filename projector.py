@@ -62,7 +62,6 @@ class Projector:
         self.latent_std = (
             (latent_out - self.latent_mean).pow(2).sum() / self.n_mean_latent) ** 0.5
         self._info('std = {}'.format(self.latent_std))
-        # self.latent_mean = (torch.randn(512, device=self.device) * 0.1539) + 0.097
 
         if initial_latent is None:
             self.latent_in = self.latent_mean.detach().clone().unsqueeze(0)
@@ -72,7 +71,6 @@ class Projector:
         self.latent_in.requires_grad = True
 
         # Find noise inputs.
-        self.noises = [noise.to(self.device) for noise in g.noises]
 
         # Init optimizer
         # self.opt = torch.optim.Adam(
@@ -150,7 +148,7 @@ class Projector:
 
         # Train
         self.img_gen = self.g_ema(
-            [self.latent_expr.unsqueeze(0)], input_is_latent=True, noise=self.noises)[0]
+            [self.latent_expr.unsqueeze(0)], input_is_latent=True, noise=self.g_ema.noises)[0]
 
         # Downsample to 256 x 256
         self.img_gen = utils.downsample_256(self.img_gen)
@@ -176,7 +174,7 @@ class Projector:
 
     def get_images(self):
         imgs, _ = self.g_ema(
-            [self.latent_in.unsqueeze(0)], input_is_latent=True, noise=self.noises)
+            [self.latent_in.unsqueeze(0)], input_is_latent=True, noise=self.g_ema.noises)
         return imgs
 
     def get_latents(self):
@@ -188,7 +186,7 @@ if __name__ == "__main__":
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--input', type=str, required=True)
-    parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--output_dir', type=str, required=True)
     parser.add_argument('--gpu', type=int, required=True)
     args = parser.parse_args()
 
@@ -197,7 +195,6 @@ if __name__ == "__main__":
 
     # Load model
     g = style_gan_2.PretrainedGenerator1024().to(device).train()
-    # g = style_gan_2.PretrainedGenerator256().to(device).train()
     for param in g.parameters():
         param.requires_grad = False
 
@@ -208,11 +205,13 @@ if __name__ == "__main__":
     if os.path.isdir(path):
         image_files = glob.glob(path + '*.png')
         image_files += glob.glob(path + '*.jpg')
+        bool_save_image = False
     else:
         image_files = [path]
+        bool_save_image = True
 
     # Specify save_dir
-    save_dir = args.output_dir if args.output_dir is not None else 'saves/projected_images/'
+    save_dir = args.output_dir
     if save_dir[-1] != '/':
         save_dir = save_dir + '/'
 
@@ -239,7 +238,8 @@ if __name__ == "__main__":
         # Save results
         save_str = save_dir + file.split('/')[-1].split('.')[0]
         os.makedirs(save_dir, exist_ok=True)
-        print('Saving {}'.format(save_str + '.png'))
-        save_image(generated, save_str + '.png',
-                   normalize=True, range=(-1, 1))
-        torch.save(latents.detach().cpu(), save_str + '.latent.pt')
+        print('Saving {}'.format(save_str + '_p.png'))
+        if bool_save_image:
+            save_image(generated, save_str + '_p.png',
+                       normalize=True, range=(-1, 1))
+        torch.save(latents.detach().cpu(), save_str + '_p.latent.pt')

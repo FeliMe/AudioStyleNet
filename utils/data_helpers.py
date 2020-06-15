@@ -9,7 +9,6 @@ import subprocess
 import sys
 import torch
 
-# from dreiDDFA.model import dreiDDFA
 from glob import glob
 from PIL import Image
 from skimage import io
@@ -510,6 +509,7 @@ def tagesschau_gather_info(root):
 def get_3ddfa_params(root_path):
     device = 'cuda'
 
+    from dreiDDFA.model import dreiDDFA
     model = dreiDDFA(True).to(device)
 
     videos = sorted(glob(root_path + '*/'))
@@ -565,7 +565,7 @@ Download files from google drive
 wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=FILEID' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
 wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=CODE_FROM_ABOVE&id=FILEID'
 
-wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
-wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=0pWE&id=1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU'
-1A94PAAnwk6L7hXdBXLFosB_s0SzEhAFU
+wget --save-cookies cookies.txt --keep-session-cookies --no-check-certificate 'https://docs.google.com/uc?export=download&id=1n1sPXvT34yXFLT47QZA6FIRGrwMeSsZc' -O- | sed -rn 's/.*confirm=([0-9A-Za-z_]+).*/Code: \1\n/p'
+wget --load-cookies cookies.txt 'https://docs.google.com/uc?export=download&confirm=UzHO&id=1n1sPXvT34yXFLT47QZA6FIRGrwMeSsZc'
+1n1sPXvT34yXFLT47QZA6FIRGrwMeSsZc
 """

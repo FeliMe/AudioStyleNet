@@ -18,6 +18,7 @@ import torch.nn as nn
 
 __all__ = ['mobilenet_2', 'mobilenet_1',
            'mobilenet_075', 'mobilenet_05', 'mobilenet_025']
+RAIDROOT = os.environ['RAIDROOT']
 
 
 class DepthWiseBlock(nn.Module):
@@ -168,7 +169,7 @@ def mobilenet_025(num_classes=62, input_channel=3):
 
 
 def pretrained_model():
-    checkpoint_fp = '/mnt/sdb1/meissen/Networks/phase1_wpdc_vdc.pth.tar'
+    checkpoint_fp = RAIDROOT + 'Networks/phase1_wpdc_vdc.pth.tar'
 
     checkpoint = torch.load(
         checkpoint_fp, map_location=lambda storage, loc: storage)['state_dict']

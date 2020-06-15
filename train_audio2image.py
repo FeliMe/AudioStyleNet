@@ -82,15 +82,17 @@ class Solver:
 
         if args.landmarks_loss_weight:
             self.lm_loss_fn = LandmarksLoss(
-                dense=True, img_mean=0.5, img_std=0.5).to(self.device)
+                dense=False, img_mean=0.5, img_std=0.5).to(self.device)
 
         # Mouth mask for image
         # mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_3std.pt').to(self.device)
         mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(self.device)
         # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(self.device)
-        self.image_mask = mouth_mask
-        self.image_mask = self.image_mask.clamp(0., 1.)
+        self.image_mask = mouth_mask.clamp(0., 1.)
         # self.image_mask = (mouth_mask + eyes_mask).clamp(0., 1.)
+
+        # MSE mask
+        self.mse_mask = torch.load('saves/pre-trained/mse_mask_var+1.pt')[4:8].unsqueeze(0).to(self.device)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -189,12 +191,8 @@ class Solver:
         return prediction
 
     def get_loss(self, pred, target_latent, target_image, target_param, validate=False):
-        if self.args.n_latent_vec == 4:
-            latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
-        elif self.args.n_latent_vec == 8:
-            latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
-        else:
-            raise NotImplementedError
+        latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
+        latent_mse *= self.mse_mask
         latent_mse = latent_mse.mean()
 
         if self.args.train_mode == 'image':
@@ -608,7 +606,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_latent_vec', type=int, default=4)  # 4 for middle [4:8] 8 for coarse and middle [:8]
     parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
 
-    parser.add_argument('--test_multiplier', type=float, default=2.)  # During test time, direction is multiplied with
+    parser.add_argument('--test_multiplier', type=float, default=2.0)  # During test time, direction is multiplied with
     parser.add_argument('--test_truncation', type=float, default=.8)  # After multiplication, truncate to mean latent
 
     # Loss weights
@@ -674,19 +672,19 @@ if __name__ == '__main__':
             # solver.test_model(train_paths, n_test=-1, frames=100, mode='train_')
             # solver.test_model(val_paths, n_test=3, frames=100, mode='val_')
             # solver.test_model(test_paths, n_test=3, frames=100, mode='test_')
-            # solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
+            solver.test_model(test_paths, n_test=-1, frames=100, mode='test_')
 
             # GRID videos
-            # grid_paths = []
-            # with open(RAIDROOT + 'Datasets/GRID/grid_videos.txt', 'r') as f:
-            #     line = f.readline()
-            #     while line:
-            #         video = line.replace('\n', '')
-            #         video_root = RAIDROOT + f'Datasets/GRID/Aligned256/{video}/'
-            #         grid_paths.append(sorted(glob(video_root + '*.png')))
-            #         line = f.readline()
-            # random.shuffle(grid_paths)
-            # solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
+            grid_paths = []
+            with open(RAIDROOT + 'Datasets/GRID/grid_videos.txt', 'r') as f:
+                line = f.readline()
+                while line:
+                    video = line.replace('\n', '')
+                    video_root = RAIDROOT + f'Datasets/GRID/Aligned256/{video}/'
+                    grid_paths.append(sorted(glob(video_root + '*.png')))
+                    line = f.readline()
+            random.shuffle(grid_paths)
+            solver.test_model(grid_paths, n_test=-1, frames=-1, mode='')
 
             # CREMA-D videos
             grid_paths = []

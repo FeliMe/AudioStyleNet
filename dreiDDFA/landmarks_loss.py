@@ -71,9 +71,9 @@ class LandmarksLoss(nn.Module):
         target_lm *= self.mask
 
         # Visualize
-        # from dreiDDFA.ddfa_utils import plot_pointclouds
-        # plot_pointclouds([input_lm[0].detach().cpu(), target_lm[0].detach().cpu()])
-        # 1 / 0
+        from dreiDDFA.ddfa_utils import plot_pointclouds
+        plot_pointclouds([input_lm[0].detach().cpu(), target_lm[0].detach().cpu()])
+        1 / 0
 
         # Get actual loss
         # loss = self.loss_fn(input_lm, target_lm, reduction='none')

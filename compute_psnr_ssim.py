@@ -91,15 +91,15 @@ if __name__ == '__main__':
         device=device,
         model_type=args.model_type,
         audio_type=args.audio_type,
-        T=8,
-        n_latent_vec=4,
-        normalize_audio=False
+        T=8
     )
 
     dataset = args.dataset
 
-    # root_path = f'/home/meissen/Datasets/{dataset}/'
-    root_path = RAIDROOT + f'Datasets/{dataset}/'
+    if os.path.exists(f'/home/meissen/Datasets/{dataset}/'):
+        root_path = f'/home/meissen/Datasets/{dataset}/'
+    else:
+        root_path = RAIDROOT + f'Datasets/{dataset}/'
     latent_root = root_path + 'Aligned256/'
     target_root = root_path + 'Video/'
 
@@ -136,7 +136,8 @@ if __name__ == '__main__':
         # print(f"Image {imagefile} - Audio {audiofile} - Target {targetfile}")
 
         # Create video
-        max_sec = 30 if dataset == 'AudioDataset' else -1
+        max_sec = 30 if dataset == 'AudioDataset' else None
+        max_sec = 1 if args.verbose else max_sec
         vid = model(test_latent=latentfile, test_sentence_path=sentence,
                     audio_multiplier=args.audio_multiplier,
                     audio_truncation=args.audio_truncation,

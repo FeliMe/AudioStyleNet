@@ -13,7 +13,6 @@ from utils.lipnet import LipNet
 
 
 RAIDROOT = os.environ['RAIDROOT']
-DEVICE = 'cuda:2'
 
 
 def get_position(size, padding=0.25):
@@ -63,9 +62,9 @@ def transformation_from_points(points1, points2):
                       np.matrix([0., 0., 1.])])
 
 
-def prepare_video(array, verbose=False):
+def prepare_video(array, device, verbose=False):
     fa = face_alignment.FaceAlignment(
-        face_alignment.LandmarksType._2D, flip_input=False, device=DEVICE)
+        face_alignment.LandmarksType._2D, flip_input=False, device=device)
     points = [fa.get_landmarks(I) for I in array]
 
     front256 = get_position(256)
@@ -171,16 +170,17 @@ if __name__ == '__main__':
         device=device,
         model_type=args.model_type,
         audio_type=args.audio_type,
-        T=8,
-        n_latent_vec=4,
-        normalize_audio=False
+        T=8
     )
 
     lipnet_model = get_model(device)
 
     dataset = args.dataset
 
-    root_path = RAIDROOT + f'Datasets/{dataset}/'
+    if os.path.exists(f'/home/meissen/Datasets/{dataset}/'):
+        root_path = f'/home/meissen/Datasets/{dataset}/'
+    else:
+        root_path = RAIDROOT + f'Datasets/{dataset}/'
     latent_root = root_path + 'Aligned256/'
     transcript_root = root_path + 'Video/'
 
@@ -204,14 +204,15 @@ if __name__ == '__main__':
         transcript = read_transcript(transcriptfile)
 
         # Create video
-        max_sec = 30 if dataset == 'AudioDataset' else -1
+        max_sec = 30 if dataset == 'AudioDataset' else None
+        max_sec = 1 if args.verbose else max_sec
         vid = model(test_latent=latentfile, test_sentence_path=sentence,
                     audio_multiplier=args.audio_multiplier,
                     audio_truncation=args.audio_truncation,
                     max_sec=max_sec)
         vid = (np.rollaxis(vid.numpy(), 1, 4) * 255.).astype(np.uint8)
 
-        vid = prepare_video(vid, verbose=args.verbose)
+        vid = prepare_video(vid, device, verbose=args.verbose)
 
         prediction = lipnet_predict(vid, lipnet_model)
         if prediction is None:

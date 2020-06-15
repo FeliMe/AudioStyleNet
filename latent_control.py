@@ -136,10 +136,12 @@ def add_mouth_features(args):
     torch.save(data, args.training_data)
 
 
-def genereate_training_data(num_samples):
+def genereate_training_data(args):
+
+    num_samples = args.num_samples
 
     # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.gpu}'
 
     # Init generator
     g = style_gan_2.PretrainedGenerator1024().eval().to(device)
@@ -160,8 +162,14 @@ def genereate_training_data(num_samples):
             img, _ = g([latent], input_is_latent=True, truncation=0.85,
                        truncation_latent=g.latent_avg.to(device))
             img = downsample_256(img)
-            score_fer = fer(img).cpu()
             score_rav = rav(img).cpu()
+            # Normalize
+            img = ((img * 0.5) + 0.5).clamp(0., 1.)
+            # Visualize
+            if args.debug:
+                transforms.ToPILImage('RGB')(img[0].cpu()).show()
+                1 / 0
+            score_fer = fer(img).cpu()
             z = z.cpu()
             latent = latent.cpu()
             img = img.cpu()
@@ -174,6 +182,15 @@ def genereate_training_data(num_samples):
     latents = torch.cat(latents, dim=0)
     scores_fer = torch.cat(scores_fer, dim=0)
     scores_rav = torch.cat(scores_rav, dim=0)
+
+    # Save
+    data = {
+        'zs': zs,
+        'latents': latents,
+        'scores_fer': scores_fer,
+        'scores_rav': scores_rav
+    }
+    torch.save(data, RAIDROOT + f'Datasets/latent_training_data_{num_samples}.pt')
 
     # Some info
     import matplotlib.pyplot as plt
@@ -193,15 +210,6 @@ def genereate_training_data(num_samples):
         axs[ax_x, ax_y].legend()
     # plt.show()
     plt.savefig(f'saves/control_latent/latent_training_data_distribution_{num_samples}.png')
-
-    data = {
-        'zs': zs,
-        'latents': latents,
-        'scores_fer': scores_fer,
-        'scores_rav': scores_rav
-    }
-
-    torch.save(data, f'saves/control_latent/latent_training_data_{num_samples}.pt')
 
 
 def find_direction(args):
@@ -259,7 +267,7 @@ def find_direction(args):
 def control_latent_video(args):
 
     # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = f'cuda:{args.gpu}'
 
     if args.save_dir[-1] != '/':
         args.save_dir += '/'
@@ -456,6 +464,9 @@ if __name__ == '__main__':
 
     # Parse arguments
     parser = argparse.ArgumentParser()
+    parser.add_argument('--gpu', type=int, required=True)
+    parser.add_argument('--num_samples', type=int, help="When generating data")
+    parser.add_argument('--debug', action='store_true')
     parser.add_argument('--generate_data', action='store_true')
     parser.add_argument('--find_direction', action='store_true')
     parser.add_argument('--control_latent', action='store_true')
@@ -476,7 +487,7 @@ if __name__ == '__main__':
     # 1 / 0
 
     if args.generate_data:
-        genereate_training_data(20000)
+        genereate_training_data(args)
     elif args.find_direction:
         find_direction(args)
     elif args.control_latent:
