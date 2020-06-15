@@ -10,7 +10,6 @@ import os
 
 from audiostylenet import AudioStyleNet
 
-
 parser = argparse.ArgumentParser()
 parser.add_argument('--latentfile', type=str, default='data/images/yt_xOpJdHiIwhQ_2.latent.pt')
 parser.add_argument('--sentence_path', type=str, default='data/audio/camila/')
