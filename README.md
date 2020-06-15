@@ -49,7 +49,7 @@ run
 $ python run_audiostylenet.py 
 ```
 
-## Use your own images
+<!-- ## Use your own images
 First, align your image or video:
 ```
 $ python align_face.py --files <path to image or video> --out_dir data/images/
@@ -58,7 +58,7 @@ $ python align_face.py --files <path to image or video> --out_dir data/images/
 Project the aligned images into the latent space of StyleGAN using
 ```
 $ python projector.py --input <path to image(s)> --output_dir data/images/
-```
+``` -->
 
 ## Use your own audio
 To test the model with your own audio, first convert your audio to waveform and then run the following:
