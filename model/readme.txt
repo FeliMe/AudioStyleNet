@@ -1,0 +1,1 @@
+Please download the trained AudioStyleNet model from Google drive and place it in this folder

@@ -4,7 +4,7 @@ import os
 import torch
 
 from eafa import Emotion_Aware_Facial_Animation
-from my_models.models import EmotionClassifier, FERClassifier
+from my_models.models import FERClassifier
 
 
 RAIDROOT = os.environ['RAIDROOT']
@@ -21,16 +21,10 @@ MAPPING = {
 
 
 class VideoClassifier:
-    def __init__(self, device, model):
+    def __init__(self, device):
         self.device = device
-        if model == 'rav':
-            self.classifier = EmotionClassifier(
-                softmaxed=True).eval().to(self.device)
-        elif model == 'fer':
-            self.classifier = FERClassifier(
-                softmaxed=True).eval().to(self.device)
-        else:
-            raise NotImplementedError
+        self.classifier = FERClassifier(
+            softmaxed=True).eval().to(self.device)
 
     def __call__(self, video):
         video = video.to(self.device)
@@ -41,16 +35,10 @@ class VideoClassifier:
 
 
 class VideoClassifier2:
-    def __init__(self, device, model):
+    def __init__(self, device):
         self.device = device
-        if model == 'rav':
-            self.classifier = EmotionClassifier(
-                softmaxed=True).eval().to(self.device)
-        elif model == 'fer':
-            self.classifier = FERClassifier(
-                softmaxed=True).eval().to(self.device)
-        else:
-            raise NotImplementedError
+        self.classifier = FERClassifier(
+            softmaxed=True).eval().to(self.device)
 
     def __call__(self, video):
         video = video.to(self.device)
@@ -71,7 +59,6 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str)
     parser.add_argument('--gpu', type=int)
     parser.add_argument('--test_nr', type=int, choices=[1, 2])
-    parser.add_argument('--classification_model', type=str, choices=['rav', 'fer'])
     parser.add_argument('--verbose', action="store_true")
     parser.add_argument('--model_type', type=str, default='net3')
     parser.add_argument('--audio_type', type=str, default='deepspeech')
@@ -95,9 +82,9 @@ if __name__ == '__main__':
     )
 
     if args.test_nr == 1:
-        classifier = VideoClassifier(device, args.classification_model)
+        classifier = VideoClassifier(device)
     elif args.test_nr == 2:
-        classifier = VideoClassifier2(device, args.classification_model)
+        classifier = VideoClassifier2(device)
     else:
         raise NotImplementedError
 
@@ -131,7 +118,7 @@ if __name__ == '__main__':
             # print(f"Image {imagefile} - Audio {audiofile})
 
             # Create video
-            max_sec = 30 if dataset == 'AudioDataset' else None
+            max_sec = 30 if dataset == 'AudioVisualDataset' else None
             max_sec = 1 if args.verbose else max_sec
             vid = model(test_latent=latentfile, test_sentence_path=sentence,
                         direction=directionfile,

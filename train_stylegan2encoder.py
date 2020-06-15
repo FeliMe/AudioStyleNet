@@ -8,7 +8,7 @@ from datetime import datetime
 from glob import glob
 from lpips import PerceptualLoss
 from my_models import style_gan_2
-from my_models.models import resnetEncoder, resnet50Encoder
+from my_models.models import resnetEncoder
 from PIL import Image
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
@@ -36,7 +36,6 @@ class solverEncoder:
 
         # Load generator
         self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
-        # self.g = style_gan_2.PretrainedGenerator256().eval().to(self.device)  # TODO: REMOVE
         for param in self.g.parameters():
             param.requires_grad = False
         self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
@@ -45,8 +44,7 @@ class solverEncoder:
         self.global_step = 0
 
         # Define encoder model
-        # self.e = resnetEncoder().train().to(self.device)
-        self.e = resnet50Encoder(out_dim=512 * 18).train().to(self.device)  # TODO: REMOVE
+        self.e = resnetEncoder().train().to(self.device)
 
         # Print # parameters
         print("# params {} (trainable {})".format(
@@ -345,7 +343,7 @@ if __name__ == '__main__':
 
     # Data loading
     ds = datasets.ImageDataset(
-        root_path=DATAROOT + "AudioDataset/Aligned256/01",
+        root_path=DATAROOT + "AudioVisualDataset/Aligned256/",
         normalize=True,
         mean=[0.5, 0.5, 0.5],
         std=[0.5, 0.5, 0.5],
@@ -353,7 +351,6 @@ if __name__ == '__main__':
     )
     train_loader = torch.utils.data.DataLoader(
         ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    # train_loader = datasets.StyleGANDataset(args.batch_size, device=device)
     val_loader = torch.utils.data.DataLoader(
         ds, batch_size=args.batch_size, shuffle=True, num_workers=4, pin_memory=True)
     print(len(ds))

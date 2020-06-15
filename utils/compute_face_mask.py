@@ -1,7 +1,10 @@
 import argparse
 import cv2
 import numpy as np
+import os
 import torch
+
+DATAROOT = os.environ['DATAROOT']
 
 
 def show_landmarks(lm, image=None):
@@ -100,7 +103,7 @@ if __name__ == '__main__':
     # Parse arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str,
-                        default='/mnt/sdb1/meissen/Datasets/Tagesschau/Aligned256/latent_data.pt')
+                        default=DATAROOT + 'AudioVisualDataset/Aligned256/latent_data.pt')
     parser.add_argument('--output_dir', type=str, default='../saves/pre-trained/')
     parser.add_argument('--mouth', action='store_true')
     parser.add_argument('--std_factor_mouth', type=float, default=3.)

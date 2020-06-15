@@ -1,4 +1,4 @@
-name: emotion-aware-facial-animation
+name: audiostylenet
 channels:
   - pytorch
   - anaconda
@@ -10,16 +10,4 @@ dependencies:
   - autopep8
   - pylint
   - flake8
-  - pip:
-    - torch
-    - torchvision
-    - tensorboard
-    - numpy
-    - pandas
-    - matplotlib
-    - scikit-learn
-    - dlib
-    - seaborn
-    - opencv-python
-    - tqdm
-prefix: /Users/felix/miniconda3/envs/emotion-aware-facial-animation
+prefix: ~/miniconda3/envs/audiostylenet

@@ -4,7 +4,6 @@ from pathlib import Path
 
 # Usage:
 # python setup.py install (or python setup.py bdist_wheel)
-# NB: Windows: run from VS2017 x64 Native Tool Command Prompt
 
 rootdir = (Path(__file__).parent / '..' / 'op').resolve()
 

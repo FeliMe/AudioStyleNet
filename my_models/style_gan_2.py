@@ -686,7 +686,10 @@ class PretrainedGenerator1024(Generator):
             lr_mlp=0.01
         )
 
-        w = torch.load(RAIDROOT + 'Networks/stylegan2-ffhq-config-f.pt')
+        repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        weight_path = os.path.join(repo_dir, 'model/stylegan2-ffhq-config-f.pt')
+        w = torch.load(weight_path)
+        # w = torch.load(RAIDROOT + 'Networks/stylegan2-ffhq-config-f.pt')
         self.load_state_dict(w['g_ema'])
         self.register_buffer('latent_avg', w['latent_avg'])
         self.register_buffer('latent_std', w['latent_std'])

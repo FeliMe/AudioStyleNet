@@ -2,7 +2,7 @@ import argparse
 import os
 
 from glob import glob
-from utils.utils import VideoAligner2
+from utils.utils import VideoAligner
 
 
 # Parse arguments
@@ -39,7 +39,7 @@ else:
     print("Unknown file type")
     raise NotImplementedError
 
-aligner = VideoAligner2(device=f'cuda:{args.gpu}')
+aligner = VideoAligner(device=f'cuda:{args.gpu}')
 if not os.path.exists(args.out_dir):
     os.makedirs(args.outdir, exist_ok=True)
 

@@ -39,103 +39,6 @@ def downsample_256(img):
     return img
 
 
-def add_valence_arousal(args):
-
-    # Select device
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-    # Load training data
-    data = torch.load(args.training_data)
-    latents = data['latents'].to(device)
-
-    # Init generator
-    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
-
-    # Load prediction network
-    model = models.VGG_Face_VA(pretrained=True).eval().to(device)
-
-    valence_arousal = []
-    for i, latent in enumerate(tqdm(latents)):
-        with torch.no_grad():
-            img, _ = g([latent], input_is_latent=True, noise=g.noises)
-            img = downsample_256(img)
-
-            score = model(img).cpu()
-            valence_arousal.append(score)
-    valence_arousal = torch.cat(valence_arousal, dim=0)
-    print(valence_arousal.shape)
-
-    # Some info
-    import matplotlib.pyplot as plt
-    fig, axs = plt.subplots(1, 2, figsize=(14, 7))
-    for i, e in enumerate(['valence', 'arousal']):
-        axs[i].hist(valence_arousal[:, i])
-        axs[i].set_title(e)
-
-    plt.savefig(
-        f'saves/control_latent/latent_training_valence_arousal_distribution_20000.png')
-
-    data['valence_arousal'] = valence_arousal
-    torch.save(data, args.training_data)
-
-
-def add_mouth_features(args):
-    from utils.utils import get_mouth_params
-    # Select device
-    device = 'cuda'
-
-    # Get face detector
-    detector = dlib.get_frontal_face_detector()
-    predictor = dlib.shape_predictor(
-        RAIDROOT + 'Networks/shape_predictor_68_face_landmarks.dat')
-
-    # Load training data
-    data = torch.load(args.training_data)
-    latents = data['latents'].to(device)
-
-    # Init generator
-    g = style_gan_2.PretrainedGenerator1024().eval().to(device)
-
-    results = []
-    for i, latent in enumerate(tqdm(latents)):
-        with torch.no_grad():
-            img, _ = g([latent], input_is_latent=True, noise=g.noises)
-            img = downsample_256(img).cpu()
-            img = make_grid(img, normalize=True, range=(-1, 1)).numpy()
-
-        # Turn into a cv2 image
-        img = img.transpose((1, 2, 0))
-        img = np.uint8(img * 255)
-        # Convert from BGR to RGB
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        # Grayscale image
-        gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
-
-        # Detect faces
-        for rect in detector(img, 1):
-            landmarks = [(int(item.x), int(item.y))
-                         for item in predictor(gray, rect).parts()]
-            landmarks = np.array(landmarks)
-
-            params = get_mouth_params(landmarks, img)
-
-            # Visualize
-            # for (x, y) in landmarks:
-            #     cv2.circle(img, (x, y), 1, (0, 0, 255), -1)
-            # cv2.imshow("Output", img)
-            # cv2.waitKey(0)
-            # 1 / 0
-
-            break
-        results.append(torch.tensor(params))
-    results = torch.cat(results, dim=0)
-    print(results.shape)
-
-    # Save
-    data['mouth_features'] = results
-    torch.save(data, args.training_data)
-
-
 def genereate_training_data(args):
 
     num_samples = args.num_samples
@@ -147,14 +50,12 @@ def genereate_training_data(args):
     g = style_gan_2.PretrainedGenerator1024().eval().to(device)
 
     # Init Classifier
-    rav = models.EmotionClassifier().eval().to(device)
     fer = models.FERClassifier().to(device)
 
     # Generate images
     zs = []
     latents = []
     scores_fer = []
-    scores_rav = []
     for i in tqdm(range(num_samples // 10)):
         with torch.no_grad():
             z = torch.randn((10, 512), device=device)
@@ -162,7 +63,6 @@ def genereate_training_data(args):
             img, _ = g([latent], input_is_latent=True, truncation=0.85,
                        truncation_latent=g.latent_avg.to(device))
             img = downsample_256(img)
-            score_rav = rav(img).cpu()
             # Normalize
             img = ((img * 0.5) + 0.5).clamp(0., 1.)
             # Visualize
@@ -176,19 +76,16 @@ def genereate_training_data(args):
         zs.append(z)
         latents.append(latent)
         scores_fer.append(score_fer)
-        scores_rav.append(score_rav)
 
     zs = torch.cat(zs, dim=0)
     latents = torch.cat(latents, dim=0)
     scores_fer = torch.cat(scores_fer, dim=0)
-    scores_rav = torch.cat(scores_rav, dim=0)
 
     # Save
     data = {
         'zs': zs,
         'latents': latents,
-        'scores_fer': scores_fer,
-        'scores_rav': scores_rav
+        'scores_fer': scores_fer
     }
     torch.save(data, RAIDROOT + f'Datasets/latent_training_data_{num_samples}.pt')
 
@@ -199,13 +96,11 @@ def genereate_training_data(args):
     fig, axs = plt.subplots(2, 4, figsize=(14, 7))
     for i, e in enumerate(emotions):
         emo_fer_sorted, _ = torch.sort(scores_fer[:, i])
-        emo_rav_sorted, _ = torch.sort(scores_rav[:, i])
 
         ax_x = i // 4
         ax_y = i % 4
 
         axs[ax_x, ax_y].plot(emo_fer_sorted, label='fer')
-        axs[ax_x, ax_y].plot(emo_rav_sorted, label='rav')
         axs[ax_x, ax_y].set_title(e)
         axs[ax_x, ax_y].legend()
     # plt.show()
@@ -217,7 +112,6 @@ def find_direction(args):
     # Load training data
     data = torch.load(args.training_data)
     latents = data['latents']
-    scores_rav = data['scores_rav']
     scores_fer = data['scores_fer']
 
     MAPPING = {
@@ -234,8 +128,7 @@ def find_direction(args):
     emotion = 'happy'
 
     X = latents.numpy().reshape((-1, 512))
-    y = scores_rav[:, MAPPING[emotion]].numpy()
-    # y = scores_fer[:, MAPPING[emotion]].numpy()
+    y = scores_fer[:, MAPPING[emotion]].numpy()
 
     # Make binary labels
     y = np.round(y)
@@ -261,7 +154,7 @@ def find_direction(args):
 
     # Save direction
     np.save(
-        f'saves/control_latent/directions/{emotion}_rav_lin.npy', direction * 2.0)
+        f'saves/control_latent/directions/{emotion}_fer_lin.npy', direction * 2.0)
 
 
 def control_latent_video(args):
@@ -372,15 +265,14 @@ def demo():
     # Load directions
     directions_path = 'saves/control_latent/directions/'
     directions = np.array([
-        np.load(directions_path + 'neutral_rav_lin.npy'),
-        np.load(directions_path + 'calm_rav_lin.npy'),
-        np.load(directions_path + 'happy_rav_lin.npy'),
-        np.load(directions_path + 'sad_rav_lin.npy'),
-        np.load(directions_path + 'angry_rav_lin.npy'),
-        np.load(directions_path + 'fearful_rav_lin.npy'),
-        np.load(directions_path + 'disgusted_rav_lin.npy'),
-        np.load(directions_path + 'surprised_rav_lin.npy'),
-    ]).reshape(8, -1)
+        np.load(directions_path + 'neutral_fer_lin.npy'),
+        np.load(directions_path + 'happy_fer_lin.npy'),
+        np.load(directions_path + 'sad_fer_lin.npy'),
+        np.load(directions_path + 'angry_fer_lin.npy'),
+        np.load(directions_path + 'fearful_fer_lin.npy'),
+        np.load(directions_path + 'disgusted_fer_lin.npy'),
+        np.load(directions_path + 'surprised_fer_lin.npy'),
+    ]).reshape(7, -1)
 
     # Load input images
     input_latents = torch.stack([
@@ -398,7 +290,6 @@ def demo():
     # To device
     input_latents = input_latents.to(device)
     directions = torch.tensor(directions, device=device)
-    # nrow = input_latents.shape[0] // 2
     nrow = 3
 
     # Init generator
