@@ -45,12 +45,12 @@ class AudioExpressionNet3(nn.Module):
 
         # Load pre-trained convNet
         self.convNet.load_state_dict(torch.load(
-            f'{RAIDROOT}Networks/audio2expression_convNet_justus.pt'))
+            'model/audio2expression_convNet_justus.pt'))
 
         latent_dim = 128
         pca_dim = 512
         self.latent_in = nn.Linear(self.expression_dim, latent_dim)
-        pca = 'saves/pre-trained/audio_dataset_pca512.pt'
+        pca = 'model/audio_dataset_pca512.pt'
         weight = torch.load(pca)[:latent_dim]
         with torch.no_grad():
             self.latent_in.weight = nn.Parameter(weight)
@@ -62,7 +62,7 @@ class AudioExpressionNet3(nn.Module):
         self.fc_out = nn.Linear(pca_dim, self.expression_dim)
 
         # Init fc_out with 512 precomputed pca components
-        pca = 'saves/pre-trained/audio_dataset_offset_to_mean_4to8_pca512.pt'
+        pca = 'model/audio_dataset_offset_to_mean_4to8_pca512.pt'
         weight = torch.load(pca)[:pca_dim].T
         with torch.no_grad():
             self.fc_out.weight = nn.Parameter(weight)

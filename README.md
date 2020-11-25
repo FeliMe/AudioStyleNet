@@ -7,9 +7,9 @@ This repository contains the code for my master thesis on talking head generatio
 
 ## Video
 
-See the demo video for more details and results. (will follow soon)
+See the demo video for more details and results.
 
-# [![AudioStyleNet]()]()
+[![AudioStyleNet](https://img.youtube.com/vi/yt7NSeYeNt0/0.jpg)](https://www.youtube.com/watch?v=yt7NSeYeNt0)
 
 ## Set-up
 

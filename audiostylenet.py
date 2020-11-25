@@ -62,7 +62,7 @@ class AudioStyleNet:
         self.load(model_path)
 
     def load(self, path):
-        print(f"Loading audio_encoder weights from {path}")
+        print(f"Loading audiostylenet weights from {path}")
         checkpoint = torch.load(path, map_location=self.device)
         if type(checkpoint) == dict:
             self.audio_encoder.load_state_dict(checkpoint['model'])
@@ -203,7 +203,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default='saves/audio_encoder/old_split/lpips_latentmse_all_net3_100k/models/model100000.pt')
     parser.add_argument('--audio_type', type=str, default='deepspeech')
-    parser.add_argument('--T', type=int, default=8)
+    parser.add_argument('--gpu', type=int, default=0)
     model_args = parser.parse_args()
 
     # Sentence args
@@ -213,10 +213,12 @@ if __name__ == '__main__':
     parser.add_argument('--audiofile', type=str, required=True)
     sentence_args = parser.parse_args()
 
-    model = Emotion_Aware_Facial_Animation(
+    device = f"cuda:{model_args.gpu}"
+
+    model = AudioStyleNet(
         model_path=model_args.model_path,
         audio_type=model_args.audio_type,
-        T=model_args.T
+        device=device
     )
 
     model.predict(sentence_args.test_latent, sentence_args.test_sentence, sentence_args.audiofile)
