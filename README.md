@@ -1,6 +1,8 @@
 # AudioStyleNet - Controlling StyleGAN through Audio
 This repository contains the code for my master thesis on talking head generation by controlling the latent space of a pretrained StyleGAN model. The work was done at the [Visual Computing and Artificial Intelligence Group](https://niessnerlab.org) at the Technical University of Munich under the supervision of [Matthias Niessner](https://niessnerlab.org/members/matthias_niessner/profile.html) and [Justus Thies](https://niessnerlab.org/members/justus_thies/profile.html).
 
+Link to thesis: [https://drive.google.com/file/d/1-p-aRpTGHM3Zz6LOIMPID34HvZOeeVJT/view?usp=sharing](https://drive.google.com/file/d/1-p-aRpTGHM3Zz6LOIMPID34HvZOeeVJT/view?usp=sharing)
+
 <p align="center"> 
 <img src="git_material/sample_video.gif">
 </p>
