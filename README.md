@@ -57,6 +57,8 @@ run
 $ python run_audiostylenet.py
 ```
 
+A Google Colab Demo notebook can be found here: [https://colab.research.google.com/drive/17o1yFz9F6XmIrB6h99u1NUxbj8eFWFmR?usp=sharing](https://colab.research.google.com/drive/17o1yFz9F6XmIrB6h99u1NUxbj8eFWFmR?usp=sharing)
+
 <!-- ## Use your own images
 First, align your image or video:
 ```
