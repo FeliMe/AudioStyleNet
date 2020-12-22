@@ -22,7 +22,7 @@ MAPPING = {
 
 
 class AudioExpressionNet3(nn.Module):
-    def __init__(self, T, use_nvp=False):
+    def __init__(self, T, test_init=False):
         super(AudioExpressionNet3, self).__init__()
 
         def _set_requires_grad_false(layer):
@@ -44,17 +44,20 @@ class AudioExpressionNet3(nn.Module):
         )
 
         # Load pre-trained convNet
-        if use_nvp:
+        if not test_init:
             self.convNet.load_state_dict(torch.load(
                 'model/audio2expression_convNet_justus.pt'))
 
         latent_dim = 128
         pca_dim = 512
         self.latent_in = nn.Linear(self.expression_dim, latent_dim)
-        pca = 'model/audio_dataset_pca512.pt'
-        weight = torch.load(pca)[:latent_dim]
-        with torch.no_grad():
-            self.latent_in.weight = nn.Parameter(weight)
+
+        # Initialize latent_in with pca components
+        if not test_init:
+            pca = 'model/audio_dataset_pca512.pt'
+            weight = torch.load(pca)[:latent_dim]
+            with torch.no_grad():
+                self.latent_in.weight = nn.Parameter(weight)
 
         self.fc1 = nn.Linear(64, 128)
         self.adain1 = model_utils.LinearAdaIN(latent_dim, 128)
@@ -63,10 +66,11 @@ class AudioExpressionNet3(nn.Module):
         self.fc_out = nn.Linear(pca_dim, self.expression_dim)
 
         # Init fc_out with 512 precomputed pca components
-        pca = 'model/audio_dataset_offset_to_mean_4to8_pca512.pt'
-        weight = torch.load(pca)[:pca_dim].T
-        with torch.no_grad():
-            self.fc_out.weight = nn.Parameter(weight)
+        if not test_init:
+            pca = 'model/audio_dataset_offset_to_mean_4to8_pca512.pt'
+            weight = torch.load(pca)[:pca_dim].T
+            with torch.no_grad():
+                self.fc_out.weight = nn.Parameter(weight)
 
         # attention
         self.attentionNet = nn.Sequential(
