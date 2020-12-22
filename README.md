@@ -1,9 +1,10 @@
 # AudioStyleNet - Controlling StyleGAN through Audio
+
 This repository contains the code for my master thesis on talking head generation by controlling the latent space of a pretrained StyleGAN model. The work was done at the [Visual Computing and Artificial Intelligence Group](https://niessnerlab.org) at the Technical University of Munich under the supervision of [Matthias Niessner](https://niessnerlab.org/members/matthias_niessner/profile.html) and [Justus Thies](https://niessnerlab.org/members/justus_thies/profile.html).
 
 Link to thesis: [https://drive.google.com/file/d/1-p-aRpTGHM3Zz6LOIMPID34HvZOeeVJT/view?usp=sharing](https://drive.google.com/file/d/1-p-aRpTGHM3Zz6LOIMPID34HvZOeeVJT/view?usp=sharing)
 
-<p align="center"> 
+<p align="center">
 <img src="git_material/sample_video.gif">
 </p>
 
@@ -19,17 +20,20 @@ The code uses Python 3.7.5 and it was tested on PyTorch 1.4.0 with cuda 10.1.
 (This project requires a GPU with cuda support.)
 
 Clone the git project:
+
 ```
-$ git clone https://github.com/FeliMe/Emotion-Aware-Facial-Animation.git
+$ git clone https://github.com/FeliMe/AudioStyleNet.git
 ```
 
 Create two virtual environments:
+
 ```
 $ conda create -f environment.yml
 $ conda create -n deepspeech python=3.6
 ```
 
 Install requirements:
+
 ```
 $ conda activate audiostylenet
 $ pip install -r requirements.txt
@@ -38,17 +42,19 @@ $ pip install -r deepspeech/deepspeech_requirements.txt
 ```
 
 Install ffmpeg
+
 ```
 sudo apt install ffmpeg
 ```
 
 ## Demo
 
-Download the pretrained AudioStyleNet model and the StyleGAN model from [Google Drive](https://drive.google.com/drive/folders/1EaxtIn_N_W8G1QYHakAdroxI3xpjhVub?usp=sharing) and place them in the ```model/``` folder.
+Download the pretrained AudioStyleNet model and the StyleGAN model from [Google Drive](https://drive.google.com/drive/folders/1EaxtIn_N_W8G1QYHakAdroxI3xpjhVub?usp=sharing) and place them in the `model/` folder.
 
 run
+
 ```
-$ python run_audiostylenet.py 
+$ python run_audiostylenet.py
 ```
 
 <!-- ## Use your own images
@@ -63,6 +69,7 @@ $ python projector.py --input <path to image(s)> --output_dir data/images/
 ``` -->
 
 ## Use your own audio
+
 To test the model with your own audio, first convert your audio to waveform and then run the following:
 
 ```
@@ -72,7 +79,7 @@ $ python run_voca_feature_extraction.py --audiofiles <path to .wav file> --out_d
 $ conda deactivate
 ```
 
-Then run ```python run_audiostylenet.py``` with adapted arguments.
+Then run `python run_audiostylenet.py` with adapted arguments.
 
 <!-- ## Training
 

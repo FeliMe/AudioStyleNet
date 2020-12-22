@@ -16,7 +16,7 @@ from torch.utils.tensorboard import SummaryWriter
 from typing import Union, Dict, Any
 
 HOME = os.path.expanduser('~')
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 def torch2np_img(img):
@@ -41,6 +41,7 @@ def np2torch_img(img):
 
 class Downsample(object):
     """ Custom transform: Downsamples image in StyleGAN manner """
+
     def __init__(self, size):
         self.size = size
 
@@ -314,6 +315,7 @@ class HparamWriter(SummaryWriter):
     refer to:
     https://pytorch.org/docs/stable/tensorboard.html#torch.utils.tensorboard.writer.SummaryWriter
     """
+
     def __init__(self, logdir):
         super(HparamWriter, self).__init__(logdir)
 

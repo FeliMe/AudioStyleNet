@@ -15,7 +15,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 EMOTIONS = ['neutral', 'calm', 'happy', 'sad',
@@ -87,7 +87,8 @@ def genereate_training_data(args):
         'latents': latents,
         'scores_fer': scores_fer
     }
-    torch.save(data, RAIDROOT + f'Datasets/latent_training_data_{num_samples}.pt')
+    torch.save(data, RAIDROOT +
+               f'Datasets/latent_training_data_{num_samples}.pt')
 
     # Some info
     import matplotlib.pyplot as plt
@@ -104,7 +105,8 @@ def genereate_training_data(args):
         axs[ax_x, ax_y].set_title(e)
         axs[ax_x, ax_y].legend()
     # plt.show()
-    plt.savefig(f'saves/control_latent/latent_training_data_distribution_{num_samples}.png')
+    plt.savefig(
+        f'saves/control_latent/latent_training_data_distribution_{num_samples}.png')
 
 
 def find_direction(args):
@@ -172,7 +174,8 @@ def control_latent_video(args):
     direction = torch.tensor(np.load(args.vec), dtype=torch.float32).to(device)
 
     # Get original latents
-    paths = sorted([str(p) for p in list(Path(args.input_latent).glob('*.pt'))])
+    paths = sorted([str(p)
+                    for p in list(Path(args.input_latent).glob('*.pt'))])
 
     # Init generator
     g = style_gan_2.PretrainedGenerator1024().eval().to(device)
@@ -197,7 +200,8 @@ def control_latent_video(args):
     original_dir = os.getcwd()
     os.chdir(tmp_dir)
     name = latent_name + '_' + vec_type
-    os.system(f'ffmpeg -framerate 30 -i %03d.png -c:v libx264 -r 30 -pix_fmt yuv420p ../{name}.mp4')
+    os.system(
+        f'ffmpeg -framerate 30 -i %03d.png -c:v libx264 -r 30 -pix_fmt yuv420p ../{name}.mp4')
 
     # Remove generated frames and keep only video
     os.chdir(original_dir)

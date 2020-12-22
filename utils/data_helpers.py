@@ -9,7 +9,7 @@ from tqdm import tqdm
 from utils import VideoAligner
 
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 def align_videos(root_path, group):

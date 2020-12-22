@@ -6,7 +6,7 @@ import torch.nn.functional as F
 
 import my_models.model_utils as model_utils
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 MAPPING = {
@@ -128,6 +128,7 @@ class FERModelGitHub(nn.Module):
     """
     Source: https://github.com/WuJie1010/Facial-Expression-Recognition.Pytorch
     """
+
     def __init__(self, pretrained=True):
         super(FERModelGitHub, self).__init__()
         self.features = self._make_layers()
@@ -175,7 +176,8 @@ class FERClassifier(nn.Module):
         self.emotions = [int(MAPPING[e]) - 1 for e in emotions]
         self.softmaxed = softmaxed
 
-        self.register_buffer('to_gray', torch.tensor([0.299, 0.587, 0.114]).view(1, 3, 1, 1))
+        self.register_buffer('to_gray', torch.tensor(
+            [0.299, 0.587, 0.114]).view(1, 3, 1, 1))
 
         for param in self.classifier.parameters():
             param.requires_grad = False

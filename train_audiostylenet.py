@@ -17,8 +17,8 @@ from utils import datasets, utils
 
 
 HOME = os.path.expanduser('~')
-RAIDROOT = os.environ['RAIDROOT']
-DATAROOT = os.environ['DATAROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
+DATAROOT = os.environ.get('DATAROOT')
 
 
 class Solver:

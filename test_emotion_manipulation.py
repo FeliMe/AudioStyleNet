@@ -7,7 +7,7 @@ from eafa import Emotion_Aware_Facial_Animation
 from my_models.models import FERClassifier
 
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 MAPPING = {
     'none': -1,
@@ -129,7 +129,8 @@ if __name__ == '__main__':
             # Visualize
             if args.verbose:
                 from torchvision import transforms
-                transforms.ToPILImage()(vid[0]).save('/home/meissen/workspace/verbose.png')
+                transforms.ToPILImage()(vid[0]).save(
+                    '/home/meissen/workspace/verbose.png')
                 print("Showing result")
                 1 / 0
 

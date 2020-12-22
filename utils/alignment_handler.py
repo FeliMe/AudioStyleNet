@@ -3,7 +3,7 @@ import dlib
 import numpy as np
 import os
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 class AlignmentHandler():
@@ -13,10 +13,12 @@ class AlignmentHandler():
         self.landmark_detector = dlib.shape_predictor(predictor_path)
 
         if detector == 'frontal':
-            self.face_detector = dlib.get_frontal_face_detector()  # Use this one first, other for missing frames
+            # Use this one first, other for missing frames
+            self.face_detector = dlib.get_frontal_face_detector()
         elif detector == 'cnn':
             detector_path = RAIDROOT + 'Networks/mmod_human_face_detector.dat'
-            self.face_detector = dlib.cnn_face_detection_model_v1(detector_path)
+            self.face_detector = dlib.cnn_face_detection_model_v1(
+                detector_path)
         else:
             raise NotImplementedError
 

@@ -8,7 +8,7 @@ from torch.nn import functional as F
 
 from op import FusedLeakyReLU, fused_leaky_relu, upfirdn2d
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 # try:
 #     import upfirdn2d
@@ -624,7 +624,8 @@ class Generator(nn.Module):
         noise=None,
     ):
         if not input_is_latent:
-            styles = [self.style(s).view(-1, 1, self.style_dim) for s in styles]
+            styles = [self.style(s).view(-1, 1, self.style_dim)
+                      for s in styles]
 
         if noise is None:
             noise = [None] * (2 * (self.log_size - 2) + 1)
@@ -687,7 +688,8 @@ class PretrainedGenerator1024(Generator):
         )
 
         repo_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        weight_path = os.path.join(repo_dir, 'model/stylegan2-ffhq-config-f.pt')
+        weight_path = os.path.join(
+            repo_dir, 'model/stylegan2-ffhq-config-f.pt')
         w = torch.load(weight_path)
         # w = torch.load(RAIDROOT + 'Networks/stylegan2-ffhq-config-f.pt')
         self.load_state_dict(w['g_ema'])

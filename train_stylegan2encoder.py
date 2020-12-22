@@ -18,8 +18,8 @@ from torchvision.utils import save_image
 
 
 HOME = os.path.expanduser('~')
-RAIDROOT = os.environ['RAIDROOT']
-DATAROOT = os.environ['DATAROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
+DATAROOT = os.environ.get('DATAROOT')
 
 
 class solverEncoder:
@@ -38,7 +38,8 @@ class solverEncoder:
         self.g = style_gan_2.PretrainedGenerator1024().eval().to(self.device)
         for param in self.g.parameters():
             param.requires_grad = False
-        self.latent_avg = self.g.latent_avg.repeat(18, 1).unsqueeze(0).to(self.device)
+        self.latent_avg = self.g.latent_avg.repeat(
+            18, 1).unsqueeze(0).to(self.device)
 
         # Init global step
         self.global_step = 0
@@ -54,7 +55,8 @@ class solverEncoder:
 
         # Select optimizer and loss criterion
         self.optim = torch.optim.Adam(self.e.parameters(), lr=self.initial_lr)
-        self.criterion = PerceptualLoss(model='net-lin', net='vgg', gpu_id=args.gpu)
+        self.criterion = PerceptualLoss(
+            model='net-lin', net='vgg', gpu_id=args.gpu)
 
         # Load model and optimizer checkpoint
         if self.args.cont or self.args.test or self.args.run:
@@ -165,11 +167,13 @@ class solverEncoder:
 
                 if not self.args.debug:
                     if self.global_step % self.args.log_train_every == 0:
-                        self.writer.add_scalars('loss', {'train': loss}, self.global_step)
+                        self.writer.add_scalars(
+                            'loss', {'train': loss}, self.global_step)
 
                     if self.global_step % self.args.log_val_every == 0:
                         val_loss, val_img, val_img_gen = self.eval(val_loader)
-                        self.writer.add_scalars('loss', {'val': val_loss}, self.global_step)
+                        self.writer.add_scalars(
+                            'loss', {'val': val_loss}, self.global_step)
 
                     if self.global_step % self.args.save_every == 0:
                         self.save()
@@ -221,7 +225,8 @@ class solverEncoder:
         with torch.no_grad():
             # Generate random image
             z = torch.randn(self.args.batch_size, 512, device=self.device)
-            img, _ = self.g([z], truncation=0.9, truncation_latent=self.latent_avg)
+            img, _ = self.g([z], truncation=0.9,
+                            truncation_latent=self.latent_avg)
             img = utils.downsample_256(img)
 
             # Forward
@@ -315,7 +320,8 @@ if __name__ == '__main__':
     parser.add_argument('--log_val_every', type=int, default=1000)   # 1000
     parser.add_argument('--save_img_every', type=int, default=10000)  # 10000
     parser.add_argument('--save_every', type=int, default=10000)  # 10000
-    parser.add_argument('--save_dir', type=str, default='saves/encode_stylegan/')
+    parser.add_argument('--save_dir', type=str,
+                        default='saves/encode_stylegan/')
     parser.add_argument('--model_path', type=str, default=None)
     parser.add_argument('--src_path', type=str, default=None)
     args = parser.parse_args()

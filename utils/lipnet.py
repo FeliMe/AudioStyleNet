@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import math
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 class LipNet(torch.nn.Module):

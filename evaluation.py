@@ -17,7 +17,7 @@ from utils import metrics, lipnet
 from utils.utils import downsample_256
 
 
-RAIDROOT = os.environ['RAIDROOT']
+RAIDROOT = os.environ.get('RAIDROOT')
 
 
 def load_video(videofile):
@@ -61,7 +61,8 @@ def compute_psnr_ssim(model, videos, metric_name, verbose=False):
                     f"Did not find a face in prediction frame {i_frame}, skipping")
                 continue
             if lm_target is None:
-                print(f"Did not find a face in target frame {i_frame}, skipping")
+                print(
+                    f"Did not find a face in target frame {i_frame}, skipping")
                 continue
 
             aligned_pred = aligner.align_face_static(
