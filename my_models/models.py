@@ -22,7 +22,7 @@ MAPPING = {
 
 
 class AudioExpressionNet3(nn.Module):
-    def __init__(self, T):
+    def __init__(self, T, use_nvp=False):
         super(AudioExpressionNet3, self).__init__()
 
         def _set_requires_grad_false(layer):
@@ -44,8 +44,9 @@ class AudioExpressionNet3(nn.Module):
         )
 
         # Load pre-trained convNet
-        self.convNet.load_state_dict(torch.load(
-            'model/audio2expression_convNet_justus.pt'))
+        if use_nvp:
+            self.convNet.load_state_dict(torch.load(
+                'model/audio2expression_convNet_justus.pt'))
 
         latent_dim = 128
         pca_dim = 512
