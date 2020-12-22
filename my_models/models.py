@@ -22,7 +22,7 @@ MAPPING = {
 
 
 class AudioExpressionNet3(nn.Module):
-    def __init__(self, T, test_init=False):
+    def __init__(self, T, test_init=True):
         super(AudioExpressionNet3, self).__init__()
 
         def _set_requires_grad_false(layer):

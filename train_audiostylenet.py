@@ -42,7 +42,8 @@ class Solver:
             param.requires_grad = False
 
         # Define audio encoder
-        self.audio_encoder = models.AudioExpressionNet3(args.T).to(self.device).train()
+        self.audio_encoder = models.AudioExpressionNet3(
+            args.T, test_init=False).to(self.device).train()
 
         # Print # parameters
         print("# params {} (trainable {})".format(
@@ -51,8 +52,10 @@ class Solver:
         ))
 
         # Select optimizer and loss criterion
-        self.optim = torch.optim.Adam(self.audio_encoder.parameters(), lr=self.lr)
-        self.lpips = PerceptualLoss(model='net-lin', net='vgg', gpu_id=args.gpu)
+        self.optim = torch.optim.Adam(
+            self.audio_encoder.parameters(), lr=self.lr)
+        self.lpips = PerceptualLoss(
+            model='net-lin', net='vgg', gpu_id=args.gpu)
 
         if self.args.cont or self.args.test:
             path = self.args.model_path
@@ -60,13 +63,15 @@ class Solver:
             self.step_start = self.global_step
 
         # Mouth mask for image
-        mouth_mask = torch.load('saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(self.device)
+        mouth_mask = torch.load(
+            'saves/pre-trained/tagesschau_mouth_mask_5std.pt').to(self.device)
         # eyes_mask = torch.load('saves/pre-trained/tagesschau_eyes_mask_3std.pt').to(self.device)
         self.image_mask = mouth_mask.clamp(0., 1.)
         # self.image_mask = (mouth_mask + eyes_mask).clamp(0., 1.)
 
         # MSE mask
-        self.mse_mask = torch.load('saves/pre-trained/mse_mask_var+1.pt')[4:8].unsqueeze(0).to(self.device)
+        self.mse_mask = torch.load(
+            'saves/pre-trained/mse_mask_var+1.pt')[4:8].unsqueeze(0).to(self.device)
 
         # Set up tensorboard
         if not self.args.debug and not self.args.test:
@@ -135,7 +140,8 @@ class Solver:
         return prediction
 
     def get_loss(self, pred, target_latent, target_image, validate=False):
-        latent_mse = F.mse_loss(pred[:, 4:8], target_latent[:, 4:8], reduction='none')
+        latent_mse = F.mse_loss(
+            pred[:, 4:8], target_latent[:, 4:8], reduction='none')
         latent_mse *= self.mse_mask
         latent_mse = latent_mse.mean()
 
@@ -160,7 +166,8 @@ class Solver:
 
         # Image loss
         if self.args.image_loss_type == 'lpips':
-            l1_loss = self.lpips(pred_img * self.image_mask, target_image * self.image_mask).mean()
+            l1_loss = self.lpips(pred_img * self.image_mask,
+                                 target_image * self.image_mask).mean()
         elif self.args.image_loss_type == 'l1':
             l1_loss = F.l1_loss(pred_img, target_image, reduction='none')
             l1_loss *= self.image_mask
@@ -168,7 +175,8 @@ class Solver:
         else:
             raise NotImplementedError
 
-        loss = self.args.latent_loss_weight * latent_mse + self.args.photometric_loss_weight * l1_loss
+        loss = self.args.latent_loss_weight * latent_mse + \
+            self.args.photometric_loss_weight * l1_loss
 
         # print(f"Loss {loss.item():.4f}, latent_mse {latent_mse.item() * self.args.latent_loss_weight:.4f}, image_l1 {l1_loss.item() * self.args.photometric_loss_weight:.4f}")
         return {'loss': loss, 'latent_mse': latent_mse, 'image_l1': l1_loss}
@@ -208,7 +216,8 @@ class Solver:
                 pred = self.forward(audio, input_latent, aux_input)
 
                 # Compute perceptual loss
-                losses = self.get_loss(pred, target_latent, target_img, validate=False)
+                losses = self.get_loss(
+                    pred, target_latent, target_img, validate=False)
                 loss = losses['loss']
 
                 # Optimize
@@ -247,7 +256,8 @@ class Solver:
                 if not self.args.debug:
                     if self.about_time(self.args.log_train_every):
                         for key in loss_dict_train.keys():
-                            loss_dict_train[key] /= max(1, float(self.args.log_train_every))
+                            loss_dict_train[key] /= max(1,
+                                                        float(self.args.log_train_every))
                             self.train_writer.add_scalar(
                                 key, loss_dict_train[key], self.global_step)
                             loss_dict_train[key] = 0.
@@ -261,8 +271,10 @@ class Solver:
                         self.save()
 
                     if self.about_time(self.args.eval_every):
-                        self.eval(data_loaders['train'], f'train_gen_{self.global_step}.png')
-                        self.eval(data_loaders['val'], f'val_gen_{self.global_step}.png')
+                        self.eval(data_loaders['train'],
+                                  f'train_gen_{self.global_step}.png')
+                        self.eval(data_loaders['val'],
+                                  f'val_gen_{self.global_step}.png')
 
                 # Break if n_iters is reached and still in epoch
                 # if i_iter == n_iters:
@@ -287,7 +299,8 @@ class Solver:
             with torch.no_grad():
                 # Forward
                 pred = self.forward(audio, input_latent, aux_input)
-                loss = self.get_loss(pred, target_latent, target_img, validate=True)
+                loss = self.get_loss(pred, target_latent,
+                                     target_img, validate=True)
                 for key, value in loss.items():
                     loss_dict[key] += value.item()
 
@@ -311,7 +324,8 @@ class Solver:
         with torch.no_grad():
             # Forward
             pred = self.forward(audio, input_latent, aux_input)
-            input_img, _ = self.g([input_latent], input_is_latent=True, noise=self.g.noises)
+            input_img, _ = self.g(
+                [input_latent], input_is_latent=True, noise=self.g.noises)
             input_img = utils.downsample_256(input_img)
 
             pred, _ = self.g(
@@ -345,7 +359,8 @@ class Solver:
                 latent = random.choice(glob(sentence + '*.latent.pt'))
             else:
                 latent = sentence + 'mean.latent.pt'
-            audio_file = '/'.join(split[:-3] + ['AudioMP3'] + [split[-2]]) + '.mp3'
+            audio_file = '/'.join(split[:-3] +
+                                  ['AudioMP3'] + [split[-2]]) + '.mp3'
             self.test_video(latent, sentence, audio_file, frames, mode=mode)
             counter += 1
             if counter == n_test:
@@ -363,15 +378,19 @@ class Solver:
 
         # Load audio features
         audio_type = 'deepspeech' if self.args.audio_type == 'deepspeech-synced' else self.args.audio_type
-        audio_paths = sorted(glob(test_sentence_path + f'*.{audio_type}.npy'))[:frames]
-        audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32) for p in audio_paths]).to(self.device)
+        audio_paths = sorted(
+            glob(test_sentence_path + f'*.{audio_type}.npy'))[:frames]
+        audios = torch.stack([torch.tensor(np.load(p), dtype=torch.float32)
+                              for p in audio_paths]).to(self.device)
         # Pad audio features
         pad = self.args.T // 2
         audios = F.pad(audios, (0, 0, 0, 0, pad, pad - 1), 'constant', 0.)
         audios = audios.unfold(0, self.args.T, 1).permute(0, 3, 1, 2)
 
-        target_latent_paths = sorted(glob(test_sentence_path + '*.latent.pt'))[:frames]
-        target_latents = torch.stack([torch.load(p) for p in target_latent_paths]).to(self.device)
+        target_latent_paths = sorted(
+            glob(test_sentence_path + '*.latent.pt'))[:frames]
+        target_latents = torch.stack(
+            [torch.load(p) for p in target_latent_paths]).to(self.device)
 
         pbar = tqdm(total=len(target_latents))
         video = []
@@ -384,7 +403,8 @@ class Solver:
                 input_latent = test_latent.clone()
                 latent = self.forward(audio, input_latent, aux_input)
                 # Generate images
-                pred = self.g([latent], input_is_latent=True, noise=self.g.noises)[0]
+                pred = self.g([latent], input_is_latent=True,
+                              noise=self.g.noises)[0]
                 # target_img = self.g([target_latent], input_is_latent=True, noise=self.g.noises)[0]
                 # Downsample
                 pred = utils.downsample_256(pred)
@@ -513,17 +533,22 @@ if __name__ == '__main__':
     parser.add_argument('--lr', type=int, default=0.0001)  # 0.0001
     parser.add_argument('--T', type=int, default=8)  # 8
     parser.add_argument('--max_frames_per_vid', type=int, default=-1)  # -1
-    parser.add_argument('--audio_type', type=str, default='deepspeech-synced')  # 'deepspeech', 'deepspeech-synced'
+    # 'deepspeech', 'deepspeech-synced'
+    parser.add_argument('--audio_type', type=str, default='deepspeech-synced')
     parser.add_argument('--random_inp_latent', type=bool, default=False)
     parser.add_argument('--static_random_inp_latent', type=bool, default=False)
-    parser.add_argument('--image_loss_type', type=str, default='lpips')  # 'lpips' or 'l1'
+    parser.add_argument('--image_loss_type', type=str,
+                        default='lpips')  # 'lpips' or 'l1'
 
-    parser.add_argument('--test_multiplier', type=float, default=2.0)  # During test time, direction is multiplied with
-    parser.add_argument('--test_truncation', type=float, default=.8)  # After multiplication, truncate to mean latent
+    # During test time, direction is multiplied with
+    parser.add_argument('--test_multiplier', type=float, default=2.0)
+    # After multiplication, truncate to mean latent
+    parser.add_argument('--test_truncation', type=float, default=.8)
 
     # Loss weights
     parser.add_argument('--latent_loss_weight', type=float, default=1.)  # 1.
-    parser.add_argument('--photometric_loss_weight', type=float, default=250.)  # 250.
+    # 250.
+    parser.add_argument('--photometric_loss_weight', type=float, default=250.)
 
     # Logging args
     parser.add_argument('--n_iters', type=int, default=150000)
