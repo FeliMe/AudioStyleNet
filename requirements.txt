@@ -56,7 +56,7 @@ torch==1.3.0
 torchsummary==1.5.1
 torchsummaryX==1.3.0
 torchvision==0.4.1
-urllib3==1.25.6
+urllib3==1.26.5
 wandb==0.8.14
 watchdog==0.9.0
 Werkzeug==0.16.0
