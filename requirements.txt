@@ -1,7 +1,7 @@
 absl-py==0.8.1
 argh==0.26.2
 cachetools==3.1.1
-certifi==2019.9.11
+certifi==2022.12.7
 chardet==3.0.4
 Click==7.0
 cmake==3.15.3
